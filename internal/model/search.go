@@ -1,5 +1,7 @@
 package model
 
+import "encoding/json"
+
 // SearchParams 混合检索参数
 type SearchParams struct {
 	TopK         int     `json:"top_k"`
@@ -117,8 +119,47 @@ type MCPTOOL struct {
 	Scope       string                 `json:"scope"`
 }
 
+// MCPCapabilities MCP 服务端能力声明
+type MCPCapabilities struct {
+	Tools map[string]interface{} `json:"tools"`
+}
+
+// MCPContentItem MCP 工具结果的内容项
+type MCPContentItem struct {
+	Type string `json:"type"`
+	Text string `json:"text,omitempty"`
+}
+
 // MCPTOOLResult MCP 工具调用结果
 type MCPTOOLResult struct {
-	Content []map[string]interface{} `json:"content"`
-	IsError bool                     `json:"isError,omitempty"`
+	Content []MCPContentItem `json:"content"`
+	IsError bool             `json:"isError,omitempty"`
+}
+
+// MCPJSONRPCRequest JSON-RPC 2.0 请求
+type MCPJSONRPCRequest struct {
+	JSONRPC string                 `json:"jsonrpc"`
+	Method  string                 `json:"method"`
+	Params  map[string]interface{} `json:"params,omitempty"`
+	ID      *json.RawMessage       `json:"id,omitempty"`
+}
+
+// MCPJSONRPCResponse JSON-RPC 2.0 响应
+type MCPJSONRPCResponse struct {
+	JSONRPC string             `json:"jsonrpc"`
+	Result  interface{}        `json:"result,omitempty"`
+	Error   *MCPError          `json:"error,omitempty"`
+	ID      *json.RawMessage   `json:"id,omitempty"`
+}
+
+// MCPError JSON-RPC 错误
+type MCPError struct {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+}
+
+// MCPCallToolRequest tools/call 请求参数
+type MCPCallToolRequest struct {
+	Name      string                 `json:"name"`
+	Arguments map[string]interface{} `json:"arguments,omitempty"`
 }

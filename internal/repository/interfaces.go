@@ -75,7 +75,7 @@ type APIKeyRepository interface {
 // MCPLogRepository MCP 日志仓库接口
 type MCPLogRepository interface {
 	Create(ctx context.Context, log *model.MCPRequestLog) error
-	List(ctx context.Context, query model.MCPLogQuery) (*model.MCPRequestLog, error)
+	List(ctx context.Context, query model.MCPLogQuery) ([]model.MCPRequestLog, error)
 	GetByTraceID(ctx context.Context, traceID string) (*model.MCPRequestLog, error)
 	DeleteExpired(ctx context.Context, before time.Time) (int, error)
 }

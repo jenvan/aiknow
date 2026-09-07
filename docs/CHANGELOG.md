@@ -1,5 +1,32 @@
 # AiKnow 变更日志
 
+## [v0.3.0-rc1] - 2026-09-07
+
+### W3：检索服务层实现（SRC-3-01~3-03）
+
+**对应任务**：SRC-3-01（检索仓库）、SRC-3-02（混合检索服务）、SRC-3-03（关键词检索服务）
+
+**变更**：
+- 新增 `internal/model/search.go`：补充 `SearchChunk`（检索分块结果）、`SearchTimings`（各阶段耗时）模型；`SearchResult` 重构为包含 Query/Results/Timings
+- 新增 `internal/repository/search_repo.go`：`SearchRepositoryImpl` 完整实现，包含：
+  - `VectorSearch`：基于 pgvector ` <-> ` 操作符的余弦距离检索
+  - `BM25Search`：基于 PostgreSQL `ts_rank` + `plainto_tsquery` 的全文检索
+  - `KeywordSearch`：占位实现，待接入 zhparser 分词
+  - `GetArticleByID` / `GetCategories` / `GetTags`：委托现有仓库实现
+- 新增 `internal/service/search.go`：`SearchServiceImpl` 完整混合检索实现（向量 + BM25 + RRF + Rerank），包含：
+  - `Search` 方法：顺序执行 Embed → VectorSearch → BM25Search → RRF 融合 → Rerank 精排，记录各阶段耗时
+  - `SearchWithConcurrent` 辅助方法：并发执行向量与 BM25 检索以提升性能
+  - `rrfFuse` 函数：倒数排名融合（Reciprocal Rank Fusion），k=60
+- 新增 `internal/service/search_keyword.go`：`KeywordSearchServiceImpl` 关键词检索服务实现（占位，待接入 zhparser）
+- 更新 `internal/repository/interfaces.go`：新增 `SearchRepository` 接口（VectorSearch/BM25Search/KeywordSearch/GetArticleByID/GetCategories/GetTags）
+- 更新 `internal/service/interfaces.go`：新增 `KeywordSearchService` 接口
+
+**编译状态**：
+- `go build ./internal/...` ✅ 通过
+- `go vet ./internal/...` ✅ 通过
+
+---
+
 ## [v0.2.0-rc1] - 2026-09-07
 
 ### W2：仓库层实现（REP-2-01~2-03）

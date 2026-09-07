@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"time"
 
 	"github.com/aiknow-org/aiknow/internal/model"
 )
@@ -38,6 +39,21 @@ type AuthService interface {
 	Logout(ctx context.Context, sessionID string) error
 	GetSession(ctx context.Context, sessionID string) (string, error)
 	ValidateKey(ctx context.Context, key string) (*model.APIKey, error)
+}
+
+// MCPService MCP 服务接口
+type MCPService interface {
+	Initialize(ctx context.Context, req model.MCPInitializeRequest) (*model.MCPInitializeResponse, error)
+	ListTools(ctx context.Context, scope string) ([]model.MCPTOOL, error)
+	CallTool(ctx context.Context, name string, arguments map[string]interface{}, scope string) (*model.MCPTOOLResult, error)
+}
+
+// MCPLogService MCP 日志服务接口
+type MCPLogService interface {
+	CreateLog(ctx context.Context, log *model.MCPRequestLog) error
+	GetByTraceID(ctx context.Context, traceID string) (*model.MCPRequestLog, error)
+	ListLogs(ctx context.Context, query model.MCPLogQuery) ([]model.MCPRequestLog, error)
+	DeleteExpired(ctx context.Context, before time.Time) (int, error)
 }
 
 // RateLimiter 限流器接口
