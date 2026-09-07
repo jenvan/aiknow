@@ -1,0 +1,25 @@
+# macOS
+.DS_Store
+
+# 环境变量（含密钥，禁止提交）
+.env
+.env.local
+
+# 编译产物
+/aiknow-server
+/bin/
+/dist/
+
+# 本地配置
+config.yaml
+
+# 依赖与缓存
+/vendor/
+
+# 前端构建产物
+/web/css/output.css
+/node_modules/
+
+# 日志与临时文件
+*.log
+*.tmp
