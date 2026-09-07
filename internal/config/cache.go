@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/jenvan/aiknow/internal/model"
-	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // ConfigCache L2 配置缓存（热重载）
@@ -17,12 +17,12 @@ type ConfigCache struct {
 	mu             sync.RWMutex
 	config         model.L2Config
 	lastReloadTime atomic.Value // time.Time
-	db             *pgx.Pool
+	db             *pgxpool.Pool
 	notifyChan     chan string
 }
 
 // NewConfigCache 创建配置缓存
-func NewConfigCache(db *pgx.Pool) *ConfigCache {
+func NewConfigCache(db *pgxpool.Pool) *ConfigCache {
 	c := &ConfigCache{
 		db:         db,
 		notifyChan: make(chan string, 10),
