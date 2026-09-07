@@ -1,4 +1,27 @@
 # AiKnow 变更日志
+## [v0.4.0-rc5] - 2026-09-07
+
+### W6：提示词管理 Handler 与 Service（HND-6-04）
+
+**对应任务**：HND-6-04
+
+**变更**：
+- 新增 `internal/service/prompt.go`：提示词服务
+  - `GetPrompt`：从默认 map 获取提示词模板，key 不存在时返回错误
+  - `UpdatePrompt`：校验模板必须包含 `{{.Content}}` 且含 "json" 字样（Qwen JSON 模式要求）
+  - `TestPrompt`：返回渲染后的提示词（TODO：后续接入 LLM 调用）
+  - 定义 `PromptResult` 结构体用于测试结果返回
+- 新增 `internal/handler/admin/prompt.go`：提示词管理 Handler
+  - `GetPrompt`：GET `/api/v1/admin/prompts/:key` 获取提示词
+  - `UpdatePrompt`：PUT `/api/v1/admin/prompts/:key` 更新提示词
+  - `TestPrompt`：POST `/api/v1/admin/prompts/test` 测试提示词渲染
+
+**编译状态**：
+- `go build ./...` ✅ 通过
+- `go vet ./...` ✅ 通过
+
+---
+
 ## [v0.4.0-rc3] - 2026-09-07
 
 ### W6：MCP 调试代理 Handler（HND-6-02）
