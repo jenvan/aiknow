@@ -1,4 +1,53 @@
 # AiKnow 变更日志
+## [v0.4.0-rc3] - 2026-09-07
+
+### W6：MCP 调试代理 Handler（HND-6-02）
+
+**对应任务**：HND-6-02
+
+**变更**：
+- 新增 `internal/handler/admin/mcp_debug.go`：MCP 调试代理 Handler
+  - `Invoke` 方法：支持 Authorization Header 和 Session Cookie 双鉴权
+  - 读取请求体并解析 JSON，返回请求内容 + 占位响应
+  - 预留 TODO 用于后续转发到 MCP 服务
+
+**编译状态**：
+- `go build ./...` ✅ 通过
+
+---
+
+## [v0.4.0-rc2] - 2026-09-07
+
+### W6：Admin Handler 实现（HND-6-03/6-05/6-06）
+
+**对应任务**：HND-6-03（setting）、HND-6-05（apikey）、HND-6-06（log）
+
+**变更**：
+- 新增 ： 系统配置 Handler
+  - ：返回 L2 默认配置（从 model.DefaultL2Config）
+  - ：按 key 获取单个配置（TODO）
+  - ：更新配置（含参数校验）
+  -  / ：恢复默认配置（TODO）
+  - ：配置变更历史（TODO）
+- 新增 ： MCP 日志 Handler
+  - ：日志列表，含分页参数边界修正（Page/PageSize）
+  - ：按 trace_id 获取单条日志
+  - ：清理过期日志（TODO，预留 before 参数）
+- 新增 ： API Key 管理 Handler
+  -  /  /  /  / ：API Key CRUD（TODO）
+- 修复 ：
+  - 修正  包引用（重新导入 hashpwd 包）
+  - 修正  多返回值问题（改为 ）
+  - 修正  多返回值问题（改为 ）
+  - 修正  参数类型（改为先开事务再传入）
+
+**编译状态**：
+-  ✅ 通过
+-  ✅ 通过
+
+---
+
+
 
 ## [v0.4.0-rc1] - 2026-09-07
 
