@@ -1,4 +1,26 @@
 # AiKnow 变更日志
+## [v0.4.0-rc7] - 2026-09-07
+
+### COL-2-01：URL 采集器实现（collector.go）
+
+**对应任务**：COL-2-01
+
+**变更**：
+- 新增 `internal/service/collector.go`：URL 采集器实现
+  - `Collector` 结构体：封装 HTTP 客户端、SSRF 检查器、HTML 清洗器
+  - `CollectorConfig`：超时、重定向次数、最小/最大内容长度、User-Agent 配置
+  - `DefaultCollectorConfig()`：默认配置（超时 10s、最多 3 次重定向、最小内容 200 字符、最大内容 100KB）
+  - `NewCollector()`：构造函数，自动应用默认配置
+  - `Fetch()`：采集 URL 内容，包含 SSRF 检查、HTTP 请求、内容限制读取、标题提取、HTML 清洗、最小长度校验
+  - `extractContent()`：提取 `<title>` 标签作为标题，使用 `pkg/htmlclean` 清洗为纯文本
+  - 重定向时自动进行 SSRF 检查
+  - 返回 `CollectorResult`（含 `Title`、`Content`、`Truncated` 字段）
+
+**编译状态**：
+- `go build ./...` ✅ 通过
+
+---
+
 ## [v0.4.0-rc6] - 2026-09-07
 
 ### DOC-7-01：项目文档（README / API / MCP）

@@ -18,11 +18,14 @@ type PostgresDB struct {
 	pool *pgxpool.Pool
 	mu   sync.RWMutex
 	// Repos
-	ArticleRepo  ArticleRepository
-	ChunkRepo    ChunkRepository
-	CategoryRepo CategoryRepository
-	TagRepo      TagRepository
-	SearchRepo   SearchRepository
+	ArticleRepo   ArticleRepository
+	ChunkRepo     ChunkRepository
+	CategoryRepo  CategoryRepository
+	TagRepo       TagRepository
+	SearchRepo    SearchRepository
+	SettingRepo   SettingRepository
+	APIKeyRepo    APIKeyRepository
+	MCPLogRepo    MCPLogRepository
 }
 
 // NewPostgresDB 创建数据库连接
@@ -68,6 +71,9 @@ func (db *PostgresDB) initRepos() {
 	db.CategoryRepo = NewCategoryRepository(db)
 	db.TagRepo = NewTagRepository(db)
 	db.SearchRepo = NewSearchRepository(db)
+	db.SettingRepo = NewSettingRepository(db)
+	db.APIKeyRepo = NewAPIKeyRepository(db)
+	db.MCPLogRepo = NewMCPLogRepository(db)
 }
 
 // GetPool 返回连接池（用于迁移执行器）
@@ -128,3 +134,12 @@ func (db *PostgresDB) GetTagRepo() TagRepository { return db.TagRepo }
 
 // GetSearchRepo 获取检索仓库
 func (db *PostgresDB) GetSearchRepo() SearchRepository { return db.SearchRepo }
+
+// GetSettingRepo 获取设置仓库
+func (db *PostgresDB) GetSettingRepo() SettingRepository { return db.SettingRepo }
+
+// GetAPIKeyRepo 获取 API Key 仓库
+func (db *PostgresDB) GetAPIKeyRepo() APIKeyRepository { return db.APIKeyRepo }
+
+// GetMCPLogRepo 获取 MCP 日志仓库
+func (db *PostgresDB) GetMCPLogRepo() MCPLogRepository { return db.MCPLogRepo }
