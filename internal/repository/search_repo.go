@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/aiknow-org/aiknow/internal/model"
+	"github.com/jenvan/aiknow/internal/model"
 	"github.com/pgvector/pgvector-go"
 )
 

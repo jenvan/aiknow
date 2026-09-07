@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/aiknow-org/aiknow/internal/model"
+	"github.com/jenvan/aiknow/internal/model"
 )
 
 // ArticleRepository 文章仓库接口

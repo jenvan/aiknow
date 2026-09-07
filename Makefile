@@ -5,14 +5,14 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev
 GIT_COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 
 # 编译目标二进制名称
-BINARY_NAME = aiknow-server
+BINARY_NAME = aiknow
 
 .PHONY: build run test test-coverage vet fmt migrate-up clean
 
-# 编译 cmd/aiknow-server/main.go，生成 bin/aiknow-server
+# 编译 cmd/aiknow/main.go，生成 bin/aiknow
 build:
 	go build -ldflags "-X main.version=$(VERSION) -X main.gitCommit=$(GIT_COMMIT)" \
-		-o bin/$(BINARY_NAME) ./cmd/aiknow-server
+		-o bin/$(BINARY_NAME) ./cmd/aiknow
 
 # 编译并运行
 run: build

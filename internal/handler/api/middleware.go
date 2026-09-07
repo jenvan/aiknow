@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"github.com/aiknow-org/aiknow/internal/service"
+	"github.com/jenvan/aiknow/internal/service"
 )
 
 // AuthMiddleware API Key 鉴权中间件

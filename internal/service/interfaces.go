@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/aiknow-org/aiknow/internal/model"
+	"github.com/jenvan/aiknow/internal/model"
 )
 
 // ChunkService Chunk 服务接口

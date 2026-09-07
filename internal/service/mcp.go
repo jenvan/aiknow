@@ -6,7 +6,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/aiknow-org/aiknow/internal/model"
+	"github.com/jenvan/aiknow/internal/model"
 )
 
 // MCPServiceImpl MCP 服务实现

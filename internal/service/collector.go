@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/aiknow-org/aiknow/pkg/htmlclean"
-	"github.com/aiknow-org/aiknow/pkg/ssrf"
+	"github.com/jenvan/aiknow/pkg/htmlclean"
+	"github.com/jenvan/aiknow/pkg/ssrf"
 )
 
 // CollectorResult 采集结果

@@ -8,9 +8,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/aiknow-org/aiknow/internal/model"
-	"github.com/aiknow-org/aiknow/internal/repository"
-	"github.com/aiknow-org/aiknow/pkg/pgqueue"
+	"github.com/jenvan/aiknow/internal/model"
+	"github.com/jenvan/aiknow/internal/repository"
+	"github.com/jenvan/aiknow/pkg/pgqueue"
 )
 
 // WorkerConfig Worker 配置

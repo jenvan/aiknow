@@ -3,7 +3,7 @@ package integration
 import (
 	"testing"
 
-	"github.com/aiknow-org/aiknow/internal/model"
+	"github.com/jenvan/aiknow/internal/model"
 )
 
 // TestArticleCRUD 测试文章 CRUD 操作

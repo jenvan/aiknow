@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/aiknow-org/aiknow/internal/model"
+	"github.com/jenvan/aiknow/internal/model"
 )
 
 // TagRepositoryImpl Tag 仓库实现

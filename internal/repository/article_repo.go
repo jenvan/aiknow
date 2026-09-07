@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/aiknow-org/aiknow/internal/model"
+	"github.com/jenvan/aiknow/internal/model"
 )
 
 // ArticleRepositoryImpl Article 仓库实现

@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/aiknow-org/aiknow/internal/model"
-	"github.com/aiknow-org/aiknow/internal/repository"
+	"github.com/jenvan/aiknow/internal/model"
+	"github.com/jenvan/aiknow/internal/repository"
 )
 
 // MCPLogServiceImpl MCP 日志服务实现

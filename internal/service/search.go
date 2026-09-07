@@ -7,9 +7,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/aiknow-org/aiknow/internal/model"
-	"github.com/aiknow-org/aiknow/internal/repository"
-	"github.com/aiknow-org/aiknow/internal/service/provider"
+	"github.com/jenvan/aiknow/internal/model"
+	"github.com/jenvan/aiknow/internal/repository"
+	"github.com/jenvan/aiknow/internal/service/provider"
 )
 
 // SearchServiceImpl 检索服务实现

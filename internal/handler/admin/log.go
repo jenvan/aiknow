@@ -5,8 +5,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/aiknow-org/aiknow/internal/model"
-	"github.com/aiknow-org/aiknow/internal/service"
+	"github.com/jenvan/aiknow/internal/model"
+	"github.com/jenvan/aiknow/internal/service"
 )
 
 // LogHandler MCP 日志 Handler

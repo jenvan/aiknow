@@ -4,7 +4,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/aiknow-org/aiknow/internal/service"
+	"github.com/jenvan/aiknow/internal/service"
 )
 
 // AuthHandler 后台认证 Handler

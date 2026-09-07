@@ -6,7 +6,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/aiknow-org/aiknow/internal/handler/mcp"
+	"github.com/jenvan/aiknow/internal/handler/mcp"
 )
 
 //go:embed web

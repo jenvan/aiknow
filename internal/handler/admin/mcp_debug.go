@@ -6,7 +6,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/aiknow-org/aiknow/internal/service"
+	"github.com/jenvan/aiknow/internal/service"
 )
 
 // MCPDebugHandler MCP 调试代理 Handler

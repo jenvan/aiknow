@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/aiknow-org/aiknow/internal/model"
+	"github.com/jenvan/aiknow/internal/model"
 )
 
 // authServiceImpl 认证服务

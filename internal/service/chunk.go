@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/aiknow-org/aiknow/internal/model"
-	"github.com/aiknow-org/aiknow/internal/repository"
+	"github.com/jenvan/aiknow/internal/model"
+	"github.com/jenvan/aiknow/internal/repository"
 )
 
 // chunkServiceImpl Chunk 服务实现

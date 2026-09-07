@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/aiknow-org/aiknow/internal/model"
-	"github.com/aiknow-org/aiknow/internal/repository"
+	"github.com/jenvan/aiknow/internal/model"
+	"github.com/jenvan/aiknow/internal/repository"
 )
 
 // KeywordSearchServiceImpl 关键词检索服务实现

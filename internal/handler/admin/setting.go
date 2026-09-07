@@ -5,8 +5,8 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"github.com/aiknow-org/aiknow/internal/config"
-	"github.com/aiknow-org/aiknow/internal/model"
+	"github.com/jenvan/aiknow/internal/config"
+	"github.com/jenvan/aiknow/internal/model"
 )
 
 // SettingHandler 系统配置 Handler

@@ -13,16 +13,16 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/aiknow-org/aiknow/cmd/aiknow-server/hashpwd"
-	"github.com/aiknow-org/aiknow/internal/config"
-	"github.com/aiknow-org/aiknow/internal/handler/admin"
-	"github.com/aiknow-org/aiknow/internal/handler/api"
-	"github.com/aiknow-org/aiknow/internal/handler/mcp"
-	"github.com/aiknow-org/aiknow/internal/handler/web"
-	"github.com/aiknow-org/aiknow/internal/repository"
-	"github.com/aiknow-org/aiknow/internal/service"
-	"github.com/aiknow-org/aiknow/internal/service/provider"
-	"github.com/aiknow-org/aiknow/pkg/pgqueue"
+	"github.com/jenvan/aiknow/cmd/aiknow-server/hashpwd"
+	"github.com/jenvan/aiknow/internal/config"
+	"github.com/jenvan/aiknow/internal/handler/admin"
+	"github.com/jenvan/aiknow/internal/handler/api"
+	"github.com/jenvan/aiknow/internal/handler/mcp"
+	"github.com/jenvan/aiknow/internal/handler/web"
+	"github.com/jenvan/aiknow/internal/repository"
+	"github.com/jenvan/aiknow/internal/service"
+	"github.com/jenvan/aiknow/internal/service/provider"
+	"github.com/jenvan/aiknow/pkg/pgqueue"
 )
 
 // 版本信息，由 ldflags 注入

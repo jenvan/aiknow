@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/aiknow-org/aiknow/internal/model"
-	"github.com/aiknow-org/aiknow/internal/repository"
-	"github.com/aiknow-org/aiknow/internal/service/provider"
+	"github.com/jenvan/aiknow/internal/model"
+	"github.com/jenvan/aiknow/internal/repository"
+	"github.com/jenvan/aiknow/internal/service/provider"
 )
 
 // AIResult AI 处理结果

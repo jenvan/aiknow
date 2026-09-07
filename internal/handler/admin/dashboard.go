@@ -3,8 +3,8 @@ package admin
 import (
 	"net/http"
 
-	"github.com/aiknow-org/aiknow/internal/model"
-	"github.com/aiknow-org/aiknow/internal/repository"
+	"github.com/jenvan/aiknow/internal/model"
+	"github.com/jenvan/aiknow/internal/repository"
 	"github.com/gin-gonic/gin"
 )
 

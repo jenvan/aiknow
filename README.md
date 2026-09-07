@@ -43,7 +43,7 @@ AiKnow 是一个面向企业内部的知识库管理工具，提供 AI 智能处
 
 ```bash
 # 克隆项目
-git clone https://github.com/aiknow-org/aiknow.git
+git clone https://github.com/jenvan/aiknow.git
 cd aiknow
 
 # 安装依赖
