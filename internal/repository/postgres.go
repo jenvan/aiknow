@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/stdlib"
+
 )
 
 // PostgresDB PostgreSQL 数据库封装
@@ -21,9 +22,7 @@ type PostgresDB struct {
 	ChunkRepo    ChunkRepository
 	CategoryRepo CategoryRepository
 	TagRepo      TagRepository
-	SettingRepo  SettingRepository
-	APIKeyRepo   APIKeyRepository
-	MCPLogRepo   MCPLogRepository
+	SearchRepo   SearchRepository
 }
 
 // NewPostgresDB 创建数据库连接
@@ -68,6 +67,7 @@ func (db *PostgresDB) initRepos() {
 	db.ChunkRepo = NewChunkRepository(db)
 	db.CategoryRepo = NewCategoryRepository(db)
 	db.TagRepo = NewTagRepository(db)
+	db.SearchRepo = NewSearchRepository(db)
 }
 
 // GetPool 返回连接池（用于迁移执行器）
@@ -125,3 +125,6 @@ func (db *PostgresDB) GetCategoryRepo() CategoryRepository { return db.CategoryR
 
 // GetTagRepo 获取标签仓库
 func (db *PostgresDB) GetTagRepo() TagRepository { return db.TagRepo }
+
+// GetSearchRepo 获取检索仓库
+func (db *PostgresDB) GetSearchRepo() SearchRepository { return db.SearchRepo }

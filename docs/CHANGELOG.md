@@ -1,5 +1,31 @@
 # AiKnow 变更日志
 
+## [v0.4.0-rc1] - 2026-09-07
+
+### W5：MCP Server Handler（HND-5-01）
+
+**对应任务**：HND-5-01
+
+**变更**：
+- 新增 `internal/handler/mcp/server.go`：MCP Server Handler 实现，支持 JSON-RPC 2.0 协议
+  - `Handle` 方法：统一处理 MCP 请求，包含 API Key 鉴权、请求体读取、JSON-RPC 解析
+  - `handleRequest`：路由分发，支持 `initialize`、`tools/list`、`tools/call` 三个方法
+  - `handleInitialize`：处理 MCP 初始化请求，返回协议版本和服务端信息
+  - `handleToolsList`：按 API Key scope 过滤返回可用工具列表
+  - `handleToolsCall`：调用对应工具，错误时返回 JSON-RPC 标准错误格式
+- 新增 `internal/model/search.go` 中 MCP JSON-RPC 类型：
+  - `MCPJSONRPCRequest` / `MCPJSONRPCResponse`：JSON-RPC 2.0 请求/响应结构
+  - `MCPError`：JSON-RPC 错误结构（code + message）
+  - `MCPCallToolRequest`：tools/call 请求参数结构
+- 更新 `internal/handler/web/handler.go`：`NewWebHandler` 支持可选注入 MCP handler，`RegisterRoutes` 注册 `/mcp` 的 GET/POST 路由
+- 更新 `internal/service/interfaces.go`：已有 `MCPService` 接口定义（Initialize/ListTools/CallTool）
+
+**编译状态**：
+- `go build ./...` ✅ 通过
+- `go vet ./...` ✅ 通过
+
+---
+
 ## [v0.3.0-rc1] - 2026-09-07
 
 ### W3：检索服务层实现（SRC-3-01~3-03）

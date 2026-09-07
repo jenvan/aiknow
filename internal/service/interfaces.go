@@ -7,6 +7,16 @@ import (
 	"github.com/aiknow-org/aiknow/internal/model"
 )
 
+// ChunkService Chunk 服务接口
+type ChunkService interface {
+	GetByArticle(ctx context.Context, articleID string) ([]model.Chunk, error)
+	DeleteByArticle(ctx context.Context, articleID string) error
+	CountByArticle(ctx context.Context, articleID string) (int, error)
+	GetTotalCount(ctx context.Context) (int, error)
+	SplitContent(content string, chunkSize, overlap int) ([]model.Chunk, error)
+	CreateChunks(ctx context.Context, articleID string, content string, chunkSize, overlap int) ([]model.Chunk, error)
+}
+
 // ArticleService 文章服务接口
 type ArticleService interface {
 	Create(ctx context.Context, input model.ArticleInput) (*model.Article, error)
