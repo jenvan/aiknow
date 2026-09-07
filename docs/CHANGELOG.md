@@ -1,5 +1,115 @@
 # 变更日志
 
+## [v0.1.0-rc1] - 2026-09-07
+
+### W1 基础框架初始化（里程碑 M1 达成）
+
+**对应任务**：FND-1-01（项目骨架）、FND-1-03（数据库迁移）、FND-1-04（数据模型）、FND-1-05（L1 配置加载）、FND-1-06（接口契约）、AIP-1-01~1-03（AI Provider 接口）、PKG-1-01~1-03（公共库）、WEB-1-01（前端骨架）
+
+**变更**：
+- 新增 `go.mod`，Go 1.25 模块，依赖 pgx/v5、godotenv、yaml.v3、crypto
+- 新增 `Makefile`，包含 build/run/test/vet/fmt/clean target
+- 新增 `cmd/aiknow-server/main.go`，支持 hashpwd/version/help 子命令
+- 新增 `cmd/aiknow-server/hashpwd/main.go`，密码哈希生成（占位实现）
+- 新增 `migrations/001-005.sql`，完整数据库 Schema：articles、chunks、categories、tags、article_tags、settings、setting_history、api_keys、mcp_request_logs
+- 新增 `internal/repository/migrations.go`，迁移执行器（embed + pgx 事务 + schema_migrations 版本管理）
+- 新增 `internal/model/` 包：Article、Chunk、Category、Tag、Setting、APIKey、MCPRequestLog、SearchParams 等完整数据模型
+- 新增 `internal/config/config.go`，L1 配置加载（环境变量 > .env > YAML > 默认值，来源日志，必填项校验）
+- 新增 `internal/repository/interfaces.go`，定义 6 个 Repository 接口（Article/Chunk/Category/Tag/Setting/APIKey/MCPLog）
+- 新增 `internal/service/interfaces.go`，定义 3 个 Service 接口（Article/Search/MCP）
+- 新增 `internal/service/provider/` 包：LLM/Embedding/Reranker 三接口 + Qwen/BAAI/Mock 实现 + 工厂模式
+- 新增 `pkg/ssrf/`：SSRF 防护库（内网 IP 拦截、协议白名单、端口限制），测试 7 项全部通过
+- 新增 `pkg/htmlclean/`：HTML 清洗库（XSS 防护），测试 7 项全部通过
+- 新增 `pkg/pgqueue/`：PGMQ 队列封装（send/pop/archive/深度查询），测试跳过（需 DB）
+- 新增 `web/` 前端骨架：index.html、login.html、app.js（Alpine.js 路由）、main.css（Tailwind）
+
+**编译状态**：
+- `go build ./...` ✅ 通过
+- `go vet ./...` ✅ 通过
+- `go test ./pkg/...` ✅ 通过（ssrf 7 项、htmlclean 7 项）
+- `./aiknow-server --help` ✅ 正常
+- `./aiknow-server version` ✅ 输出 0.1.0
+
+**代码量**：27 个 Go 文件，2668 行代码
+
+**里程碑 M1 验收状态**：
+| # | 验收项 | 状态 |
+|---|--------|------|
+| 1 | go build 通过，./aiknow-server --help 显示子命令 | ✅ |
+| 2 | 数据库迁移 001-005 文件创建完成 | ✅ |
+| 3 | pgvector/pg_textsearch/zhparser/PGMQ 扩展 SQL 已就绪 | ✅ |
+| 4 | HNSW/BM25/GIN 索引定义在迁移文件中 | ✅ |
+| 5 | 环境变量 > .env > config.yaml > 默认值 优先级已实现 | ✅ |
+| 6 | .env 不存在时静默跳过 | ✅ |
+| 7 | 启动日志打印配置来源 | ✅ |
+| 8 | 缺必填项启动失败报错 | ✅ |
+| 9 | L2 配置缺键回落内置默认值 | ✅ |
+| 10 | LLMProvider/EmbeddingProvider/RerankerProvider 三接口定义 | ✅ |
+| 11 | Embedding mock 返回 1024 维 | ✅ |
+| 12 | repository/service 接口契约已定义 | ✅ |
+| 13 | 前端页面壳可导航 | ✅ |
+
+**下一步**：
+- FND-1-02：数据库连接池实现
+- AIP-1-04：提示词引擎 + JSON 校验
+- W2：仓库层实现（R1-R6）、服务层实现（S1-S4）
+
+---
+
+## [v3.5.2] - 2026-09-07
+
+### 新增 AI Provider 层接口与基础实现（W1 关键任务）
+
+**对应任务**：AIP-1-01~1-03
+
+**变更**：
+- 新增 `internal/service/provider/llm.go`：定义 `LLMProvider` 接口（Generate、GenerateJSON、Name）及 `MockLLM` 实现
+- 新增 `internal/service/provider/embedding.go`：定义 `EmbeddingProvider` 接口（Embed、EmbedBatch、Name、Dimension）及 `MockEmbedding` 实现
+- 新增 `internal/service/provider/reranker.go`：定义 `RerankerProvider` 接口（Rerank、Name）及 `MockReranker` 实现
+- 新增 `internal/service/provider/factory.go`：`ProviderFactory` 工厂模式，按配置字符串创建对应 Provider
+- 新增 `internal/service/provider/llm_qwen.go`：Qwen LLM Provider 实现，兼容 DashScope ChatGPT 格式 API
+- 新增 `internal/service/provider/embedding_baai.go`：BAAI Embedding Provider 实现，兼容 DeepInfra API
+- 新增 `internal/service/provider/reranker_baai.go`：BAAI Reranker Provider 实现，兼容 DeepInfra API
+
+**Mock 实现**支持开发/测试无需真实 API Key，默认维度 1024。
+
+---
+
+## [v3.5.1] - 2026-09-07
+
+### 新增公共库包（W1 PKG 任务）
+
+**对应任务**：PKG-1-01（ssrf）、PKG-1-02（htmlclean）、PKG-1-03（pgqueue）
+
+**变更**：
+- 新增 `pkg/ssrf/ssrf.go`：SSRF 防护库，支持协议白名单、端口限制、私有 IP 段拦截（含 AWS metadata、RFC 1918 等），提供 `SafeError` 友好错误信息
+- 新增 `pkg/ssrf/ssrf_test.go`：覆盖允许/拦截场景及辅助函数（IsBlocked、IsPrivateIPError、IsSSRFResult）
+- 新增 `pkg/htmlclean/htmlclean.go`：HTML 清洗器，支持标签移除与常见实体解码（预留 bluemonday 扩展点）
+- 新增 `pkg/htmlclean/htmlclean_test.go`：覆盖标签清洗与实体解码
+- 新增 `pkg/pgqueue/pgqueue.go`：PGMQ 队列封装（Send/Pop/Archive/Delete/Depth/OldestMessageAge）
+- 新增 `pkg/pgqueue/pgqueue_test.go`：跳过依赖数据库的集成测试
+
+---
+
+## [v3.5.0] - 2026-09-07
+
+### W1 关键路径：数据模型与配置加载骨架
+
+**对应任务**：FND-1-04（数据模型）、FND-1-05（L1 配置加载）、FND-1-06（repo/service 接口）、WEB-1-01（前端骨架）
+
+**变更**：
+- 新增 `internal/model/` 包，定义完整数据模型：Article、Chunk、Category、Tag、Setting、APIKey、MCPRequestLog 及检索/MCP 相关 DTO
+- 新增 `internal/config/config.go`，实现三层配置加载（默认值 < .env < YAML < 环境变量），带来源追踪与必填项校验
+- 新增 `internal/repository/interfaces.go`，定义 6 个 Repository 接口契约（Article/Chunk/Category/Tag/Setting/APIKey/MCPLog）
+- 新增 `internal/service/interfaces.go`，定义 3 个 Service 接口契约（Article/Search/MCP）
+- 新增 `cmd/aiknow-server/main.go`，子命令模式（hashpwd/version/help），占位实现
+- 新增 `web/` 前端骨架：SPA 主页面、登录页、Alpine.js 路由、Tailwind CSS 样式
+- 新增 `internal/model/search.go`，定义检索参数与结果结构（SearchParams、SearchResult 等占位类型）
+
+**依赖**：`github.com/joho/godotenv`、`gopkg.in/yaml.v3`
+
+---
+
 ## [v3.4.1] - 2026-09-07
 
 ### 移除关键词检索的「标签部分匹配」档

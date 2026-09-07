@@ -4,8 +4,8 @@
 
 - **项目名称**：爱脑 (AiKnow)
 - **定位**：企业内部知识库管理 + RAG 检索 + API/MCP 接入
-- **当前版本**：v3.4
-- **状态**：PRD 已评审完成，待开发
+- **当前版本**：v3.5（W1 开发中）
+- **状态**：PRD 已评审完成，W1 基础框架骨架已落地
 
 ## 核心技术栈
 
@@ -366,6 +366,9 @@ aiknow/
 │   ├── model/              # 数据模型
 │   └── config/             # config.go(L1) / defaults.go(L2默认) / cache.go(热重载)
 ├── pkg/                    # 公共库
+│   ├── ssrf/               # SSRF 防护（协议/端口/IP 校验）
+│   ├── htmlclean/          # HTML 清洗（标签移除 + 实体解码）
+│   └── pgqueue/            # PGMQ 封装（send/pop/archive/深度查询）
 ├── web/js/pages/           # 前端按页面拆分
 ├── migrations/             # 数据库迁移
 ├── .env.example            # .env 本身在 .gitignore 中
@@ -373,9 +376,9 @@ aiknow/
 ```
 
 ### 5. 开发路线图（7 周）
-| Phase | 周 | 内容 |
-|-------|-----|------|
-| 1 | W1 | 基础框架 + 配置分层加载（env > .env > yaml） |
+| Phase | 周 | 内容 | 状态 |
+|-------|-----|------|------|
+| 1 | W1 | 基础框架 + 配置分层加载（env > .env > yaml） | ✅ 骨架完成 |
 | 2 | W2 | 采集 + AI 处理（单次调用 + JSON 校验） |
 | 3 | W3 | 检索核心（向量 + BM25 + RRF） |
 | 4 | W4 | 精排 + 后台基础页 |

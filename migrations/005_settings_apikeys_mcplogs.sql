@@ -1,0 +1,1 @@
+/Users/jenvan/work/aiknow/internal/repository/migrations/005_settings_apikeys_mcplogs.sql

@@ -1,0 +1,18 @@
+/* AiKnow 主样式 */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* 自定义样式 */
+.page-transition {
+    transition: opacity 0.2s ease-in-out;
+}
+
+.fade-in {
+    animation: fadeIn 0.3s ease-in;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}

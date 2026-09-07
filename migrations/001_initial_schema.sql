@@ -1,0 +1,1 @@
+/Users/jenvan/work/aiknow/internal/repository/migrations/001_initial_schema.sql

@@ -1,0 +1,75 @@
+# 服务配置示例
+
+# 数据库连接串
+# 格式: postgres://user:password@host:port/database?sslmode=disable
+database:
+  url: "postgres://aiknow:aiknow@localhost:5432/aiknow?sslmode=disable"
+  max_open_conns: 25
+  max_idle_conns: 5
+  conn_max_lifetime: "5m"
+
+# HTTP 服务器配置
+server:
+  host: "0.0.0.0"
+  port: 8080
+  read_timeout: "15s"
+  write_timeout: "15s"
+  idle_timeout: "60s"
+
+# L1 管理员账号配置（优先级：环境变量 > .env > config.yaml）
+# ADMIN_USERNAME 和 ADMIN_PASSWORD_HASH 必须提供至少一组
+admin:
+  username: "admin"
+  # 使用 aiknow-server hashpwd 命令生成
+  password_hash: ""
+  # 开发便利：明文密码（仅内存哈希，不落盘）
+  password: ""
+  # 登录失败锁定时间（默认 15m）
+  lockout_duration: "15m"
+  # 登录失败次数上限（默认 5）
+  max_failed_attempts: 5
+
+# Session 配置（后台管理鉴权）
+session:
+  # 签名密钥，32 字节以上随机串，生产环境必须设置
+  secret: "change-me-to-a-random-32-byte-string-here!!"
+  # Session 有效期
+  lifetime: "24h"
+
+# AI 服务配置（L1 启动配置）
+ai:
+  # 嵌入向量维度，固定 1024（与 bge-large-zh-v1.5 绑定）
+  embedding:
+    dimension: 1024
+  # LLM 提供商：qwen / openai_compatible
+  llm_provider: "qwen"
+  # Embedding 提供商：baai / openai_compatible
+  embedding_provider: "baai"
+  # Reranker 提供商：baai / openai_compatible
+  reranker_provider: "baai"
+
+# 阿里云 Qwen API
+qwen:
+  api_key: ""
+  base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+  model: "qwen-plus"
+
+# BAAI 本地或远程服务
+baai:
+  api_key: ""
+  # Embedding 模型
+  embedding_model: "bge-large-zh-v1.5"
+  # Reranker 模型
+  reranker_model: "bge-reranker-v2-m3"
+  base_url: "http://localhost:8000"
+
+# 采集配置
+collector:
+  # 最大重定向次数
+  max_redirects: 3
+  # 连接超时
+  connect_timeout: "5s"
+  # 读取超时
+  read_timeout: "10s"
+  # 最大页面大小（字节）
+  max_body_size: 10485760
