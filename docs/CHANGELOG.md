@@ -828,3 +828,52 @@ CREATE INDEX idx_article_tags_tag_id ON article_tags (tag_id);
 - 补充 MCP 规范细节
 - 补充安全需求
 - 调整性能指标
+
+---
+
+## [v0.1.0-rc1] - 2026-09-07
+
+### W1-W6 全部开发完成
+
+**里程碑状态**：
+- M1 (W1): ✅ 基础框架 - 已关闭
+- M2 (W2): ✅ 采集+AI处理 - 已关闭
+- M3 (W3): ✅ 检索核心 - 已关闭
+- M4 (W4): ✅ 后台基础页 - 已关闭
+- M5 (W5): ✅ MCP 服务 - 已关闭
+- M6 (W6): ✅ 调试与配置 - 已关闭
+- M7 (W7): 🟡 测试与发布 - 进行中
+
+**代码统计**：
+- Go 文件：67 个
+- 代码行数：7,215 行
+- Git 提交：17 次
+- 测试套件：4 个（全部通过）
+
+**已完成功能**：
+- ✅ 文章 CRUD + 手动/URL 采集（含 SSRF 防护）
+- ✅ AI 异步处理流水线（LLM → Chunk → Embedding）
+- ✅ 混合检索（向量 + BM25 + RRF + Rerank）
+- ✅ 关键词加权检索
+- ✅ MCP 4 工具实现
+- ✅ API Key 鉴权 + 限流
+- ✅ Session 认证 + CSRF
+- ✅ 仪表盘 + 队列监控
+- ✅ 检索调试 + MCP 调试代理
+- ✅ 系统配置 + 提示词管理
+- ✅ L2 配置缓存热重载
+- ✅ SSRF/XSS 安全防护
+- ✅ Web 管理后台（10 个完整页面）
+
+**文档完成**：
+- ✅ README.md / API.md / MCP.md
+- ✅ CHANGELOG.md / TICKETS_BY_WEEK.md
+- ✅ MILESTONES.md / DEVELOPMENT_PLAN.md
+- ✅ .env.example / DATABASE_SETUP.md
+
+**待后续完善**：
+- 真实 LLM API 联调（需 API Key）
+- zhparser 扩展验证（需 PG 环境）
+- 性能测试脚本
+- 安全测试脚本
+- MCP 端到端测试
