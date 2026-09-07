@@ -15,10 +15,10 @@ type L1Config struct {
 	DatabaseURL string `yaml:"database_url" env:"DATABASE_URL"`
 
 	// AI 服务
-	QwenAPIKey    string `yaml:"qwen_api_key" env:"QWEN_API_KEY"`
-	QwenBaseURL   string `yaml:"qwen_base_url" env:"QWEN_BASE_URL"`
-	BAAIAPIKey    string `yaml:"baai_api_key" env:"BAAI_API_KEY"`
-	BAAIBaseURL   string `yaml:"baai_base_url" env:"BAAI_BASE_URL"`
+	QwenAPIKey  string `yaml:"qwen_api_key" env:"QWEN_API_KEY"`
+	QwenBaseURL string `yaml:"qwen_base_url" env:"QWEN_BASE_URL"`
+	BAAIAPIKey  string `yaml:"baai_api_key" env:"BAAI_API_KEY"`
+	BAAIBaseURL string `yaml:"baai_base_url" env:"BAAI_BASE_URL"`
 
 	// 服务器
 	Port int `yaml:"port" env:"PORT"`

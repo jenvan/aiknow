@@ -41,7 +41,7 @@ func (m *MockReranker) Rerank(ctx context.Context, req RerankRequest) (*RerankRe
 		// 按输入顺序返回，得分递减
 		results[i] = RerankItem{
 			Index:    i,
-			Score:    float64(len(req.Documents) - i) / float64(len(req.Documents)),
+			Score:    float64(len(req.Documents)-i) / float64(len(req.Documents)),
 			Document: doc,
 		}
 	}

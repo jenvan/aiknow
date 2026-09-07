@@ -6,23 +6,23 @@ import (
 
 // Setting 系统配置
 type Setting struct {
-	ID          string `json:"id" db:"id"`
-	Key         string `json:"key" db:"key"`
+	ID          string                 `json:"id" db:"id"`
+	Key         string                 `json:"key" db:"key"`
 	Value       map[string]interface{} `json:"value" db:"value"`
-	Description *string `json:"description,omitempty" db:"description"`
-	CreatedAt   time.Time `json:"created_at" db:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at" db:"updated_at"`
+	Description *string                `json:"description,omitempty" db:"description"`
+	CreatedAt   time.Time              `json:"created_at" db:"created_at"`
+	UpdatedAt   time.Time              `json:"updated_at" db:"updated_at"`
 }
 
 // SettingHistory 配置变更记录
 type SettingHistory struct {
-	ID           string `json:"id" db:"id"`
-	SettingID    string `json:"setting_id" db:"setting_id"`
+	ID           string                 `json:"id" db:"id"`
+	SettingID    string                 `json:"setting_id" db:"setting_id"`
 	OldValue     map[string]interface{} `json:"old_value" db:"old_value"`
 	NewValue     map[string]interface{} `json:"new_value" db:"new_value"`
-	ChangedBy    *string `json:"changed_by,omitempty" db:"changed_by"`
-	ChangeReason *string `json:"change_reason,omitempty" db:"change_reason"`
-	CreatedAt    time.Time `json:"created_at" db:"created_at"`
+	ChangedBy    *string                `json:"changed_by,omitempty" db:"changed_by"`
+	ChangeReason *string                `json:"change_reason,omitempty" db:"change_reason"`
+	CreatedAt    time.Time              `json:"created_at" db:"created_at"`
 }
 
 // L2Config L2 业务配置（内存缓存）
@@ -56,11 +56,11 @@ type L2Config struct {
 		RetentionDays int `json:"retention_days"`
 	} `json:"mcp_log"`
 	KeywordSearch struct {
-		TagWeight        float64 `json:"tag_weight"`
-		CategoryWeight   float64 `json:"category_weight"`
-		TitleWeight      float64 `json:"title_weight"`
-		SummaryWeight    float64 `json:"summary_weight"`
-		ContentWeight    float64 `json:"content_weight"`
+		TagWeight      float64 `json:"tag_weight"`
+		CategoryWeight float64 `json:"category_weight"`
+		TitleWeight    float64 `json:"title_weight"`
+		SummaryWeight  float64 `json:"summary_weight"`
+		ContentWeight  float64 `json:"content_weight"`
 	} `json:"keyword_search"`
 	Collector struct {
 		TimeoutMS        int `json:"timeout_ms"`

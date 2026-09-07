@@ -39,10 +39,10 @@ func (q *QwenProvider) Name() string { return "qwen" }
 
 // chatRequest ChatGPT 兼容格式请求
 type chatRequest struct {
-	Model      string      `json:"model"`
-	Messages   []Message   `json:"messages"`
-	Temperature float32    `json:"temperature,omitempty"`
-	MaxTokens  int         `json:"max_tokens,omitempty"`
+	Model          string    `json:"model"`
+	Messages       []Message `json:"messages"`
+	Temperature    float32   `json:"temperature,omitempty"`
+	MaxTokens      int       `json:"max_tokens,omitempty"`
 	ResponseFormat *struct {
 		Type string `json:"type"`
 	} `json:"response_format,omitempty"`

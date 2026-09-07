@@ -5,6 +5,7 @@ CREATE TABLE IF NOT EXISTS articles (
     content TEXT NOT NULL,
     source_type VARCHAR(20) NOT NULL DEFAULT 'manual', -- 'manual' | 'url'
     source_url TEXT,
+    content_hash VARCHAR(64),
     processing_status VARCHAR(20) NOT NULL DEFAULT 'pending', -- pending | processing | completed | failed
     summary TEXT,
     category_id UUID REFERENCES categories(id),
@@ -59,6 +60,7 @@ CREATE INDEX IF NOT EXISTS idx_articles_category_id ON articles(category_id);
 CREATE INDEX IF NOT EXISTS idx_articles_processing_status ON articles(processing_status);
 CREATE INDEX IF NOT EXISTS idx_articles_created_at ON articles(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_articles_deleted_at ON articles(deleted_at) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_articles_content_hash ON articles(content_hash) WHERE deleted_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_article_tags_article_id ON article_tags(article_id);
 CREATE INDEX IF NOT EXISTS idx_article_tags_tag_id ON article_tags(tag_id);
 CREATE INDEX IF NOT EXISTS idx_chunks_article_id ON chunks(article_id);

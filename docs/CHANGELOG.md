@@ -1,4 +1,26 @@
-# 变更日志
+# AiKnow 变更日志
+
+## [v0.2.0-rc1] - 2026-09-07
+
+### W2：仓库层实现（REP-2-01~2-03）
+
+**对应任务**：REP-2-01（文章仓库）、REP-2-02（Chunk 仓库）、REP-2-03（分类/标签仓库）
+
+**变更**：
+- 新增 `internal/repository/postgres.go`：`PostgresDB` 数据库封装（pgxpool + Tx 事务 + DB() 底层 sql.DB 适配 pgqueue）
+- 新增 `internal/repository/article_repo.go`：`ArticleRepositoryImpl` 完整实现（Create/GetByID/List/Update/SoftDelete/Restore/CountByStatus/FindByURL/FindByContentHash/BulkUpdateStatus/BulkSoftDelete/GetArticleStatus/IncrementViewCount）
+- 新增 `internal/repository/chunk_repo.go`：`ChunkRepositoryImpl` 完整实现（Create/BulkCreate/ListByArticle/DeleteByArticle/UpdateEmbedding/CountByArticle/GetTotalCount/GetByID），使用 `pgvector-go` 处理向量类型
+- 新增 `internal/repository/category_repo.go`：`CategoryRepositoryImpl` 完整实现（Create/GetByID/GetByName/ListAll/GetOrCreateByName）
+- 新增 `internal/repository/tag_repo.go`：`TagRepositoryImpl` 完整实现（Create/GetByID/GetByName/ListAll/BulkCreate/GetOrCreateByName/LinkTagsToArticle）
+- 新增 `GenerateUUID()` 辅助函数（基于 `github.com/google/uuid`）
+- 更新 `migrations/001_initial_schema.sql`：articles 表新增 `content_hash VARCHAR(64)` 字段及 `idx_articles_content_hash` 部分索引
+- 更新 `go.mod`：新增 `github.com/google/uuid`、`github.com/pgvector/pgvector-go`、`github.com/jackc/pgx/v5/stdlib` 依赖
+
+**编译状态**：
+- `go build ./internal/repository/...` ✅ 通过
+- `go vet ./internal/repository/...` ✅ 通过
+
+---
 
 ## [v0.1.0-rc1] - 2026-09-07
 

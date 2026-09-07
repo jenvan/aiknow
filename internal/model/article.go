@@ -9,7 +9,7 @@ type Article struct {
 	ID               string     `json:"id" db:"id"`
 	Title            string     `json:"title" db:"title"`
 	Content          string     `json:"content" db:"content"`
-	SourceType       string     `json:"source_type" db:"source_type"`          // manual | url
+	SourceType       string     `json:"source_type" db:"source_type"` // manual | url
 	SourceURL        *string    `json:"source_url,omitempty" db:"source_url"`
 	ProcessingStatus string     `json:"processing_status" db:"processing_status"` // pending | processing | completed | failed
 	Summary          *string    `json:"summary,omitempty" db:"summary"`
@@ -56,9 +56,9 @@ type ArticleListQuery struct {
 
 // ArticleListResult 文章列表结果
 type ArticleListResult struct {
-	Total    int        `json:"total"`
-	Pages    int        `json:"pages"`
-	Articles []Article  `json:"articles"`
+	Total    int       `json:"total"`
+	Pages    int       `json:"pages"`
+	Articles []Article `json:"articles"`
 }
 
 // ArticleStatus 文章状态查询

@@ -20,6 +20,7 @@ type ArticleRepository interface {
 	FindByContentHash(ctx context.Context, hash string) (*model.Article, error)
 	BulkUpdateStatus(ctx context.Context, ids []string, status string) error
 	BulkSoftDelete(ctx context.Context, ids []string, deletedBy *string) error
+	GetArticleStatus(ctx context.Context, id string) (*model.ArticleStatus, error)
 }
 
 // ChunkRepository Chunk 仓库接口
@@ -29,6 +30,8 @@ type ChunkRepository interface {
 	ListByArticle(ctx context.Context, articleID string) ([]model.Chunk, error)
 	DeleteByArticle(ctx context.Context, articleID string) error
 	UpdateEmbedding(ctx context.Context, id string, embedding []float32) error
+	CountByArticle(ctx context.Context, articleID string) (int, error)
+	GetTotalCount(ctx context.Context) (int, error)
 }
 
 // CategoryRepository 分类仓库接口
@@ -37,6 +40,7 @@ type CategoryRepository interface {
 	GetByID(ctx context.Context, id string) (*model.Category, error)
 	GetByName(ctx context.Context, name string) (*model.Category, error)
 	ListAll(ctx context.Context) ([]model.Category, error)
+	GetOrCreateByName(ctx context.Context, name string) (*model.Category, error)
 }
 
 // TagRepository 标签仓库接口
@@ -46,6 +50,7 @@ type TagRepository interface {
 	GetByName(ctx context.Context, name string) (*model.Tag, error)
 	ListAll(ctx context.Context) ([]model.Tag, error)
 	BulkCreate(ctx context.Context, tags []*model.Tag) ([]model.Tag, error)
+	LinkTagsToArticle(ctx context.Context, articleID string, tagNames []string) error
 }
 
 // SettingRepository 配置仓库接口
