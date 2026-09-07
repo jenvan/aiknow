@@ -133,42 +133,6 @@ func (c *ConfigCache) applySetting(cfg *model.L2Config, key string, value map[st
 	}
 }
 
-// StartListener 启动 LISTEN/NOTIFY 监听
-func (c *ConfigCache) StartListener(ctx context.Context) {
-	go func() {
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			default:
-			}
-
-			// 执行 LISTEN
-			_, err := c.db.Exec(ctx, "LISTEN config_change")
-			if err != nil {
-				fmt.Printf("LISTEN error: %v, retrying in 5s...\n", err)
-				time.Sleep(5 * time.Second)
-				continue
-			}
-
-			// 等待通知
-			notifications, err := c.db.Conn(ctx).Notifies(ctx)
-			if err != nil {
-				fmt.Printf("Notifies error: %v\n", err)
-				continue
-			}
-
-			for notif := range notifications {
-				if notif.Payload == "config_change" {
-					fmt.Println("Received config change notification, reloading...")
-					if err := c.Reload(ctx); err != nil {
-						fmt.Printf("Reload error: %v\n", err)
-					}
-				}
-			}
-		}
-	}()
-}
 
 // LastReloadTime 获取最后重载时间
 func (c *ConfigCache) LastReloadTime() time.Time {
