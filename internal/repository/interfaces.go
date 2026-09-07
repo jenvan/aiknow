@@ -79,3 +79,13 @@ type MCPLogRepository interface {
 	GetByTraceID(ctx context.Context, traceID string) (*model.MCPRequestLog, error)
 	DeleteExpired(ctx context.Context, before time.Time) (int, error)
 }
+
+// SearchRepository 检索仓库接口
+type SearchRepository interface {
+	VectorSearch(ctx context.Context, query []float32, topK int) ([]model.SearchChunk, error)
+	BM25Search(ctx context.Context, query string, topK int) ([]model.SearchChunk, error)
+	KeywordSearch(ctx context.Context, keywords []string, params model.KeywordSearchParams) ([]model.KeywordSearchResult, error)
+	GetArticleByID(ctx context.Context, id string) (*model.Article, error)
+	GetCategories(ctx context.Context) ([]model.Category, error)
+	GetTags(ctx context.Context) ([]model.Tag, error)
+}

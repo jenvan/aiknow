@@ -27,9 +27,20 @@ type SearchService interface {
 	DebugSearch(ctx context.Context, query string, params model.SearchParams) (*model.SearchDebugResult, error)
 }
 
-// MCPService MCP 服务接口
-type MCPService interface {
-	Initialize(ctx context.Context, req model.MCPInitializeRequest) (*model.MCPInitializeResponse, error)
-	ListTools(ctx context.Context, scope string) ([]model.MCPTOOL, error)
-	CallTool(ctx context.Context, name string, arguments map[string]interface{}, scope string) (*model.MCPTOOLResult, error)
+// KeywordSearchService 关键词检索服务接口
+type KeywordSearchService interface {
+	SearchKeywords(ctx context.Context, keywords []string, params model.KeywordSearchParams) (*model.KeywordSearchResult, error)
+}
+
+// AuthService 认证服务接口
+type AuthService interface {
+	Login(ctx context.Context, username, password string) (string, error)
+	Logout(ctx context.Context, sessionID string) error
+	GetSession(ctx context.Context, sessionID string) (string, error)
+	ValidateKey(ctx context.Context, key string) (*model.APIKey, error)
+}
+
+// RateLimiter 限流器接口
+type RateLimiter interface {
+	Allow(key string) bool
 }

@@ -10,10 +10,34 @@ type SearchParams struct {
 	EFSearch     int     `json:"ef_search"`
 }
 
+// SearchChunk 检索分块结果
+type SearchChunk struct {
+	ID         string  `json:"id"`
+	ArticleID  string  `json:"article_id"`
+	ChunkIndex int     `json:"chunk_index"`
+	Content    string  `json:"content"`
+	Embedding  []float32 `json:"embedding,omitempty"`
+	Score      float64 `json:"score"`
+	RRFScore   float64 `json:"rrf_score,omitempty"`
+	VectorRank int     `json:"vector_rank,omitempty"`
+	BM25Rank   int     `json:"bm25_rank,omitempty"`
+}
+
+// SearchTimings 检索各阶段耗时（毫秒）
+type SearchTimings struct {
+	EmbeddingMs int `json:"embedding_ms"`
+	VectorMs    int `json:"vector_ms"`
+	BM25Ms      int `json:"bm25_ms"`
+	RRFMs       int `json:"rrf_ms"`
+	RerankMs    int `json:"rerank_ms"`
+	TotalMs     int `json:"total_ms"`
+}
+
 // SearchResult 混合检索结果
 type SearchResult struct {
-	Total    int       `json:"total"`
-	Articles []Article `json:"articles"`
+	Query   string         `json:"query"`
+	Results []SearchChunk  `json:"results"`
+	Timings SearchTimings  `json:"timings"`
 }
 
 // KeywordSearchParams 关键词检索参数
@@ -39,6 +63,18 @@ type SearchDebugResult struct {
 	BM25Result   *SearchResult        `json:"bm25_result,omitempty"`
 	RerankResult *SearchResult        `json:"rerank_result,omitempty"`
 	Keywords     *KeywordSearchResult `json:"keyword_result,omitempty"`
+}
+
+// SearchRequest 混合检索请求
+type SearchRequest struct {
+	Query  string            `json:"query" validate:"required"`
+	Params SearchParams      `json:"params"`
+}
+
+// KeywordSearchRequest 关键词检索请求
+type KeywordSearchRequest struct {
+	Keywords []string          `json:"keywords" validate:"required,min=1"`
+	Params   KeywordSearchParams `json:"params"`
 }
 
 // MCPInitializeRequest MCP initialize 请求
