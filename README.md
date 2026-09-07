@@ -72,7 +72,7 @@ make run
 
 生成密码哈希：
 ```bash
-aiknow-server hashpwd your_password
+aiknow hashpwd your_password
 ```
 
 ## API 文档
@@ -103,10 +103,10 @@ docker run -d \
 
 ```bash
 # 编译
-go build -o aiknow-server ./cmd/aiknow-server
+go build -o aiknow ./cmd/aiknow
 
 # 运行
-./aiknow-server serve
+./aiknow serve
 ```
 
 ## 开发
@@ -133,7 +133,7 @@ make migrate-up
 
 ```
 aiknow/
-├── cmd/aiknow-server/      # 服务入口
+├── cmd/aiknow/      # 服务入口
 ├── internal/
 │   ├── handler/            # HTTP Handler
 │   │   ├── api/            # 对外 API
