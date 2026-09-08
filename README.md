@@ -19,8 +19,8 @@ AiKnow 是一个面向企业内部的知识库管理工具，提供 AI 智能处
 ### 后端
 - **语言**：Go 1.23+
 - **框架**：Gin 1.10+
-- **数据库**：PostgreSQL 17
-- **扩展**：pgvector、pg_textsearch、zhparser、PGMQ
+- **数据库**：ParadeDB（PostgreSQL 17 发行版）
+- **扩展**：pgvector、pg_search（BM25 + jieba 中文分词）
 
 ### 前端
 - **框架**：Alpine.js 3.14+

@@ -12,12 +12,11 @@
 ### 后端
 - **语言**：Go 1.23+
 - **框架**：Gin 1.10+
-- **数据库**：PostgreSQL 17
+- **数据库**：ParadeDB 0.25.6-pg17（PostgreSQL 17 发行版）
 - **扩展**：
-  - `pgvector` 0.7+ - 向量存储与检索
-  - `pg_textsearch` 1.3.1+ - BM25 全文检索（Timescale 官方扩展）
-  - `zhparser` 2.2+ - 中文分词
-  - `PGMQ` 1.0+ - PostgreSQL 原生消息队列
+  - `pgvector` - 向量存储与检索（ParadeDB 镜像内置）
+  - `pg_search` 0.25.6 - BM25 全文检索 + jieba 中文分词（底层 Tantivy）
+  - 任务队列不依赖扩展：数据表 + `FOR UPDATE SKIP LOCKED`
 
 ### 前端
 - **框架**：Alpine.js 3.14+ (轻量级，约 15KB)
@@ -42,7 +41,7 @@
 ```
 向量检索 (pgvector HNSW) → Top 20
          ↓
-BM25 检索 (pg_textsearch) → Top 20
+BM25 检索 (pg_search + jieba) → Top 20
          ↓
 RRF 融合 (k=60, 权重 0.5:0.5) → Top 20
          ↓
@@ -52,13 +51,22 @@ Reranker 精排 (BAAI) → Top 5
 ```
 
 ### 3. 中文分词配置
+分词由 pg_search 内置的 jieba 分词器完成，在建索引时以类型转换声明，无需额外配置词性映射：
+
 ```sql
-ALTER TEXT SEARCH CONFIGURATION chinese 
-ADD MAPPING FOR n,v,a,i,e,l,j,r,d,m,q,t,z WITH simple;
+CREATE INDEX chunks_search_idx ON chunks
+USING paradedb (id, (content::pdb.jieba), deleted, article_id, chunk_index)
+WITH (key_field = 'id');
 ```
-**词性说明**：
-- `n`=名词, `v`=动词, `a`=形容词, `i`=成语, `e`=叹词, `l`=习用语
-- `j`=简称, `r`=代词, `d`=副词, `m`=数词, `q`=量词, `t`=时间词, `z`=状态词
+
+jieba 采用词典 + 统计模型做词级切分，相较逐字切分（`chinese_compatible`）precision 更高。
+验证分词效果：
+
+```sql
+SELECT '你好世界，全文检索'::pdb.jieba::text[];
+```
+
+> 原 zhparser 方案的词性映射（`ADD MAPPING FOR n,v,a,...`）已废弃。
 
 ### 4. MCP 返回格式
 采用结构化 `resource` 格式，便于大模型解析：
@@ -158,7 +166,7 @@ ADD MAPPING FOR n,v,a,i,e,l,j,r,d,m,q,t,z WITH simple;
 | 摘要 | 1.5 |
 | 正文 | 1.0（BM25 归一化后乘权重） |
 
-**标签/分类只做精确匹配，不做 substring**：标签是原子词，`LIKE '%Java%'` 会命中 `JavaScript`，`云` 会命中 `云原生`/`阿里云`/`云计算`。且标签词通常也出现在标题正文中，已被后三档 zhparser 全文检索覆盖——部分匹配不提供新信息，只给假阳性开高权重通道。
+**标签/分类只做精确匹配，不做 substring**：标签是原子词，`LIKE '%Java%'` 会命中 `JavaScript`，`云` 会命中 `云原生`/`阿里云`/`云计算`。且标签词通常也出现在标题正文中，已被后三档 jieba 全文检索覆盖——部分匹配不提供新信息，只给假阳性开高权重通道。
 
 - 得分 = Σ(每个关键词的各项命中权重)，**不做平均**（命中数量本身是信号）
 - `match_mode`：`any`（默认）/ `all`
@@ -330,15 +338,58 @@ POST /api/v1/search
 ### 1. 数据库迁移顺序
 ```
 001_initial_schema.sql          # 基础表结构
-002_vector.sql                  # pgvector 扩展 + HNSW 索引
-003_pg_textsearch_bm25.sql      # pg_textsearch + zhparser + BM25 索引
-004_pgmq.sql                    # PGMQ 消息队列
+002_vector.sql                  # pgvector HNSW 索引（余弦距离）
+003_pg_textsearch_bm25.sql      # 已废弃（原 zhparser 方案，保留为空操作）
+004_pgmq.sql                    # 已废弃（原 PGMQ 方案，保留为空操作）
 005_settings_apikeys_mcplogs.sql # settings/setting_history/api_keys/mcp_request_logs
+006_paradedb_search.sql         # pg_search BM25 索引（jieba）+ chunks.deleted 冗余列
+007_job_queue.sql               # 任务队列表 job_queue / job_archive
 ```
 
-关键词检索还需标签/分类的 `lower(name)` 索引（精确匹配）+ 摘要 GIN 索引 + `article_tags.tag_id` 索引。
+> 003/004 降级为空操作而非原地改写：已有开发库中它们已记录为"已应用"，
+> 原地改写不会重跑，新逻辑必须放在新版本号里。
 
-### 2. SSRF 防护要求
+> 扩展（`vector`、`pg_search`）须手动创建——迁移执行器会跳过一切扩展创建语句，
+> 详见 `docs/DATABASE_SETUP.md`。
+
+关键词检索还需标签/分类的 `lower(name)` 索引（精确匹配）+ `article_tags.tag_id` 索引。
+标题/摘要/正文的全文检索由 `articles_search_idx`（paradedb 索引）统一承担，不再使用 GIN 索引。
+
+### 2. ParadeDB / pg_search 使用约束
+
+语法在 0.25.0 发生过不兼容变更，编写 SQL 前务必确认版本（本项目基于 **0.25.6**）：
+
+| 项目 | 写法 |
+|---|---|
+| 访问方法 | `USING paradedb`（`bm25` 为兼容别名） |
+| 分词器 | 类型转换 `(content::pdb.jieba)`，**非** `WITH (text_fields='{...}')` |
+| 打分 | `pdb.score(<key_field>)`，命名空间是 `pdb` |
+| 匹配算子 | `\|\|\|` 任一词元、`&&&` 全部词元 |
+
+其他硬约束：
+
+- **每张表只允许一个 paradedb 索引**——新增可检索字段须改动同一个索引定义
+- **过滤字段必须一并建进索引**，否则条件无法下推，topK 与分页会失真
+  （这正是 `chunks.deleted` 冗余列存在的原因，由触发器与 `articles.deleted_at` 同步）
+- 打分受未回收死行影响，排序异常时执行 `VACUUM`
+- 排序须加 ID 兜底（`ORDER BY pdb.score(id) DESC, id ASC`），否则同分结果不稳定
+- **UUID 作 key_field 尚未实机验证**：文档未明确背书，若报类型错误需改用 bigint 代理键
+
+### 3. 任务队列约束
+
+- pg_cron 只能配置在 `postgres` 库且不可更改，故超时任务回收由应用层 Go 定时器
+  （`pgqueue.StartReclaimer`）执行，不依赖 pg_cron
+- 消费者取走任务后须在租约（默认 5 分钟）内调用 `Archive` 或 `Fail`，
+  否则任务会被回收重投
+- 重试采用指数退避（10s 起，上限 10 分钟），重试耗尽转入死信（`status='failed'`）
+
+### 4. 迁移执行器约束
+
+- **会跳过一切扩展创建语句**，扩展须手动创建（见 `docs/DATABASE_SETUP.md`）；
+  迁移文件中亦不可在注释里出现该语句的英文字面量，否则会误伤紧随其后的语句
+- 已应用的迁移不会重跑，修改既有迁移无效——新逻辑一律放新版本号
+
+### 5. SSRF 防护要求
 - 仅允许 HTTP/HTTPS 协议
 - 禁止内网 IP：10.0.0.0/8、172.16.0.0/12、192.168.0.0/16、127.0.0.0/8
 - DNS 重绑定防护：域名两次解析比对
@@ -346,12 +397,12 @@ POST /api/v1/search
 - 超时：连接 5s，读取 10s
 - 最大重定向：3 次
 
-### 3. 必填环境变量
+### 6. 必填环境变量
 `DATABASE_URL`、`QWEN_API_KEY`、`BAAI_API_KEY`、`SESSION_SECRET`、`ADMIN_PASSWORD_HASH`
 
 可通过环境变量或 `.env` 提供。`ADMIN_PASSWORD_HASH` 与 `ADMIN_PASSWORD` 都缺失时启动失败。`.env` 必须在 `.gitignore` 中，仓库只放 `.env.example`。
 
-### 4. 目录结构
+### 7. 目录结构
 ```
 aiknow/
 ├── cmd/aiknow-server/      # 服务入口（含 hashpwd 子命令）
@@ -368,14 +419,14 @@ aiknow/
 ├── pkg/                    # 公共库
 │   ├── ssrf/               # SSRF 防护（协议/端口/IP 校验）
 │   ├── htmlclean/          # HTML 清洗（标签移除 + 实体解码）
-│   └── pgqueue/            # PGMQ 封装（send/pop/archive/深度查询）
+│   └── pgqueue/            # 任务队列（表 + FOR UPDATE SKIP LOCKED，含租约/重试/死信）
 ├── web/js/pages/           # 前端按页面拆分
 ├── migrations/             # 数据库迁移
 ├── .env.example            # .env 本身在 .gitignore 中
 └── docs/                   # 文档
 ```
 
-### 5. 开发路线图（7 周）
+### 8. 开发路线图（7 周）
 | Phase | 周 | 内容 | 状态 |
 |-------|-----|------|------|
 | 1 | W1 | 基础框架 + 配置分层加载（env > .env > yaml） | ✅ 骨架完成 |
@@ -390,7 +441,7 @@ aiknow/
 
 - PRD 文档：`docs/PRD.md`
 - 变更日志：`docs/CHANGELOG.md`
-- pg_textsearch：https://github.com/timescale/pg_textsearch
+- 数据库搭建：`docs/DATABASE_SETUP.md`
+- ParadeDB / pg_search：https://github.com/paradedb/paradedb
 - pgvector：https://github.com/pgvector/pgvector
-- zhparser：https://github.com/amutu/zhparser
 - MCP 规范：https://modelcontextprotocol.io/specification/2025-06-18

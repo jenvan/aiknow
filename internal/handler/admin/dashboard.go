@@ -65,7 +65,7 @@ func (h *DashboardHandler) GetStats(c *gin.Context) {
 
 // GetQueueStatus 获取队列状态
 func (h *DashboardHandler) GetQueueStatus(c *gin.Context) {
-	// TODO: 查询 PGMQ 队列深度
+	// TODO: 查询任务队列深度（pgqueue.Depth）
 	c.JSON(http.StatusOK, gin.H{
 		"depth":                 0,
 		"oldest_message_age_ms": 0,

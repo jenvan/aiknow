@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/jenvan/aiknow/internal/model"
 	"github.com/jenvan/aiknow/internal/repository"
@@ -29,21 +28,21 @@ func NewKeywordSearchService(
 	}
 }
 
-// SearchKeywords 关键词检索
+// SearchKeywords 关键词加权检索
+//
+// 加权逻辑在仓库层以单条 SQL 完成（标签 > 分类 > 标题 > 摘要 > 正文），
+// 中文分词由 pg_search 的 jieba 在数据库侧完成，无需应用层预分词。
 func (s *KeywordSearchServiceImpl) SearchKeywords(ctx context.Context, keywords []string, params model.KeywordSearchParams) (*model.KeywordSearchResult, error) {
 	if len(keywords) == 0 {
-		return nil, fmt.Errorf("empty keywords")
+		return nil, fmt.Errorf("关键词为空")
 	}
 
-	// TODO: 实现关键词加权检索
-	// 1. 对每个关键词进行 BM25 检索
-	// 2. 按权重融合（标签权重 > 分类权重 > 标题权重 > 内容权重）
-	// 3. 返回 TopK 结果
-	return nil, fmt.Errorf("keyword search not fully implemented")
-}
-
-// getQueryTokens 获取查询分词结果（用于调试）
-func (s *KeywordSearchServiceImpl) getQueryTokens(query string) []string {
-	// TODO: 调用 zhparser 分词
-	return strings.Fields(query)
+	results, err := s.searchRepo.KeywordSearch(ctx, keywords, params)
+	if err != nil {
+		return nil, err
+	}
+	if len(results) == 0 {
+		return &model.KeywordSearchResult{Total: 0, Articles: nil}, nil
+	}
+	return &results[0], nil
 }

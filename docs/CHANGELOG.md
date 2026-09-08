@@ -1,4 +1,116 @@
 # AiKnow 变更日志
+## [v0.5.0] - 2026-09-08
+
+### ARCH-01：数据库架构调整 —— ParadeDB 替换 zhparser，数据表队列替换 PGMQ
+
+**背景**：原方案需编译安装 3 个扩展（pg_textsearch、zhparser、pgmq），运维成本高。
+zhparser 依赖 SCWS 词库同样需编译，并未比 ParadeDB 更省事；且内置 `ts_rank` 是
+TF-IDF 变体，缺少文档长度归一化，实现不了 PRD 要求的 BM25。
+
+**方案**：
+1. 检索：ParadeDB（内置 pgvector + pg_search + pg_cron），BM25 与中文分词（jieba）由 pg_search 提供
+2. 队列：pgmq 不在 ParadeDB 镜像内，改用数据表 + `FOR UPDATE SKIP LOCKED`
+
+#### 数据库迁移
+
+- `003_pg_textsearch_bm25.sql`、`004_pgmq.sql`：降级为空操作存根
+  （已有开发库中已记录为"已应用"，原地改写不会重跑，新逻辑必须放新版本号）
+- 新增 `006_paradedb_search.sql`：
+  - 清理旧 zhparser / tsvector 对象
+  - `chunks` 新增 `deleted` 冗余列 + 两个同步触发器（`trg_sync_chunks_deleted`、
+    `trg_inherit_chunk_deleted`），使 BM25 过滤条件可下推进索引，避免 topK 与分页失真
+  - 建立 `chunks_search_idx`、`articles_search_idx`（`USING paradedb` + `pdb.jieba`）
+- 新增 `007_job_queue.sql`：`job_queue` / `job_archive` 表、出队与死信索引、
+  `updated_at` 维护触发器
+
+#### 队列实现（`pkg/pgqueue`）
+
+内部完全重写，**公开 API 保持兼容**（`worker.go` 与 `main.go` 几乎无需改动）：
+
+- 补齐 pgmq 原本代做的能力：可见性超时（租约）、指数退避重试、死信、归档
+- `MsgID` 由 `string` 改为 `int64`（对应 `BIGSERIAL`）
+- 新增 `Fail()`（判定重试或转死信）、`ReclaimExpired()`、`DeadLetterCount()`、
+  `PurgeArchive()`、`SendWithMaxRetries()`、`StartReclaimer()` / `StopReclaimer()`
+- 超时回收由应用层 Go 定时器执行，不使用 pg_cron
+  （pg_cron 只能配置在 `postgres` 库且不可更改，跨库调度需引入额外部署依赖）
+
+#### 检索实现
+
+- `search_repo.go`：
+  - `BM25Search` 改用 `|||` 算子 + `pdb.score(id)`，过滤 `deleted = false`
+  - `KeywordSearch` 由空 TODO 实现为多字段加权检索
+    （标签 > 分类 > 标题 > 摘要 > 正文，标签与分类走精确匹配）
+
+#### 顺带修复的既有缺陷
+
+- **向量索引失效**：`VectorSearch` 原用 `<->`（L2 距离），而 HNSW 索引建的是
+  `vector_cosine_ops`，算子与 opclass 不匹配导致索引未被使用、退化为全表扫描。
+  改用 `<=>`
+- **Rerank 结果恒为空**：原以 chunk 的 UUID 与 Rerank 返回的数组下标比较，
+  永不相等，精排结果被整体丢弃。提取 `applyRerank()` 按下标回取
+- **RRF 名次互相覆盖**：原用同一个 map 记录两路名次，导致 `VectorRank` 与
+  `BM25Rank` 恒相等；且未应用 `VectorWeight` / `BM25Weight`。改为分别记录并加权，
+  名次由 0 起算修正为由 1 起算
+- **`MaxRetries` 配置未生效**：原 `incrementRetryCount` 是空实现，重试从未发生。
+  现由 `queue.Fail()` 落实
+- **`splitSQL` 不识别美元引用**：`$$...$$` 内的 `;` 会被误切，导致 PL/pgSQL
+  函数体无法执行（本次新增触发器即依赖此能力）。重写为支持美元引用（含带标签
+  形式）、`$1` 占位符、`''` 转义引号、行注释与块注释
+
+#### 测试
+
+- 新增 `internal/repository/migrations_test.go`：`splitSQL` 5 个用例
+- 新增 `pkg/pgqueue/pgqueue_test.go`：退避与配置默认值 5 个用例
+- 新增 `internal/service/search_test.go`：RRF 融合与 rerank 映射 10 个用例
+  （覆盖上述两个回归缺陷）
+- 全部通过：`go test ./...` ✅
+
+#### 部署
+
+- 新增 `Dockerfile`：多阶段构建，静态二进制（embed 了静态资源与迁移脚本）
+- 新增 `docker-compose.yml`：一键拉起 ParadeDB + 应用，健康检查确保扩展就绪后再启动应用
+- 新增 `deploy/postgres/init/01-extensions.sql`：通过镜像的 `docker-entrypoint-initdb.d`
+  机制自动创建扩展（仅首次初始化时运行）
+- 新增 `.dockerignore`：控制构建上下文，排除文档与日志
+- 更新 `Makefile`：修正构建路径（`./cmd/aiknow` → `./cmd/aiknow-server`）、
+  `run` 目标补 `serve` 子命令，新增 `docker-build` / `up` / `down` / `logs` / `ps` 目标
+- 更新 `.env.example`：补充 Docker Compose 所需的数据库与端口映射变量
+- 修复 `cmd/aiknow-server/main.go`：`version` 由 `const` 改为 `var`，使 ldflags 注入生效；
+  `--version` 输出格式改为 `version (commit hash)`
+
+#### 服务层接线
+
+- `SearchServiceImpl.SearchKeywords` 与 `KeywordSearchServiceImpl.SearchKeywords`
+  由「未实现」桩接入仓库层实现
+- 删除 `getQueryTokens()` 死代码（原用于调用 zhparser 分词，现由数据库侧 jieba 完成）
+
+#### 文档
+
+- 重写 `docs/DATABASE_SETUP.md`（原根目录版本内容已过时，扩展名 `pg_bm25`、
+  `pg_jieba` 均有误，且称 pgmq 为镜像内置）
+- 更新 `AGENT.md`：技术栈、迁移顺序、中文分词配置，新增
+  「ParadeDB / pg_search 使用约束」「任务队列约束」「迁移执行器约束」三节
+- 更新 `README.md` 技术栈
+
+**验证状态**：
+- `go build ./...` ✅ 通过
+- `go vet ./...` ✅ 通过
+- `go test ./...` ✅ 全部通过
+
+**遗留问题**：
+
+1. **待实机验证**（本机无 Docker，均无法执行）：
+   - jieba 中文分词的实际召回效果
+   - UUID 作 `key_field` 是否被 pg_search 接受（文档未明确背书；
+     若报类型错误需改用 bigint 代理键，`docs/DATABASE_SETUP.md` 已记录处置方案）
+   - 全套迁移在真实 ParadeDB 实例上的执行
+   - `KeywordSearch` 的加权 SQL（含 CTE 与 `|||` 算子）尚未在真实实例上跑过
+2. **`docs/DATABASE_SETUP.md` 原未跟踪版本丢失**：会话开始时该文件为 257 行未跟踪
+   新文件，编写过程中丢失且从未进入 git，无法恢复。现版本基于 HEAD 中的根目录旧版
+   （108 行）重写，并已按新架构全面更新。
+
+---
+
 ## [v0.4.0-rc7] - 2026-09-07
 
 ### COL-2-01：URL 采集器实现（collector.go）

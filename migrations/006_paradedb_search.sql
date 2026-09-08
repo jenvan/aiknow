@@ -1,0 +1,1 @@
+/Users/jenvan/work/aiknow/internal/repository/migrations/006_paradedb_search.sql

@@ -7,16 +7,16 @@ GIT_COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 # 编译目标二进制名称
 BINARY_NAME = aiknow
 
-.PHONY: build run test test-coverage vet fmt migrate-up clean
+.PHONY: build run test test-coverage vet fmt migrate-up clean docker-build up down logs ps
 
-# 编译 cmd/aiknow/main.go，生成 bin/aiknow
+# 编译 cmd/aiknow-server，生成 bin/aiknow
 build:
 	go build -ldflags "-X main.version=$(VERSION) -X main.gitCommit=$(GIT_COMMIT)" \
-		-o bin/$(BINARY_NAME) ./cmd/aiknow
+		-o bin/$(BINARY_NAME) ./cmd/aiknow-server
 
-# 编译并运行
+# 编译并运行（serve 为必需子命令，缺省只会打印帮助）
 run: build
-	./bin/$(BINARY_NAME)
+	./bin/$(BINARY_NAME) serve
 
 # 运行所有测试
 test:
@@ -36,11 +36,37 @@ vet:
 fmt:
 	go fmt ./...
 
-# 执行数据库迁移（占位，后续实现）
+# 数据库迁移：服务启动时自动执行，无需单独命令
 migrate-up:
-	@echo "TODO: 实现数据库迁移执行器"
-	@echo "迁移文件位于 migrations/ 目录"
+	@echo "迁移在服务启动时自动执行（见 cmd/aiknow-server/main.go）"
+	@echo "迁移文件：internal/repository/migrations/（已通过 go:embed 打包）"
+	@echo "注意：扩展需手动创建，详见 docs/DATABASE_SETUP.md"
 
 # 清理编译产物
 clean:
 	rm -rf bin/ coverage.out coverage.html
+
+# ---- Docker ----
+
+# 构建镜像
+docker-build:
+	docker build \
+		--build-arg VERSION=$(VERSION) \
+		--build-arg GIT_COMMIT=$(GIT_COMMIT) \
+		-t aiknow:$(VERSION) -t aiknow:latest .
+
+# 启动全部服务（首次会自动构建镜像）
+up:
+	VERSION=$(VERSION) GIT_COMMIT=$(GIT_COMMIT) docker compose up -d --build
+
+# 停止服务（保留数据卷）
+down:
+	docker compose down
+
+# 查看应用日志
+logs:
+	docker compose logs -f app
+
+# 查看服务状态
+ps:
+	docker compose ps

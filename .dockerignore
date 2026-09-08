@@ -1,0 +1,38 @@
+# 版本控制与 IDE
+.git
+.gitignore
+.DS_Store
+.vscode
+.idea
+
+# 凭据：绝不进入镜像
+.env
+.env.local
+config.yaml
+
+# 编译产物
+/bin/
+/dist/
+/aiknow-server
+coverage.out
+coverage.html
+
+# 依赖与缓存
+/vendor/
+/node_modules/
+/web/css/output.css
+
+# 文档与部署编排（不参与构建）
+docs/
+deploy/
+*.md
+docker-compose.yml
+Dockerfile
+
+# 日志与临时文件
+*.log
+*.tmp
+
+# migrations/ 为指向 internal/repository/migrations 的软链接目录，
+# 迁移脚本已随 internal/ 通过 go:embed 打包，此处排除以免软链接干扰构建上下文
+/migrations/

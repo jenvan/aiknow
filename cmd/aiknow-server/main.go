@@ -25,8 +25,11 @@ import (
 	"github.com/jenvan/aiknow/pkg/pgqueue"
 )
 
-// 版本信息，由 ldflags 注入
-const version = "0.1.0"
+// 版本信息，由 ldflags 注入（必须是 var，const 无法被 -X 覆盖）
+var (
+	version   = "0.1.0"
+	gitCommit = "unknown"
+)
 
 func main() {
 	// 解析命令行参数
@@ -36,7 +39,7 @@ func main() {
 	flag.Parse()
 
 	if showVersion {
-		fmt.Println(version)
+		fmt.Printf("%s (commit %s)\n", version, gitCommit)
 		return
 	}
 

@@ -140,55 +140,122 @@ func parseMigrationVersion(filename string) int {
 }
 
 // splitSQL 将 SQL 文件分割成单个语句
+//
+// 支持三种不应被 ';' 切分的上下文：
+//   - 单引号字符串 'foo;bar'（'' 为转义）
+//   - 美元引用块 $$...$$ / $tag$...$tag$（PL/pgSQL 函数体必需）
+//   - 行注释 -- 与块注释 /* */
 func splitSQL(content string) []string {
 	var statements []string
 	var current strings.Builder
-	inString := false
-	escapeNext := false
 
-	for _, ch := range content {
-		if escapeNext {
-			current.WriteRune(ch)
-			escapeNext = false
-			continue
+	runes := []rune(content)
+	var dollarTag string // 非空表示正处于美元引用块内
+
+	flush := func() {
+		if stmt := strings.TrimSpace(current.String()); stmt != "" {
+			statements = append(statements, stmt)
 		}
+		current.Reset()
+	}
 
-		if ch == '\\' {
-			escapeNext = true
-			current.WriteRune(ch)
-			continue
-		}
+	for i := 0; i < len(runes); i++ {
+		ch := runes[i]
 
-		if ch == '\'' && !inString {
-			inString = true
-			current.WriteRune(ch)
-			continue
-		}
-
-		if ch == '\'' && inString {
-			inString = false
-			current.WriteRune(ch)
-			continue
-		}
-
-		if ch == ';' && !inString {
-			stmt := strings.TrimSpace(current.String())
-			if stmt != "" {
-				statements = append(statements, stmt)
+		// 美元引用块内：只寻找结束标记
+		if dollarTag != "" {
+			if ch == '$' {
+				if tag, ok := matchDollarTag(runes, i); ok && tag == dollarTag {
+					current.WriteString(tag)
+					i += len([]rune(tag)) - 1
+					dollarTag = ""
+					continue
+				}
 			}
-			current.Reset()
+			current.WriteRune(ch)
 			continue
 		}
 
-		current.WriteRune(ch)
+		switch {
+		// 行注释：整行原样保留
+		case ch == '-' && i+1 < len(runes) && runes[i+1] == '-':
+			for i < len(runes) && runes[i] != '\n' {
+				current.WriteRune(runes[i])
+				i++
+			}
+			if i < len(runes) {
+				current.WriteRune('\n')
+			}
+
+		// 块注释
+		case ch == '/' && i+1 < len(runes) && runes[i+1] == '*':
+			current.WriteString("/*")
+			i += 2
+			for i < len(runes) && !(runes[i] == '*' && i+1 < len(runes) && runes[i+1] == '/') {
+				current.WriteRune(runes[i])
+				i++
+			}
+			current.WriteString("*/")
+			i++
+
+		// 单引号字符串（'' 表示一个字面量单引号）
+		case ch == '\'':
+			current.WriteRune(ch)
+			i++
+			for i < len(runes) {
+				current.WriteRune(runes[i])
+				if runes[i] == '\'' {
+					if i+1 < len(runes) && runes[i+1] == '\'' {
+						i++
+						current.WriteRune(runes[i])
+						i++
+						continue
+					}
+					break
+				}
+				i++
+			}
+
+		// 美元引用开始
+		case ch == '$':
+			if tag, ok := matchDollarTag(runes, i); ok {
+				current.WriteString(tag)
+				i += len([]rune(tag)) - 1
+				dollarTag = tag
+			} else {
+				current.WriteRune(ch)
+			}
+
+		case ch == ';':
+			flush()
+
+		default:
+			current.WriteRune(ch)
+		}
 	}
 
-	// 添加最后一个语句
-	if stmt := strings.TrimSpace(current.String()); stmt != "" {
-		statements = append(statements, stmt)
-	}
-
+	flush()
 	return statements
+}
+
+// matchDollarTag 尝试在 runes[start] 处匹配美元引用标记（$$ 或 $tag$）。
+// 标记体须为空或合法标识符（首字符非数字），否则视为普通 '$'（如 $1 占位符）。
+func matchDollarTag(runes []rune, start int) (string, bool) {
+	if start >= len(runes) || runes[start] != '$' {
+		return "", false
+	}
+	for j := start + 1; j < len(runes); j++ {
+		c := runes[j]
+		if c == '$' {
+			return string(runes[start : j+1]), true
+		}
+		isLetter := c == '_' || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+		isDigit := c >= '0' && c <= '9'
+		if !isLetter && !(isDigit && j > start+1) {
+			return "", false
+		}
+	}
+	return "", false
 }
 
 // versionExists 检查版本是否已存在

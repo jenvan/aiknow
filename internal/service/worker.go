@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -29,7 +30,7 @@ func DefaultWorkerConfig() WorkerConfig {
 	}
 }
 
-// Worker PGMQ 消息队列消费者
+// Worker 任务队列消费者
 type Worker struct {
 	db       *repository.PostgresDB
 	pipeline *AIPipeline
@@ -79,6 +80,11 @@ func (w *Worker) Start() error {
 	w.running = true
 	w.ctx, w.cancel = context.WithCancel(context.Background())
 
+	// 启动超时任务回收协程：消费者进程崩溃后，租约到期的任务由此重新变为可领取
+	w.queue.StartReclaimer(func(err error) {
+		fmt.Printf("worker: 回收超时任务失败: %v\n", err)
+	})
+
 	// 启动消费者
 	for i := 0; i < w.config.Concurrency; i++ {
 		w.wg.Add(1)
@@ -90,7 +96,11 @@ func (w *Worker) Start() error {
 
 // Stop 停止 Worker
 func (w *Worker) Stop() {
+	if !w.running {
+		return
+	}
 	w.running = false
+	w.queue.StopReclaimer()
 	w.cancel()
 	w.wg.Wait()
 }
@@ -108,37 +118,59 @@ func (w *Worker) consume(workerID int) {
 
 		msg, err := w.queue.Pop(w.ctx)
 		if err != nil {
-			if err == sql.ErrNoRows {
+			if errors.Is(err, sql.ErrNoRows) {
 				// 队列为空，等待后继续轮询
-				time.Sleep(w.config.PollInterval)
+				select {
+				case <-w.ctx.Done():
+					return
+				case <-time.After(w.config.PollInterval):
+				}
 				continue
 			}
-			fmt.Printf("worker %d: pop message error: %v\n", workerID, err)
-			time.Sleep(5 * time.Second)
+			// ctx 取消导致的错误属于正常退出
+			if w.ctx.Err() != nil {
+				return
+			}
+			fmt.Printf("worker %d: 领取消息失败: %v\n", workerID, err)
+			select {
+			case <-w.ctx.Done():
+				return
+			case <-time.After(5 * time.Second):
+			}
 			continue
 		}
 
 		// 解析消息
 		var message map[string]interface{}
 		if err := json.Unmarshal(msg.Value, &message); err != nil {
-			fmt.Printf("worker %d: unmarshal message error: %v\n", workerID, err)
-			// 删除无效消息
+			fmt.Printf("worker %d: 消息解析失败: %v\n", workerID, err)
+			// 载荷无效，重试也不会成功，直接丢弃
 			if delErr := w.queue.Delete(w.ctx, msg.MsgID); delErr != nil {
-				fmt.Printf("worker %d: delete invalid message error: %v\n", workerID, delErr)
+				fmt.Printf("worker %d: 删除无效消息失败: %v\n", workerID, delErr)
 			}
 			continue
 		}
 
 		// 处理文章
 		if err := w.processMessage(w.ctx, workerID, message); err != nil {
-			fmt.Printf("worker %d: process message error: %v\n", workerID, err)
-			// 递增重试计数
-			w.incrementRetryCount(w.ctx, message)
-		} else {
-			// 成功，归档消息
-			if archErr := w.queue.Archive(w.ctx, msg.MsgID); archErr != nil {
-				fmt.Printf("worker %d: archive message error: %v\n", workerID, archErr)
+			fmt.Printf("worker %d: 处理消息 %d 失败（第 %d/%d 次尝试）: %v\n",
+				workerID, msg.MsgID, msg.RetryCount, msg.MaxRetries, err)
+
+			// 交由队列判定重试或转入死信
+			dead, failErr := w.queue.Fail(w.ctx, msg.MsgID, err)
+			if failErr != nil {
+				fmt.Printf("worker %d: 标记消息 %d 失败状态出错: %v\n", workerID, msg.MsgID, failErr)
+				continue
 			}
+			if dead {
+				fmt.Printf("worker %d: 消息 %d 重试耗尽，已转入死信\n", workerID, msg.MsgID)
+			}
+			continue
+		}
+
+		// 成功，归档消息
+		if archErr := w.queue.Archive(w.ctx, msg.MsgID); archErr != nil {
+			fmt.Printf("worker %d: 归档消息 %d 失败: %v\n", workerID, msg.MsgID, archErr)
 		}
 	}
 }
@@ -192,13 +224,6 @@ func (w *Worker) processMessage(ctx context.Context, workerID int, message map[s
 	}
 
 	return nil
-}
-
-// incrementRetryCount 递增重试计数
-func (w *Worker) incrementRetryCount(ctx context.Context, message map[string]interface{}) {
-	// TODO: 实现重试逻辑
-	_ = ctx
-	_ = message
 }
 
 // GetQueue 获取队列
