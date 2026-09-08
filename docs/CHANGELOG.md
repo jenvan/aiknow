@@ -1,4 +1,70 @@
 # AiKnow 变更日志
+## [v0.5.3] - 2026-09-08
+
+### 部署文件结构调整 + 文档改名为 DEPLOY.md 并补充运维内容
+
+**背景**：`deploy/postgres/init/000_init.sql` 四层目录只装一个文件，属过度分层。
+
+#### 目录结构
+
+- `deploy/postgres/init/000_init.sql` → 根目录 `docker-compose-initdb.sql`，
+  `deploy/` 目录随之移除
+- `docker-compose.yml` 改为挂载单文件：
+  `./docker-compose-initdb.sql:/docker-entrypoint-initdb.d/000_init.sql:ro`
+- `.dockerignore`：移除已不存在的 `deploy/`，改为排除 `docker-compose-initdb.sql`
+- `Makefile`：`db-init` 与 `migrate-up` 的路径注释同步更新
+
+Dockerfile 与 docker-compose.yml 保持在根目录：`.env` 由 compose 从 project
+directory 加载，移入子目录会导致读不到 `POSTGRES_PASSWORD` / `SESSION_SECRET`；
+且多数 PaaS 与 CI 默认在仓库根查找这两个文件。
+
+> 文件名以 `docker-compose` 开头，但它**同时用于本地开发**（`make db-init`），
+> 是扩展创建的唯一来源。已在文件头注释、`AGENT.md` 与 `docs/DEPLOY.md` 中标注，
+> 避免误解为仅服务 compose。
+
+#### 文档改名并补充运维内容
+
+`docs/DATABASE_SETUP.md` → `docs/DEPLOY.md`（标题改为「部署与运维指南」）。
+原文档已覆盖 Dockerfile、compose、应用启动与运维，早已不止「数据库搭建」。
+
+架构说明新增「初始化职责划分」表，明确扩展与表结构各自的唯一来源。
+
+新增运维内容：
+
+- **健康检查与监控**：健康端点、容器健康状态查询、关键观测指标 SQL
+  （处理状态分布、队列深度、死信数量、最早任务等待时长、各表体积）
+- **备份与恢复**：`pg_dump -Fc` 备份、恢复前必须先建扩展（转储含 paradedb /
+  hnsw 索引的 CREATE INDEX，依赖扩展存在）、仅备份数据的做法
+- **故障排查表**：8 类症状与排查方向
+- **凭据轮换**：`SESSION_SECRET` / `ADMIN_PASSWORD_HASH` / API Key /
+  `POSTGRES_PASSWORD` 各自的影响面与操作
+- **升级 ParadeDB 的步骤**：6 步流程，含备份与索引语法变更的连带修改
+- **生产部署补充建议**：TLS 前置、不暴露数据库端口、备份自动化、日志收集、
+  资源限制、监控告警
+- 队列运维补充租约机制说明（处理耗时可能超 5 分钟需调大 `LeaseDuration`）
+- `chunks.deleted` 补充不一致时的手动修复语句
+- 日志表清理补充 `VACUUM` 与 L2 配置 `mcp_log.retention_days`
+
+#### 顺带修正的过时引用
+
+- `docs/MILESTONES.md`：验收项 2 由「迁移 001–005」改为「001–007」；
+  验收项 3 列的扩展改为 pgvector / pg_search（原列 pg_textsearch / zhparser /
+  PGMQ 均已移除）；验收项 4 移除已被 paradedb 索引取代的 GIN 索引
+- `cmd/aiknow-server/main.go`、`pkg/pgqueue/pgqueue_test.go`、
+  `internal/repository/migrations/006_paradedb_search.sql`、`AGENT.md`：
+  文档路径与初始化脚本路径
+
+**验证状态**：
+- `go build ./...` ✅
+- `go vet ./...` ✅
+- `go test ./...` ✅
+- compose YAML 解析与挂载源文件存在性 ✅
+
+**仍需实机验证**（本机无 Docker）：compose 首次启动能否正确执行
+`docker-compose-initdb.sql`，以及第四章列出的三项待验证事项。
+
+---
+
 ## [v0.5.2] - 2026-09-08
 
 ### 修复：表结构定义收敛为单一来源，修复迁移事务未提交

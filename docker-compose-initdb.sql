@@ -2,13 +2,15 @@
 -- AiKnow 数据库基础设施初始化（仅扩展，不含建表）
 -- ================================================================================
 --
--- 本文件是扩展创建的唯一来源，同时服务两种用法：
+-- 本文件是扩展创建的唯一来源。文件名虽以 docker-compose 开头，但它同时服务
+-- 两种用法，**本地开发同样需要执行**：
 --
---   1. Docker Compose：挂载到 /docker-entrypoint-initdb.d，容器首次初始化
+--   1. Docker Compose：挂载到 /docker-entrypoint-initdb.d/，容器首次初始化
 --      （数据卷为空时）自动执行一次
 --
 --   2. 本地开发 / 已有数据库：手动执行
---        psql -h 127.0.0.1 -U postgres -d aiknow -f deploy/postgres/init/000_init.sql
+--        psql -h 127.0.0.1 -U postgres -d aiknow -f docker-compose-initdb.sql
+--        或 make db-init
 --
 -- 为什么扩展不放在项目迁移里：
 --   迁移执行器会跳过一切扩展创建语句（见 internal/repository/migrations.go），

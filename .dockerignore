@@ -24,10 +24,11 @@ coverage.html
 
 # 文档与部署编排（不参与构建）
 docs/
-deploy/
 *.md
 docker-compose.yml
 Dockerfile
+# 扩展初始化脚本由数据库容器执行，不进应用镜像
+docker-compose-initdb.sql
 
 # 日志与临时文件
 *.log

@@ -79,7 +79,7 @@ func TestQueueName(t *testing.T) {
 }
 
 // TestQueueIntegration 完整的入队/出队/租约/死信流程需要数据库。
-// 运行方式见 docs/DATABASE_SETUP.md。
+// 运行方式见 docs/DEPLOY.md。
 func TestQueueIntegration(t *testing.T) {
-	t.Skip("需要数据库连接（ParadeDB），见 docs/DATABASE_SETUP.md")
+	t.Skip("需要数据库连接（ParadeDB），见 docs/DEPLOY.md")
 }

@@ -354,9 +354,10 @@ POST /api/v1/search
 迁移代码。曾经在 `deploy/postgres/schema.sql` 放过一份"合并版 DDL"用于开发期建表，
 结果它与迁移迅速漂移（列名、缺列、默认配置项都对不上，且无人察觉），已删除。
 
-> 扩展（`vector`、`pg_search`）是唯一的例外，须由
-> `deploy/postgres/init/000_init.sql` 创建——迁移执行器会跳过一切扩展创建语句。
-> 该文件同时用于 docker compose 首次初始化与本地手动执行，详见 `docs/DATABASE_SETUP.md`。
+> 扩展（`vector`、`pg_search`）是唯一的例外，须由根目录的
+> `docker-compose-initdb.sql` 创建——迁移执行器会跳过一切扩展创建语句。
+> 该文件虽以 `docker-compose` 开头，但**本地开发同样需要执行**（`make db-init`），
+> 它是扩展创建的唯一来源，详见 `docs/DEPLOY.md`。
 
 关键词检索还需标签/分类的 `lower(name)` 索引（精确匹配）+ `article_tags.tag_id` 索引。
 标题/摘要/正文的全文检索由 `articles_search_idx`（paradedb 索引）统一承担，不再使用 GIN 索引。
@@ -391,7 +392,7 @@ POST /api/v1/search
 
 ### 4. 迁移执行器约束
 
-- **会跳过一切扩展创建语句**，扩展须由 `deploy/postgres/init/000_init.sql` 创建；
+- **会跳过一切扩展创建语句**，扩展须由根目录的 `docker-compose-initdb.sql` 创建；
   迁移文件中亦不可在注释里出现该语句的英文字面量，否则会误伤紧随其后的语句
 - 已应用的迁移不会重跑，修改既有迁移无效——新逻辑一律放新版本号
 - `RunMigrations(ctx, tx)` 只接收事务、不负责提交，**调用方必须 Commit**。
@@ -454,7 +455,7 @@ aiknow/
 
 - PRD 文档：`docs/PRD.md`
 - 变更日志：`docs/CHANGELOG.md`
-- 数据库搭建：`docs/DATABASE_SETUP.md`
+- 部署与运维：`docs/DEPLOY.md`
 - ParadeDB / pg_search：https://github.com/paradedb/paradedb
 - pgvector：https://github.com/pgvector/pgvector
 - MCP 规范：https://modelcontextprotocol.io/specification/2025-06-18

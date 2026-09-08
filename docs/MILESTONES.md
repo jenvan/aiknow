@@ -21,9 +21,9 @@
 | # | 验收项 | PRD 10.x | 结果 | 备注 |
 | :--- | :--- | :---: | :---: | :--- |
 | 1 | `go build` 通过，`./aiknow --help` 显示 `hashpwd` 子命令 | — | `[x]` | 完成 |
-| 2 | 数据库迁移 001–005 全部执行成功，无残留 | 架构 §4 | `[x]` | SQL 文件完成，执行器完成 |
-| 3 | pgvector / pg_textsearch / zhparser / PGMQ / pg_cron 扩展可用（PoC 验证） | 架构 §3.1 | `[!]` | ⚠️ 需测试服务器验证，详见 DATABASE_SETUP.md |
-| 4 | HNSW 索引 + BM25 索引 + GIN 索引创建成功 | 架构 §4.2 | `[x]` | 迁移 SQL 已包含 |
+| 2 | 数据库迁移 001–007 全部执行成功，无残留 | 架构 §4 | `[x]` | SQL 文件完成，执行器完成（003/004 为废弃存根） |
+| 3 | pgvector / pg_search（BM25 + jieba）扩展可用（PoC 验证） | 架构 §3.1 | `[!]` | ⚠️ 需实机验证，详见 `docs/DEPLOY.md`；已改用 ParadeDB，不再需要 pg_textsearch / zhparser / PGMQ |
+| 4 | HNSW 索引 + paradedb BM25 索引创建成功 | 架构 §4.2 | `[x]` | 迁移 SQL 已包含；全文检索改由 paradedb 索引承担，不再使用 GIN |
 | 5 | 环境变量 > `.env` > `config.yaml` > 默认值 优先级正确 | 10.12 | `[x]` | config.go 实现完成 |
 | 6 | `.env` 文件不存在时正常启动，不报错 | 10.12 | `[x]` | godotenv 静默跳过 |
 | 7 | 启动日志打印配置**来源**但不打印值 | 10.12 | `[x]` | LogSources() 实现 |

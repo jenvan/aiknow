@@ -38,14 +38,14 @@ fmt:
 
 # 执行数据库迁移（表结构的唯一来源：internal/repository/migrations/）
 # 服务启动时也会自动执行，此目标用于开发期单独初始化或重建
-# 前置条件：扩展需先创建，见 deploy/postgres/init/000_init.sql
+# 前置条件：扩展需先创建，见 docker-compose-initdb.sql（或先执行 make db-init）
 migrate-up: build
 	./bin/$(BINARY_NAME) migrate
 
-# 初始化扩展（仅需执行一次；docker compose 首次启动会自动执行）
+# 初始化扩展（仅需执行一次；docker compose 首次启动会自动执行同一文件）
 db-init:
 	psql "$${DATABASE_URL:-postgres://postgres:password@127.0.0.1:5432/aiknow?sslmode=disable}" \
-		-f deploy/postgres/init/000_init.sql
+		-f docker-compose-initdb.sql
 
 # 重建数据库：清空 public schema 后重新初始化扩展与表结构
 db-reset:

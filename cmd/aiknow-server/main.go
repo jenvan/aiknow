@@ -119,7 +119,7 @@ func runMigrations(ctx context.Context, db *repository.PostgresDB) error {
 //
 // 迁移逻辑与 serve 共用 runMigrations，避免开发期与生产环境的表结构产生漂移。
 // 扩展（vector / pg_search）不由迁移创建，需预先执行
-// deploy/postgres/init/000_init.sql，详见 docs/DATABASE_SETUP.md。
+// docker-compose-initdb.sql，详见 docs/DEPLOY.md。
 func migrate() {
 	ctx := context.Background()
 
