@@ -1,4 +1,149 @@
 # AiKnow 变更日志
+## [v0.5.4] - 2026-09-08
+
+### 配置体系修复 + AI Provider 与管理员凭据接线 + 三个安全修复
+
+**背景**：核对 `.env.example` 中是否存在无效变量时，发现配置加载层存在实质缺陷，
+且多处配置项虽被校验却从未接线。
+
+#### 修复：PORT 与 APP_ENV 无法被任何来源覆盖
+
+`L1Config` 上写了 `env:"PORT"` / `env:"APP_ENV"` 标签，但**没有任何代码读取这些标签**
+（无反射加载）。三个加载函数各自维护一份硬编码键列表，二者都不在其中；`loadYAML`
+也未将其写入 `c.values`。结果 `Get()` 永远走到默认值分支——在 `.env` 里改 `PORT`
+完全无效，端口恒为 8080。
+
+- 三份硬编码列表收敛为单一 `managedKeys` 清单，三个来源共用
+- 新增配置项只需在清单中登记一次，避免再次漂移
+
+#### 修复：config.yaml 整层失效
+
+`config.yaml.example` 使用嵌套结构（`database.url`、`server.port`），而解析器期望
+扁平键（`database_url`）。按示例文件填写的配置读进去全是空值，**整个 YAML 配置层
+形同不存在**。
+
+- 按你的选择，改解析器支持嵌套：新增 `YAMLConfig` 结构 + `toFlat()` 映射
+- `config.yaml.example` 重写，补上缺失的 `app.env` 段，并移除代码不消费的字段
+  （连接池、HTTP 超时、模型名、登录锁定等），改为在文件末尾集中说明哪些项由代码固定
+- 新增 `TestExampleYAMLMatchesParser` 守住示例文件与解析器的一致性
+
+#### 修复：配置来源归因错误
+
+`godotenv.Load()` 会把 `.env` 内容注入进程环境，此后 `os.Getenv` 无法区分值来自
+`.env` 还是真实环境变量，导致来源被误标。
+
+- `NewConfig()` 在加载 `.env` 前先快照真实环境变量，并改用 `godotenv.Read()`
+  单独读取文件内容做归因
+
+#### 接线：AI Provider
+
+`main.go` 原先硬编码 `"mock"`，`.env` 中标着"必填"的 `QWEN_API_KEY` / `BAAI_API_KEY`
+从未被使用。
+
+- 三个 Provider 各自独立选择（`LLM_PROVIDER` / `EMBEDDING_PROVIDER` /
+  `RERANKER_PROVIDER`），缺省 `mock`，无凭据也能启动
+- 选择 `qwen` / `baai` 时对应 API Key 必填，缺失则启动时报错退出
+- 顺带修复：三个 `factory.Create*` 的返回错误此前以 `_` 丢弃，provider 为 nil
+  时要到首次调用才 panic
+
+#### 接线 + 安全修复：管理员凭据
+
+`auth.go` 的 `Login` **硬编码 `admin`/`admin`**，配置中的用户名与密码从未生效。
+
+- 凭据改由 `AuthConfig` 注入；优先 `ADMIN_PASSWORD_HASH`，为空时才用明文
+  `ADMIN_PASSWORD`（启动时在内存哈希）
+- 改用 `bcrypt.CompareHashAndPassword` 校验；用户名用 `subtle.ConstantTimeCompare`，
+  且无论用户名是否匹配都执行 bcrypt 比较，使失败路径耗时一致
+- 启动时预校验哈希格式与明文长度（bcrypt 上限 72 字节，超长会被静默截断）
+- 两者皆空时构造失败，不再以"无法登录"的状态启动
+- 配置校验新增：生产环境禁止明文密码、`SESSION_SECRET` 长度 ≥32、
+  `SESSION_LIFETIME` 格式合法
+
+#### 安全修复：Session ID 可预测
+
+`generateSessionID` 以 `time.Now().UnixNano()` 逐字节填充，输出可被预测，
+攻击者能据此伪造他人 session。
+
+- 改用 `crypto/rand` 生成 256 位随机 ID
+- Session 新增过期时间（此前无过期概念），`GetSession` 校验并顺带清理过期条目
+
+#### 安全修复：SessionMiddleware 不校验有效性
+
+`internal/handler/admin/middleware.go` 仅检查 Cookie 是否存在便放行
+（`// TODO: 验证 session 有效性`），任意伪造的 `session_id` 都能通过。
+
+- 改为接收 `authService` 并实际调用 `GetSession` 校验
+- 校验通过后将用户名写入 `gin.Context`，供后续 handler 获取操作者
+
+> **该中间件目前仍未被任何路由注册**，另有 8 个 admin handler
+> （dashboard/setting/apikey/log/prompt/search_debug/mcp_debug/article）
+> 已定义但未注册路由。属功能缺口，不在本次范围，见下方"遗留问题"。
+
+#### 修复：连接池超时单位错误
+
+```go
+config.MaxConnLifetime = 30 * 60  // 注释写"30 分钟"，实际 1.8µs
+config.MaxConnIdleTime = 10 * 60  // 注释写"10 分钟"，实际 600ns
+```
+
+这两个字段是 `time.Duration`（纳秒），连接几乎每次取用都被判定过期并重建。
+已改为 `30 * time.Minute` / `10 * time.Minute`。
+
+#### Cookie 行为由配置驱动
+
+- `Secure` 原硬编码 `true`，本地 HTTP 开发时浏览器不回传 Cookie，无法登录；
+  现由 `APP_ENV` 决定（仅 production 启用）
+- `MaxAge` 原硬编码 24h，现与 `SESSION_LIFETIME` 保持一致
+- `Logout` 补充清理服务端 Session（此前只清 Cookie，Cookie 被复制后仍可继续使用）
+
+#### 配置与编排
+
+- `.env.example` 按**消费方**重写：`[A] 应用读取` / `[B] 仅 compose 使用` 两区，
+  补上缺失的 `ADMIN_USERNAME`、`SESSION_LIFETIME`、三个 `*_PROVIDER`
+- `docker-compose.yml`：`PORT` 原硬编码 `"8080"`（compose 下改 `.env` 无效），
+  改为 `${PORT:-8080}`，端口映射容器侧同步；`APP_ENV` 默认由 `production` 改为
+  `development`（本编排走 HTTP，production 会因 Cookie Secure 导致无法登录）；
+  补齐 `SESSION_LIFETIME` 与 Provider 相关变量透传
+
+#### 文档
+
+- `docs/DEPLOY.md` 新增第三章「配置项参考」：优先级、应用读取项与 compose 专用项
+  两张表、`PORT` 与 `APP_PORT` 的区别、`DATABASE_URL` 与 `POSTGRES_*` 的关系、
+  `config.yaml` 用法、尚未接线的配置项、由代码固定不可配置的项；后续章节顺延重编号
+- `AGENT.md`：「必填环境变量」改写为「配置约束」，区分无条件必填与条件必填，
+  记录 `managedKeys` 登记要求与 `PORT`/`APP_PORT` 的区别；修正 L1 配置表中
+  「dimension 可配」的错误描述（实为硬编码于 provider 包）；更新 godotenv
+  优先级说明
+
+#### 测试
+
+- 新增 `internal/config/config_test.go`：16 个用例，覆盖 PORT/APP_ENV 回归、
+  嵌套 YAML 解析、三来源优先级、默认值、时长解析、六项校验规则、示例文件一致性
+- 新增 `internal/service/auth_test.go`：17 个用例，覆盖凭据接线回归、
+  硬编码 admin/admin 已失效、session ID 随机性与长度、过期、登出、构造期校验
+- 全部通过
+
+**验证状态**：
+- `go build ./...` ✅
+- `go vet ./...` ✅
+- `go test ./...` ✅（新增 33 个用例全部通过）
+- `gofmt` ✅（本次改动的 8 个文件均合规；另有 13 个文件在 HEAD 即不合规，未纳入本次范围）
+- compose YAML 解析 ✅
+
+**遗留问题**：
+
+1. **后台路由未接入鉴权**：`SessionMiddleware` 已修好但未被任何路由注册；
+   8 个 admin handler 已实现却未注册路由。接入需先确定鉴权边界
+   （哪些接口公开、哪些需登录），属功能缺口
+2. **`CSRFMiddleware` 仍为占位**：未校验 Token，现阶段依赖 Cookie 的 SameSite
+3. **`SESSION_SECRET` 仍未被消费**：只被校验（必填 + 长度）。Session ID 走密码学
+   随机源并存于服务端，暂不需要签名密钥；保留必填是为 CSRF Token / Cookie 签名预留
+4. **Session 存于进程内存**：重启即全部失效，多实例部署无法共享，水平扩容前
+   须迁至 Redis 或数据库
+5. **13 个文件不符合 gofmt**：HEAD 既有问题，可用 `make fmt` 单独提交修复
+
+---
+
 ## [v0.5.3] - 2026-09-08
 
 ### 部署文件结构调整 + 文档改名为 DEPLOY.md 并补充运维内容

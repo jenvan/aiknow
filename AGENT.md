@@ -107,21 +107,28 @@ SELECT '你好世界，全文检索'::pdb.jieba::text[];
 
 | 层级 | 存储 | 内容 | 变更方式 |
 |------|------|------|---------|
-| **L1 启动配置** | 环境变量 → `.env` → config.yaml | 连接串、密钥、端口、provider、base_url、dimension、管理员账号 | 需重启 |
+| **L1 启动配置** | 环境变量 → `.env` → config.yaml | 连接串、密钥、端口、运行环境、provider、base_url、管理员账号、Session 有效期 | 需重启 |
 | **L2 业务配置** | `settings` 表 | 模型参数、提示词、检索参数、采集参数 | 后台改，热生效 |
 | **L3 凭据数据** | `api_keys` 表 | API Key 哈希 | 后台管理 |
 
 **分层判断原则**：
 - 密钥类**绝不**进 `settings` 表和后台页面
 - `provider` / `base_url` 归 L1：切服务商是部署级变更，通常伴随换密钥
-- `embedding.dimension` 归 L1：与 `VECTOR(1024)` 表结构强绑定，改了要迁数据
+- 向量维度**不是配置项**：与 `VECTOR(1024)` 表结构、HNSW 索引、bge-large-zh-v1.5
+  三者强绑定，改了要重建表与索引并重灌数据。当前硬编码在
+  `internal/service/provider/`，刻意不开放配置，避免给出"可调"的错误暗示
 
 **L1 加载优先级**（先命中者生效）：
 ```
 1. 环境变量        2. .env 文件
 3. config.yaml     4. 代码内置默认值
 ```
-用 `godotenv` 加载 `.env`，其默认行为不覆盖已有环境变量，与该优先级天然一致。`.env` 不存在时静默跳过。启动后打印各配置的**来源**但不打印值。
+`.env` 不存在时静默跳过。启动后打印各配置的**来源**但不打印值（`cfg.LogSources()`）。
+
+优先级不依赖 `godotenv` 的覆盖行为：`NewConfig()` 会在加载 `.env` **之前**先快照真实
+环境变量，再用 `godotenv.Read()` 单独取文件内容做来源归因。原因是 `godotenv.Load()`
+会把文件内容注入进程环境，之后 `os.Getenv` 便无法区分某个值来自 `.env` 还是环境变量，
+只按 `Getenv` 判断会把 `.env` 的值误标为环境变量来源。
 
 **L2 热生效**：
 ```
@@ -411,10 +418,30 @@ POST /api/v1/search
 - 超时：连接 5s，读取 10s
 - 最大重定向：3 次
 
-### 6. 必填环境变量
-`DATABASE_URL`、`QWEN_API_KEY`、`BAAI_API_KEY`、`SESSION_SECRET`、`ADMIN_PASSWORD_HASH`
+### 6. 配置约束
 
-可通过环境变量或 `.env` 提供。`ADMIN_PASSWORD_HASH` 与 `ADMIN_PASSWORD` 都缺失时启动失败。`.env` 必须在 `.gitignore` 中，仓库只放 `.env.example`。
+**无条件必填**：`DATABASE_URL`、`SESSION_SECRET`（≥32 字符），
+以及 `ADMIN_PASSWORD_HASH` 或 `ADMIN_PASSWORD` 二者之一。
+
+**条件必填**：`QWEN_API_KEY` 仅在 `LLM_PROVIDER=qwen` 时必填；`BAAI_API_KEY` 仅在
+`EMBEDDING_PROVIDER` 或 `RERANKER_PROVIDER` 为 `baai` 时必填。三个 Provider 缺省
+均为 `mock`，无凭据也能启动。
+
+**优先级**：环境变量 > `.env` > `config.yaml` > 内置默认值。
+`.env` 必须在 `.gitignore` 中，仓库只放 `.env.example`。
+
+**新增配置项必须在 `internal/config/config.go` 的 `managedKeys` 中登记**，
+仅在结构体上加字段或标签不会生效 —— 三个加载来源共用这份清单。
+此前 `PORT` 与 `APP_ENV` 只写了 `env:` 标签而无人读取，导致任何来源都无法覆盖，
+端口恒为 8080。若同时需要 YAML 支持，还要在 `YAMLConfig` 与 `toFlat()` 中补映射；
+`config_test.go` 的 `TestExampleYAMLMatchesParser` 会守住示例文件与解析器的一致性。
+
+`SESSION_SECRET` 目前只被校验、尚未被消费（Session ID 走密码学随机源并存于服务端）。
+保留必填是为 CSRF Token / Cookie 签名预留，勿因"看起来没用"而删除。
+
+**`PORT` 与 `APP_PORT` 不是重复项**：`PORT` 是容器内应用监听端口（Go 读取），
+`APP_PORT` 是映射到宿主机的端口（仅 compose 读取）。同理 `.env` 中的
+`DATABASE_URL` 在 compose 部署下不生效 —— 编排会用 `POSTGRES_*` 现场拼装后注入。
 
 ### 7. 目录结构
 ```

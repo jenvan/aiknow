@@ -62,7 +62,7 @@ docker run -d \
 ```
 
 > **务必钉死版本号。** pg_search 的索引 DDL 与查询语法在 0.25.0 发生过不兼容变更，
-> 使用 `latest` 会在升级时静默破坏检索功能（见第三章"版本注意事项"）。
+> 使用 `latest` 会在升级时静默破坏检索功能（见第四章"版本注意事项"）。
 
 ### 2. 创建扩展
 
@@ -248,7 +248,144 @@ docker compose exec -T postgres psql -U postgres -d aiknow \
 
 ---
 
-## 三、版本注意事项
+## 三、配置项参考
+
+### 优先级
+
+```
+环境变量  >  .env  >  config.yaml  >  内置默认值
+```
+
+同一项在多处出现时取优先级最高者。启动日志会打印每一项的实际来源（不打印值），
+排查"配置为何没生效"时先看这里。
+
+配置项分两层：
+
+- **L1 启动配置**：本章所列，进程启动时读取，改动需重启
+- **L2 业务配置**：检索权重、分块大小、日志保留天数等，存于数据库 `settings` 表，
+  由后台管理界面调整并热生效，不在本章范围
+
+### 应用读取的配置项
+
+直跑二进制与 compose 部署都生效。
+
+| 变量 | 默认值 | 说明 |
+|---|---|---|
+| `DATABASE_URL` | 无（必填） | 数据库连接串 |
+| `PORT` | `8080` | 应用监听端口 |
+| `APP_ENV` | `development` | `development` \| `production` |
+| `SESSION_SECRET` | 无（必填，≥32 字符） | 见下文"尚未接线的配置项" |
+| `SESSION_LIFETIME` | `24h` | Session 有效期，兼作 Cookie MaxAge |
+| `ADMIN_USERNAME` | `admin` | 管理员用户名 |
+| `ADMIN_PASSWORD_HASH` | 无 | bcrypt 哈希，与下者至少提供一个 |
+| `ADMIN_PASSWORD` | 无 | 明文密码，仅开发环境 |
+| `LLM_PROVIDER` | `mock` | `qwen` \| `mock` |
+| `EMBEDDING_PROVIDER` | `mock` | `baai` \| `mock` |
+| `RERANKER_PROVIDER` | `mock` | `baai` \| `mock` |
+| `QWEN_API_KEY` | 无 | `LLM_PROVIDER=qwen` 时必填 |
+| `QWEN_BASE_URL` | 无 | Qwen 兼容模式端点 |
+| `BAAI_API_KEY` | 无 | Embedding / Reranker 选 `baai` 时必填 |
+| `BAAI_BASE_URL` | 无 | BAAI 服务端点 |
+
+`APP_ENV=production` 会改变两处行为：
+
+1. 禁止使用明文 `ADMIN_PASSWORD`，必须提供 `ADMIN_PASSWORD_HASH`，否则启动失败
+2. Session Cookie 启用 `Secure` 标记，仅通过 HTTPS 传输
+
+> 本地通过 HTTP 访问时**不要**设为 `production` —— 浏览器不会回传带 `Secure`
+> 标记的 Cookie，将无法登录。生产部署需在应用前放置终止 TLS 的反向代理。
+
+### 仅 Docker Compose 使用的变量
+
+以下变量只在 `docker-compose.yml` 内做插值，**不会作为配置项被应用读取**。
+直跑二进制时可全部忽略。
+
+| 变量 | 默认值 | 用途 |
+|---|---|---|
+| `POSTGRES_USER` | `postgres` | 建库，兼用于拼装 `DATABASE_URL` |
+| `POSTGRES_PASSWORD` | 无（必填） | 同上；未设置时 compose 直接报错 |
+| `POSTGRES_DB` | `aiknow` | 同上 |
+| `POSTGRES_BIND` | `127.0.0.1` | 数据库端口映射的宿主机地址 |
+| `POSTGRES_PORT` | `5432` | 数据库端口映射的宿主机端口 |
+| `APP_BIND` | `0.0.0.0` | 应用端口映射的宿主机地址 |
+| `APP_PORT` | `8080` | 应用端口映射的宿主机端口 |
+
+### `PORT` 与 `APP_PORT` 的区别
+
+两者不是重复项，分属不同层：
+
+- **`PORT`** —— 容器内应用监听的端口，由 Go 读取
+- **`APP_PORT`** —— 映射到宿主机的端口，由 compose 读取
+
+即 `宿主机 APP_PORT → 容器内 PORT`。两者可以不同，例如宿主机 8080 已被占用时
+只改 `APP_PORT=18080`，容器内仍监听 8080。
+
+### `DATABASE_URL` 与 `POSTGRES_*` 的关系
+
+**两者不竞争，按部署方式各管一段：**
+
+| 部署方式 | 生效的变量 | 不生效的变量 |
+|---|---|---|
+| 直跑二进制 | `DATABASE_URL` | `POSTGRES_*`（完全无用） |
+| Docker Compose | `POSTGRES_*` | **`.env` 中的 `DATABASE_URL`** |
+
+compose 场景下，`DATABASE_URL` 由编排用 `POSTGRES_*` 按服务名 `postgres` 现场
+拼装后注入容器（`docker-compose.yml` 的 `environment:` 段）。**`.env` 里写的
+`DATABASE_URL` 不会被传入容器**，改它不起任何作用。
+
+### 使用 config.yaml
+
+`config.yaml` 采用嵌套结构，字段与环境变量一一对应，完整示例见
+`config.yaml.example`：
+
+```yaml
+database:
+  url: "postgres://postgres:password@127.0.0.1:5432/aiknow?sslmode=disable"
+server:
+  port: 8080
+app:
+  env: "development"
+session:
+  secret: "至少32个字符的随机串"
+  lifetime: "24h"
+admin:
+  username: "admin"
+  password_hash: ""
+ai:
+  llm_provider: "mock"
+```
+
+优先级低于 `.env` 与环境变量，适合放非敏感的默认值。凭据建议仍走环境变量或
+`.env`，避免写入文件。
+
+> 新增 YAML 字段需同时在 `internal/config/config.go` 的 `YAMLConfig` 结构与
+> `managedKeys` 清单中登记，否则不会生效。`config_test.go` 中的
+> `TestExampleYAMLMatchesParser` 会守住示例文件与解析器的一致性。
+
+### 尚未接线的配置项
+
+`SESSION_SECRET` 目前**只被配置校验使用**（强制必填且检查长度 ≥32），代码尚未
+实际消费它。Session ID 由密码学随机源生成并存于服务端，暂不需要签名密钥。
+保留为必填是为了在引入 CSRF Token 或 Cookie 签名前就把它准备好，届时无需再调整
+部署配置。
+
+### 由代码固定、不可配置的项
+
+| 项 | 当前值 | 位置 |
+|---|---|---|
+| 连接池上下限 | `MaxConns=20` / `MinConns=2` | `internal/repository/postgres.go` |
+| 连接寿命 / 空闲超时 | 30 分钟 / 10 分钟 | 同上 |
+| HTTP 读写 / 空闲超时 | 15s / 15s / 60s | `cmd/aiknow-server/main.go` |
+| 向量维度 | 1024（与 bge-large-zh-v1.5 绑定） | 迁移 SQL 与 Provider |
+| 模型名 | `BAAI/bge-large-zh-v1.5`、`BAAI/bge-reranker-v2-m3` | `internal/service/provider/` |
+| Session 存储 | 进程内存 | `internal/service/auth.go` |
+
+> Session 存于进程内存，因此**重启即全部失效**，且多实例部署时无法共享。
+> 需要水平扩容前须先将 Session 迁至 Redis 或数据库。
+
+---
+
+## 四、版本注意事项
 
 本项目基于 **pg_search 0.25.6** 编写。该版本的关键语法特征：
 
@@ -264,7 +401,7 @@ docker compose exec -T postgres psql -U postgres -d aiknow \
 ### 升级 ParadeDB 的步骤
 
 1. 阅读目标版本的 release notes，确认索引 DDL 与查询语法有无变更
-2. **先备份**（见第五章"备份与恢复"）
+2. **先备份**（见第六章"备份与恢复"）
 3. 修改 `docker-compose.yml` 中的镜像 tag，以及本文档与 `AGENT.md` 中的版本记录
 4. `docker compose up -d`，观察 `docker compose logs postgres`
 5. 若语法有变更，需同步修改 `internal/repository/migrations/006_paradedb_search.sql`
@@ -275,7 +412,7 @@ docker compose exec -T postgres psql -U postgres -d aiknow \
 
 ---
 
-## 四、待验证事项
+## 五、待验证事项
 
 以下事项**需在真实 ParadeDB 实例上实机验证**（本地开发或测试环境均可）：
 
@@ -322,7 +459,7 @@ SELECT '你的测试查询'::pdb.jieba::text[];
 
 ---
 
-## 五、运维须知
+## 六、运维须知
 
 ### 健康检查与监控
 
@@ -509,7 +646,7 @@ docker compose logs --tail=200 app  # 最近 200 行
 
 ---
 
-## 六、云托管的限制
+## 七、云托管的限制
 
 pg_search 是自建专属扩展，阿里云 / 腾讯云等托管 RDS **不支持**（它们支持 zhparser）。
 选用 ParadeDB 意味着数据库需自建。若未来计划迁移至托管 RDS，需重新评估检索方案。
@@ -519,7 +656,7 @@ pg_search 是自建专属扩展，阿里云 / 腾讯云等托管 RDS **不支持
 
 ---
 
-## 七、生产部署补充建议
+## 八、生产部署补充建议
 
 当前编排面向测试与演示，用于生产还需补充：
 
@@ -532,5 +669,5 @@ pg_search 是自建专属扩展，阿里云 / 腾讯云等托管 RDS **不支持
   并验证恢复流程可用
 - **日志收集**：容器日志默认写入本地，生产建议配置 log driver 输出到集中式日志
 - **资源限制**：为容器设置 `deploy.resources.limits`，避免单容器耗尽宿主机资源
-- **监控告警**：对第五章"关键观测指标"中的死信数量、队列深度、
+- **监控告警**：对第六章"关键观测指标"中的死信数量、队列深度、
   `failed` 文章数设置告警

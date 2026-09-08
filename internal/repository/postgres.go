@@ -5,12 +5,12 @@ import (
 	"database/sql"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/stdlib"
-
 )
 
 // PostgresDB PostgreSQL 数据库封装
@@ -18,14 +18,14 @@ type PostgresDB struct {
 	pool *pgxpool.Pool
 	mu   sync.RWMutex
 	// Repos
-	ArticleRepo   ArticleRepository
-	ChunkRepo     ChunkRepository
-	CategoryRepo  CategoryRepository
-	TagRepo       TagRepository
-	SearchRepo    SearchRepository
-	SettingRepo   SettingRepository
-	APIKeyRepo    APIKeyRepository
-	MCPLogRepo    MCPLogRepository
+	ArticleRepo  ArticleRepository
+	ChunkRepo    ChunkRepository
+	CategoryRepo CategoryRepository
+	TagRepo      TagRepository
+	SearchRepo   SearchRepository
+	SettingRepo  SettingRepository
+	APIKeyRepo   APIKeyRepository
+	MCPLogRepo   MCPLogRepository
 }
 
 // NewPostgresDB 创建数据库连接
@@ -36,10 +36,14 @@ func NewPostgresDB(ctx context.Context, dsn string) (*PostgresDB, error) {
 	}
 
 	// 设置连接池参数
+	//
+	// MaxConnLifetime / MaxConnIdleTime 是 time.Duration（纳秒）。
+	// 此前写作 30 * 60 / 10 * 60，实际值为 1.8µs / 600ns —— 连接几乎每次
+	// 取用都会被判定为过期并重建，务必带单位。
 	config.MaxConns = 20
 	config.MinConns = 2
-	config.MaxConnLifetime = 30 * 60 // 30 分钟
-	config.MaxConnIdleTime = 10 * 60 // 10 分钟
+	config.MaxConnLifetime = 30 * time.Minute
+	config.MaxConnIdleTime = 10 * time.Minute
 
 	pool, err := pgxpool.NewWithConfig(ctx, config)
 	if err != nil {

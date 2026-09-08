@@ -174,15 +174,45 @@ func serve() {
 	fmt.Println("数据库迁移完成")
 
 	// 初始化 AI Provider
+	//
+	// 三个 Provider 各自独立选择，缺省为 mock，便于无凭据时本地开发。
+	// 选择 qwen / baai 时，对应的 API Key 必填，否则构造函数会报错。
+	qwenKey, _ := cfg.Get("QWEN_API_KEY")
+	qwenBaseURL, _ := cfg.Get("QWEN_BASE_URL")
+	baaiKey, _ := cfg.Get("BAAI_API_KEY")
+	baaiBaseURL, _ := cfg.Get("BAAI_BASE_URL")
+
 	factory := provider.NewProviderFactory(provider.L1ProviderConfig{
-		LLMProvider:       "mock",
-		EmbeddingProvider: "mock",
-		RerankerProvider:  "mock",
+		LLMProvider: cfg.GetOr("LLM_PROVIDER", "mock"),
+		LLMAPIKey:   qwenKey,
+		LLMBaseURL:  qwenBaseURL,
+
+		EmbeddingProvider: cfg.GetOr("EMBEDDING_PROVIDER", "mock"),
+		EmbeddingAPIKey:   baaiKey,
+		EmbeddingBaseURL:  baaiBaseURL,
+
+		RerankerProvider: cfg.GetOr("RERANKER_PROVIDER", "mock"),
+		RerankerAPIKey:   baaiKey,
+		RerankerBaseURL:  baaiBaseURL,
 	})
 
-	llmProvider, _ := factory.CreateLLM(ctx)
-	embeddingProvider, _ := factory.CreateEmbedding(ctx)
-	rerankerProvider, _ := factory.CreateReranker(ctx)
+	// 构造失败不能忽略：此前以 _ 丢弃错误，会导致 provider 为 nil，
+	// 直到首次调用才 panic
+	llmProvider, err := factory.CreateLLM(ctx)
+	if err != nil {
+		fmt.Printf("初始化 LLM Provider 失败: %v\n", err)
+		os.Exit(1)
+	}
+	embeddingProvider, err := factory.CreateEmbedding(ctx)
+	if err != nil {
+		fmt.Printf("初始化 Embedding Provider 失败: %v\n", err)
+		os.Exit(1)
+	}
+	rerankerProvider, err := factory.CreateReranker(ctx)
+	if err != nil {
+		fmt.Printf("初始化 Reranker Provider 失败: %v\n", err)
+		os.Exit(1)
+	}
 
 	fmt.Printf("AI Provider 初始化完成: LLM=%s, Embedding=%s, Reranker=%s\n",
 		llmProvider.Name(), embeddingProvider.Name(), rerankerProvider.Name())
@@ -204,7 +234,26 @@ func serve() {
 		db.GetTagRepo(),
 	)
 
-	authService := service.NewAuthService()
+	// 管理员凭据来自 L1 配置；此前 Login 内硬编码 admin/admin，
+	// 配置中的用户名与密码从未生效
+	adminUser, _ := cfg.Get("ADMIN_USERNAME")
+	adminHash, _ := cfg.Get("ADMIN_PASSWORD_HASH")
+	adminPwd, _ := cfg.Get("ADMIN_PASSWORD")
+
+	authService, err := service.NewAuthService(service.AuthConfig{
+		Username:        adminUser,
+		PasswordHash:    adminHash,
+		Password:        adminPwd,
+		SessionLifetime: cfg.GetDuration("SESSION_LIFETIME", service.DefaultSessionLifetime),
+	})
+	if err != nil {
+		fmt.Printf("初始化认证服务失败: %v\n", err)
+		os.Exit(1)
+	}
+	if adminHash == "" {
+		fmt.Println("警告: 正在使用明文 ADMIN_PASSWORD（仅限开发环境），" +
+			"生产环境请改用 ADMIN_PASSWORD_HASH")
+	}
 
 	// 初始化 Gin 路由器
 	r := gin.Default()
@@ -218,7 +267,11 @@ func serve() {
 		})
 
 		// 认证路由
-		authHandler := admin.NewAuthHandler(authService)
+		// Cookie 的 Secure 由环境决定：本地开发走 HTTP，置 true 浏览器不会回传
+		authHandler := admin.NewAuthHandler(authService, admin.CookieConfig{
+			MaxAge: cfg.GetDuration("SESSION_LIFETIME", service.DefaultSessionLifetime),
+			Secure: cfg.IsProduction(),
+		})
 		apiGroup.POST("/admin/auth/login", authHandler.Login)
 		apiGroup.POST("/admin/auth/logout", authHandler.Logout)
 		apiGroup.GET("/admin/auth/session", authHandler.GetSession)

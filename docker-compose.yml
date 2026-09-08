@@ -54,21 +54,38 @@ services:
         # 等待扩展就绪后再启动，否则迁移会失败
         condition: service_healthy
     environment:
-      # 数据库连接串由 compose 拼装，指向服务名 postgres
+      # 数据库连接串由 compose 拼装，指向服务名 postgres。
+      # .env 中的 DATABASE_URL 不会传入容器。
       DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-aiknow}?sslmode=disable
-      PORT: "8080"
-      APP_ENV: ${APP_ENV:-production}
+
+      # 容器内监听端口。此前硬编码为 8080，导致 .env 中的 PORT 在 compose 下无效。
+      PORT: ${PORT:-8080}
+
+      # 本编排面向本地测试，通过 HTTP 访问，故默认 development。
+      #
+      # 设为 production 会启用 Cookie 的 Secure 标记，浏览器在 HTTP 下不会回传
+      # Cookie，将无法登录 —— 真正的生产部署需在前面放置 TLS 终止的反向代理，
+      # 详见 docs/DEPLOY.md 第八章。
+      APP_ENV: ${APP_ENV:-development}
+
       # 凭据类配置从 .env 透传
       SESSION_SECRET: ${SESSION_SECRET:?请在 .env 中设置 SESSION_SECRET（至少 32 字符）}
+      SESSION_LIFETIME: ${SESSION_LIFETIME:-24h}
       ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
       ADMIN_PASSWORD_HASH: ${ADMIN_PASSWORD_HASH:-}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+
+      # AI Provider 选择，缺省 mock（无需凭据）
+      LLM_PROVIDER: ${LLM_PROVIDER:-mock}
+      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-mock}
+      RERANKER_PROVIDER: ${RERANKER_PROVIDER:-mock}
       QWEN_API_KEY: ${QWEN_API_KEY:-}
       QWEN_BASE_URL: ${QWEN_BASE_URL:-}
       BAAI_API_KEY: ${BAAI_API_KEY:-}
       BAAI_BASE_URL: ${BAAI_BASE_URL:-}
     ports:
-      - "${APP_BIND:-0.0.0.0}:${APP_PORT:-8080}:8080"
+      # 容器侧端口须与上方 PORT 一致，否则映射指向未监听的端口
+      - "${APP_BIND:-0.0.0.0}:${APP_PORT:-8080}:${PORT:-8080}"
 
 volumes:
   pgdata:
