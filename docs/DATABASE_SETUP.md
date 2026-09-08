@@ -31,71 +31,11 @@ pgmq 需要编译安装且**不在 ParadeDB 镜像内**。以本项目的队列�
 
 ---
 
-## 一、启动数据库
+## 一、本地开发环境（仅启动数据库）
 
-推荐使用 Docker Compose 一并拉起数据库与应用（**方式 A**）；
-若只需数据库、应用在宿主机以二进制运行，用 **方式 B**。
+应用在宿主机以二进制运行，数据库在容器内。适合日常开发与调试。
 
-### 方式 A：Docker Compose（推荐）
-
-仓库根目录已提供 `docker-compose.yml` 与 `Dockerfile`。
-
-```bash
-# 1. 准备环境变量
-cp .env.example .env
-
-# 2. 至少填写以下三项（编辑 .env）
-#    POSTGRES_PASSWORD  数据库密码
-#    SESSION_SECRET     32 字符以上随机串
-#    ADMIN_PASSWORD_HASH（或开发期用 ADMIN_PASSWORD）
-#
-#    生成管理员密码哈希：
-#    go run ./cmd/aiknow-server hashpwd 你的密码
-
-# 3. 启动
-docker compose up -d --build      # 或 make up
-
-# 4. 查看状态与日志
-docker compose ps                 # 或 make ps
-docker compose logs -f app        # 或 make logs
-```
-
-启动后访问 `http://localhost:8080`，健康检查端点为 `/api/v1/health`。
-
-编排包含两个服务：
-
-| 服务 | 说明 |
-|---|---|
-| `postgres` | ParadeDB 0.25.6-pg17，数据持久化在 `pgdata` 卷 |
-| `app` | 应用镜像，由本仓库 `Dockerfile` 构建 |
-
-几个要点：
-
-- **扩展自动创建**：`deploy/postgres/init/01-extensions.sql` 通过镜像的
-  `docker-entrypoint-initdb.d` 机制执行，**仅在数据卷为空（首次初始化）时运行一次**
-- **启动顺序有保障**：`app` 的 `depends_on` 使用 `service_healthy`，而 `postgres`
-  的健康检查会实际探测 `vector` 与 `pg_search` 是否已创建（而非仅探测端口）。
-  这是必要的——应用启动即执行迁移，而迁移依赖这两个扩展
-- **`DATABASE_URL` 无需手工设置**：由编排按服务名 `postgres` 自动拼装
-- **数据库默认不暴露公网**：端口映射绑定 `127.0.0.1`，可用 `POSTGRES_BIND` 调整
-
-常用操作：
-
-```bash
-docker compose down              # 停止，保留数据
-docker compose down -v           # 停止并删除数据卷（会清空数据库）
-docker compose exec postgres psql -U postgres -d aiknow    # 进入 psql
-```
-
-> **数据卷已存在但扩展缺失时**（例如卷创建于本次调整之前），初始化脚本不会重跑，
-> 需手动补建：
->
-> ```bash
-> docker compose exec -T postgres psql -U postgres -d aiknow \
->   < deploy/postgres/init/01-extensions.sql
-> ```
-
-### 方式 B：仅启动数据库
+### 1. 启动 ParadeDB 容器
 
 ```bash
 docker run -d \
@@ -108,12 +48,162 @@ docker run -d \
   paradedb/paradedb:0.25.6-pg17
 ```
 
-此方式需按「二、创建扩展」手动创建扩展。
+> **务必钉死版本号。** pg_search 的索引 DDL 与查询语法在 0.25.0 发生过不兼容变更，
+> 使用 `latest` 会在升级时静默破坏检索功能（见本文末"版本注意事项"）。
 
-> **务必钉死版本号。** pg_search 的索引 DDL 与查询语法在 0.25.0 发生过不兼容变更
-> （见下文"版本注意事项"），使用 `latest` 会在升级时静默破坏检索功能。
+### 2. 初始化数据库
 
-### 版本注意事项
+```bash
+# 创建扩展（vector + pg_search，含可用性验证）
+psql -h 127.0.0.1 -U postgres -d aiknow -f deploy/postgres/000_init.sql
+
+# 建表（合并了所有迁移中的建表 DDL）
+psql -h 127.0.0.1 -U postgres -d aiknow -f deploy/postgres/schema.sql
+```
+
+### 3. 配置环境变量
+
+```bash
+cp .env.example .env
+```
+
+编辑 `.env`，至少填写：
+
+```bash
+DATABASE_URL=postgres://postgres:password@127.0.0.1:5432/aiknow?sslmode=disable
+SESSION_SECRET=至少32字符的随机串
+ADMIN_PASSWORD_HASH=（由下方命令生成）
+```
+
+生成管理员密码哈希：
+
+```bash
+go run ./cmd/aiknow-server hashpwd 你的密码
+```
+
+开发期也可直接用明文密码（`ADMIN_PASSWORD=你的密码`），应用会自动哈希。
+
+### 4. 启动应用
+
+```bash
+make run
+# 或
+go run ./cmd/aiknow-server serve
+```
+
+访问 `http://localhost:8080`，健康检查端点为 `/api/v1/health`。
+
+### 重建数据库
+
+```bash
+docker exec -it aiknow-postgres psql -U postgres -d aiknow \
+  -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"
+
+psql -h 127.0.0.1 -U postgres -d aiknow -f deploy/postgres/000_init.sql
+psql -h 127.0.0.1 -U postgres -d aiknow -f deploy/postgres/schema.sql
+```
+
+---
+
+## 二、测试环境（Docker Compose 全栈）
+
+一键拉起数据库与应用，适合集成测试、演示或生产预演。
+
+### 1. 准备环境变量
+
+```bash
+cp .env.example .env
+```
+
+编辑 `.env`，至少填写以下三项：
+
+```bash
+POSTGRES_PASSWORD=数据库密码
+SESSION_SECRET=至少32字符的随机串
+ADMIN_PASSWORD_HASH=（由下方命令生成）
+```
+
+生成管理员密码哈希：
+
+```bash
+go run ./cmd/aiknow-server hashpwd 你的密码
+# 或构建后：docker compose run --rm app /app/aiknow-server hashpwd 你的密码
+```
+
+> **`DATABASE_URL` 无需手动设置**：由 `docker-compose.yml` 按服务名 `postgres` 自动拼装。
+
+### 2. 启动
+
+```bash
+docker compose up -d --build
+# 或
+make up
+```
+
+首次启动会：
+1. 拉取 ParadeDB 0.25.6-pg17 镜像
+2. 构建应用镜像（基于本仓库 `Dockerfile`）
+3. 初始化数据库（`deploy/postgres/init/01-extensions.sql` 通过镜像的
+   `docker-entrypoint-initdb.d` 机制执行，**仅在数据卷为空时运行一次**）
+4. 应用启动后自动执行迁移（迁移脚本已通过 `go:embed` 打包进二进制）
+
+**启动顺序有保障**：`app` 的 `depends_on` 使用 `service_healthy`，而 `postgres` 的
+健康检查会实际探测 `vector` 与 `pg_search` 是否已创建（而非仅探测端口）。
+
+### 3. 查看状态与日志
+
+```bash
+docker compose ps           # 或 make ps
+docker compose logs -f app  # 或 make logs
+```
+
+访问 `http://localhost:8080`。
+
+### 4. 常用操作
+
+```bash
+# 停止（保留数据）
+docker compose down         # 或 make down
+
+# 停止并删除数据卷（会清空数据库）
+docker compose down -v
+
+# 进入 psql
+docker compose exec postgres psql -U postgres -d aiknow
+
+# 查看应用版本
+docker compose exec app /app/aiknow-server --version
+
+# 重建（代码变更后）
+docker compose up -d --build
+```
+
+### 编排说明
+
+| 服务 | 说明 |
+|---|---|
+| `postgres` | ParadeDB 0.25.6-pg17，数据持久化在 `pgdata` 卷 |
+| `app` | 应用镜像，由本仓库 `Dockerfile` 构建 |
+
+几个要点：
+
+- **扩展自动创建**：`deploy/postgres/init/01-extensions.sql` 调用 `000_init.sql`，
+  仅在数据卷为空（首次初始化）时运行一次
+- **数据库默认不暴露公网**：端口映射绑定 `127.0.0.1`，可用 `POSTGRES_BIND` 调整
+- **应用端口**：默认 `0.0.0.0:8080`，可用 `APP_BIND` / `APP_PORT` 调整
+
+### 数据卷已存在但扩展缺失时
+
+初始化脚本不会重跑，需手动补建：
+
+```bash
+docker compose exec -T postgres psql -U postgres -d aiknow \
+  < deploy/postgres/000_init.sql
+```
+
+---
+
+## 三、版本注意事项
 
 本项目基于 **pg_search 0.25.6** 编写。该版本的关键语法特征：
 
@@ -128,105 +218,45 @@ docker run -d \
 
 ---
 
-## 二、创建扩展
+## 四、待验证事项
 
-> **使用方式 A（Docker Compose）可跳过本节** —— 扩展由初始化脚本自动创建。
-> 本节适用于方式 B 及自建数据库环境。
+以下事项**需在真实 ParadeDB 实例上实机验证**（本地开发或测试环境均可）：
 
-> **必须手动执行。** 项目的迁移执行器会跳过一切扩展创建语句
-> （见 `internal/repository/migrations.go`），因此扩展无法由迁移自动创建。
+### 1. UUID 作 `key_field`
 
-```bash
-psql -h 127.0.0.1 -U postgres -d aiknow <<'SQL'
-CREATE EXTENSION IF NOT EXISTS vector;
-CREATE EXTENSION IF NOT EXISTS pg_search;
-SQL
-```
+`deploy/postgres/schema.sql` 中两个 BM25 索引（`chunks_search_idx` / `articles_search_idx`）
+使用 UUID 列作为 `key_field`。官方文档对 `key_field` 只提出三项要求（唯一约束、位于列首、
+text 类型时不分词），UUID 均满足，但未明确背书该类型。
 
-`pg_search` 自 0.25.0 起依赖 pgvector 的 `vector` 类型，需先创建 `vector`；
-若使用 `CREATE EXTENSION pg_search CASCADE;` 则会自动带出 `vector`。
-
-自建（非镜像）环境还需在 `postgresql.conf` 中设置并重启：
-
-```ini
-shared_preload_libraries = 'pg_search'
-```
-
-### 验证
-
-```bash
-psql -h 127.0.0.1 -U postgres -d aiknow -c '\dx'
-```
-
-应能看到 `vector` 与 `pg_search`。再验证 jieba 分词是否可用：
+**若 `CREATE INDEX` 报类型错误**，需为表增加 bigint 代理键：
 
 ```sql
-SELECT '你好世界，全文检索'::pdb.jieba::text[];
-```
-
-预期返回词级切分结果（而非逐字切分）。若报错说明该版本未包含 jieba 分词器，
-请核对镜像版本。
-
----
-
-## 三、执行迁移
-
-迁移在**服务启动时自动执行**（见 `cmd/aiknow-server/main.go`），无需单独命令。
-迁移脚本已通过 `go:embed` 打包进二进制，容器内也无需挂载。
-
-迁移文件位于 `internal/repository/migrations/`（`migrations/` 为软链接）：
-
-| 文件 | 内容 |
-|---|---|
-| `001_initial_schema.sql` | 基础表结构 |
-| `002_vector.sql` | pgvector HNSW 索引 |
-| `003_pg_textsearch_bm25.sql` | **已废弃**（原 zhparser 方案，保留为空操作） |
-| `004_pgmq.sql` | **已废弃**（原 pgmq 方案，保留为空操作） |
-| `005_settings_apikeys_mcplogs.sql` | 配置、API Key、MCP 日志 |
-| `006_paradedb_search.sql` | pg_search BM25 索引 + `chunks.deleted` 冗余列 |
-| `007_job_queue.sql` | 任务队列表 |
-
-> 003 / 004 被降级为空操作而非原地改写：已有开发库中它们已记录为"已应用"，
-> 原地改写不会重跑，新逻辑必须放在新版本号里。
-
-### 待验证事项
-
-`006_paradedb_search.sql` 使用 UUID 列作为 `key_field`。官方文档对 `key_field`
-只提出三项要求（唯一约束、位于列首、text 类型时不分词），UUID 均满足，但未明确
-背书该类型。**若 `CREATE INDEX` 报类型错误**，需为 `chunks` 增加 bigint 代理键：
-
-```sql
+-- 以 chunks 为例
 ALTER TABLE chunks ADD COLUMN idx_key BIGINT GENERATED ALWAYS AS IDENTITY;
--- 并将索引与 pdb.score() 的参数改为 idx_key
+
+-- 重建索引，将 key_field 改为 idx_key
+DROP INDEX chunks_search_idx;
+CREATE INDEX chunks_search_idx ON chunks
+USING paradedb (idx_key, (content::pdb.jieba), deleted, article_id, chunk_index)
+WITH (key_field = 'idx_key');
+
+-- 代码中 pdb.score(id) 须改为 pdb.score(idx_key)
 ```
 
----
+articles 同理。
 
-## 四、环境变量
+### 2. jieba 分词的实际召回效果
 
-由 `.env` 提供（`cp .env.example .env`）。`.env` 已在 `.gitignore` 中，不得提交。
+验证中文查询的词级切分与召回质量，与原 zhparser 方案对比。
 
-**方式 A（Docker Compose）**：`DATABASE_URL` 由编排自动拼装，**不要**手动设置；
-需填写的是数据库账号密码：
+### 3. KeywordSearch 的加权 SQL
 
-```bash
-POSTGRES_PASSWORD=你的数据库密码
-SESSION_SECRET=至少32字符的随机串
-ADMIN_PASSWORD_HASH=（由 hashpwd 生成）
-```
+`internal/repository/search_repo.go` 中 `KeywordSearch` 方法使用 CTE 与 `|||` 算子，
+尚未在真实实例上运行。重点验证：
 
-**方式 B（应用在宿主机运行）**：需显式指定连接串：
-
-```bash
-DATABASE_URL=postgres://postgres:password@127.0.0.1:5432/aiknow?sslmode=disable
-```
-
-生成管理员密码哈希：
-
-```bash
-go run ./cmd/aiknow-server hashpwd 你的密码
-# 或容器内：docker compose exec app /app/aiknow-server hashpwd 你的密码
-```
+- 标签/分类精确匹配的 UNION 分支
+- 标题/摘要/正文 BM25 匹配分支
+- 加权求和与排序
 
 ---
 
@@ -273,6 +303,7 @@ DELETE FROM job_archive WHERE archived_at < now() - interval '30 days';
 
 ```sql
 REINDEX INDEX CONCURRENTLY chunks_search_idx;
+REINDEX INDEX CONCURRENTLY articles_search_idx;
 ```
 
 ### 打分受死行影响
@@ -281,6 +312,7 @@ pg_search 的 BM25 打分会把未回收的死行计入统计。若发现排序�
 
 ```sql
 VACUUM chunks;
+VACUUM articles;
 ```
 
 ---
