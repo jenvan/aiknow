@@ -439,10 +439,15 @@ POST /api/v1/search
 `SESSION_SECRET` 目前只被校验、尚未被消费（Session ID 走密码学随机源并存于服务端）。
 保留必填是为 CSRF Token / Cookie 签名预留，勿因"看起来没用"而删除。
 
-**`PORT` 与 `APP_PORT` 不是重复项**：`PORT` 是容器内应用监听端口（Go 读取），
-`APP_PORT` 是映射到宿主机的端口（仅 compose 读取）。`POSTGRES_PORT` 与
-`POSTGRES_PUBLISH_PORT` 同理 —— 前者是应用拼 DSN 用的库端口，后者是宿主机发布端口，
-二者曾共用 `POSTGRES_PORT` 一名，改发布端口会让容器去连错端口，故拆开。
+**端口不设映射变量**：compose 下宿主机与容器使用同一端口，应用由 `PORT` 控制、
+数据库由 `POSTGRES_PORT` 控制，两侧同步生效。监听地址也不提供配置项 ——
+容器端口默认发布在所有网卡上，访问控制交由网络层（安全组 / 防火墙 / 反向代理）负责。
+
+**但 `POSTGRES_PORT` 必须在 `environment` 中覆盖为 `5432`**：compose 下 `.env` 里的
+该值是宿主机发布端口，容器网络内恒为 5432。若被 `env_file` 原样带入容器（例如用户
+为避开端口冲突改成 15432），app 会去连容器网络内并不存在的端口。曾为此把两者拆成
+`POSTGRES_PORT` / `POSTGRES_PUBLISH_PORT` 两个变量，后改为单变量 + 编排覆盖 ——
+若日后调整这段覆盖逻辑，需保住这条约束。
 
 **数据库连接优先 `DATABASE_URL`，为空时由 `POSTGRES_*` 分项拼装**
 （`cfg.DatabaseURL()`，密码经 URL 编码，无需手动转义特殊字符）。

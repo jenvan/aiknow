@@ -26,9 +26,13 @@ services:
       # 同一文件也用于本地开发手动初始化（make db-init），是扩展创建的唯一来源。
       - ./docker-compose-initdb.sql:/docker-entrypoint-initdb.d/000_init.sql:ro
     ports:
-      # 默认仅监听回环地址，避免数据库直接暴露到公网。
-      # 这里是**宿主机**发布端口，与容器网络内的 5432 无关，改它不影响 app 连接。
-      - "${POSTGRES_BIND:-127.0.0.1}:${POSTGRES_PUBLISH_PORT:-5432}:5432"
+      # 宿主机发布端口，供直连数据库（psql / make db-init / 客户端工具）使用。
+      #
+      # 容器网络内固定 5432，app 通过服务名访问不经过这里，改这个值不影响 app。
+      #
+      # 未指定监听地址，Docker 默认发布在所有网卡上。访问控制由网络层
+      # （安全组 / 防火墙）负责，详见 docs/DEPLOY.md 第八章。
+      - "${POSTGRES_PORT:-5432}:5432"
     healthcheck:
       # 探测扩展是否就绪，而非仅探测端口：应用启动即执行迁移，
       # 迁移依赖 pg_search / vector 已创建
@@ -59,8 +63,6 @@ services:
         condition: service_healthy
 
     # 应用配置整体来自 .env，无需在此逐项透传。
-    # 其中的 POSTGRES_BIND / POSTGRES_PUBLISH_PORT / APP_BIND / APP_PORT 仅供
-    # 编排使用，一并注入容器不影响应用（未登记的键会被配置层忽略）。
     env_file:
       - .env
 
@@ -70,7 +72,10 @@ services:
       # 置空以屏蔽 .env 中面向宿主机的 DATABASE_URL；
       # 容器内的连接串由下方 POSTGRES_* 分项拼装
       DATABASE_URL: ""
-      # 容器网络内通过服务名访问，端口固定 5432（与宿主机发布端口无关）
+      # 容器网络内通过服务名访问，端口固定 5432。
+      #
+      # 必须覆盖 POSTGRES_PORT：.env 中的同名值是宿主机发布端口，
+      # 若被带入容器（例如改为 15432），app 会去连容器网络内并不存在的端口。
       POSTGRES_HOST: postgres
       POSTGRES_PORT: "5432"
 
@@ -85,8 +90,8 @@ services:
       PORT: ${PORT:-8080}
 
     ports:
-      # 容器侧端口须与上方 PORT 一致，否则映射指向未监听的端口
-      - "${APP_BIND:-0.0.0.0}:${APP_PORT:-8080}:${PORT:-8080}"
+      # 宿主机与容器使用同一端口，由 PORT 统一控制
+      - "${PORT:-8080}:${PORT:-8080}"
 
 volumes:
   pgdata:

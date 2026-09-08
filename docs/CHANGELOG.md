@@ -1,4 +1,74 @@
 # AiKnow 变更日志
+## [v0.5.6] - 2026-09-08
+
+### 简化端口配置：移除监听地址与端口映射变量
+
+**背景**：网络层访问控制由运维在安全组 / 防火墙层面负责，编排内再配一层监听地址
+属重复且易给出错误的安全感；宿主机与容器用不同端口在本项目也无实际需求。
+
+#### 移除的变量（4 个）
+
+| 变量 | 处置 |
+|---|---|
+| `POSTGRES_BIND` | 移除，容器端口默认发布在所有网卡 |
+| `APP_BIND` | 移除，同上 |
+| `APP_PORT` | 移除，宿主机与容器同端口，由 `PORT` 统一控制 |
+| `POSTGRES_PUBLISH_PORT` | 并回 `POSTGRES_PORT` |
+
+端口映射由 `"${VAR}:${VAR}"` 形式改为两侧同步：
+
+```yaml
+postgres:  ports: ["${POSTGRES_PORT:-5432}:5432"]
+app:       ports: ["${PORT:-8080}:${PORT:-8080}"]
+```
+
+`.env.example` 的变量数由 22 项减至 18 项，且**每一项都会被应用读取** ——
+不再有"仅供编排插值"的分类。
+
+#### `POSTGRES_PORT` 合并为单变量的前提
+
+v0.5.5 曾因"一名两用"把它拆成两个变量（宿主机发布端口 vs 应用连库端口）。
+本次合并回单变量，安全性由编排的 `environment` 覆盖保证：
+
+```yaml
+app:
+  environment:
+    POSTGRES_PORT: "5432"   # 覆盖 .env，容器网络内恒为 5432
+```
+
+`environment` 优先级高于 `env_file`，因此用户把 `.env` 中的 `POSTGRES_PORT`
+改为 `15432` 只影响宿主机发布端口，容器内 app 仍连 `postgres:5432`，
+不会重现 v0.5.5 修复的连错端口问题。
+
+合并后语义反而更自洽：`POSTGRES_PORT` 统一表示"postgres 可达的端口" ——
+compose 下是宿主机发布端口（供 `psql` / `make db-init` 直连），
+直跑二进制时就是数据库实际端口，两者指向同一个数据库。
+
+#### 文档
+
+- `docs/DEPLOY.md`：「仅 Docker Compose 使用的变量」一节（表格已空）重写为
+  「端口与监听地址」，明确"上表就是全部配置项"；删除「`PORT` 与 `APP_PORT`
+  的区别」一节，改为说明 `POSTGRES_PORT` 在两种部署形态下的含义差异；
+  编排要点两条同步更新
+- `AGENT.md`：删除已不存在的 `APP_PORT` / `POSTGRES_PUBLISH_PORT` 描述，
+  改为记录"端口不设映射变量"，并保留一条约束说明 —— `POSTGRES_PORT` 必须在
+  `environment` 中覆盖为 5432，日后调整覆盖逻辑时需守住
+- `.env.example`：`POSTGRES_PORT` 由注释提示提升为正文配置项并说明双重含义；
+  末尾「仅 docker compose 使用」整段删除
+
+**Go 代码无改动**：`POSTGRES_PORT` 本就在 `managedKeys` 中，应用侧语义未变。
+
+**验证状态**：
+- `go build ./...` ✅
+- `go vet ./...` ✅
+- `go test ./...` ✅
+- compose YAML 解析 ✅（确认端口映射与 5 项覆盖符合预期）
+
+**仍需实机验证**（本机无 Docker）：`environment` 对 `env_file` 中
+`POSTGRES_PORT` 的覆盖是否如期生效。
+
+---
+
 ## [v0.5.5] - 2026-09-08
 
 ### 数据库配置去重：DATABASE_URL 优先 + POSTGRES_* 分项兜底，compose 改用 env_file
