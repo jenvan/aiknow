@@ -1,10 +1,13 @@
 # AiKnow 本地/单机部署编排
 #
 # 启动：docker compose up -d
-# 首次启动前请准备 .env（可由 .env.example 复制），至少填写：
+#
+# 首次启动前需准备 .env（可由 .env.example 复制），至少填写：
 #   POSTGRES_PASSWORD、SESSION_SECRET、ADMIN_PASSWORD_HASH（或 ADMIN_PASSWORD）
 #
-# 说明：DATABASE_URL 在下方按 compose 内网地址拼装，无需在 .env 中另行设置。
+# 数据库连接：本编排下 app 使用 POSTGRES_* 分项，主机名固定为服务名 postgres。
+# .env 中若存在面向宿主机的 DATABASE_URL（如 127.0.0.1），不会被带入容器 ——
+# 下方 environment 显式将其置空，避免容器去连自己的回环地址。
 
 services:
   postgres:
@@ -23,8 +26,9 @@ services:
       # 同一文件也用于本地开发手动初始化（make db-init），是扩展创建的唯一来源。
       - ./docker-compose-initdb.sql:/docker-entrypoint-initdb.d/000_init.sql:ro
     ports:
-      # 默认仅监听回环地址，避免数据库直接暴露到公网
-      - "${POSTGRES_BIND:-127.0.0.1}:${POSTGRES_PORT:-5432}:5432"
+      # 默认仅监听回环地址，避免数据库直接暴露到公网。
+      # 这里是**宿主机**发布端口，与容器网络内的 5432 无关，改它不影响 app 连接。
+      - "${POSTGRES_BIND:-127.0.0.1}:${POSTGRES_PUBLISH_PORT:-5432}:5432"
     healthcheck:
       # 探测扩展是否就绪，而非仅探测端口：应用启动即执行迁移，
       # 迁移依赖 pg_search / vector 已创建
@@ -53,13 +57,22 @@ services:
       postgres:
         # 等待扩展就绪后再启动，否则迁移会失败
         condition: service_healthy
-    environment:
-      # 数据库连接串由 compose 拼装，指向服务名 postgres。
-      # .env 中的 DATABASE_URL 不会传入容器。
-      DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-aiknow}?sslmode=disable
 
-      # 容器内监听端口。此前硬编码为 8080，导致 .env 中的 PORT 在 compose 下无效。
-      PORT: ${PORT:-8080}
+    # 应用配置整体来自 .env，无需在此逐项透传。
+    # 其中的 POSTGRES_BIND / POSTGRES_PUBLISH_PORT / APP_BIND / APP_PORT 仅供
+    # 编排使用，一并注入容器不影响应用（未登记的键会被配置层忽略）。
+    env_file:
+      - .env
+
+    # 以下为容器内必须覆盖的项。environment 优先级高于 env_file，
+    # 因此这里的值会盖住 .env 中的同名项。
+    environment:
+      # 置空以屏蔽 .env 中面向宿主机的 DATABASE_URL；
+      # 容器内的连接串由下方 POSTGRES_* 分项拼装
+      DATABASE_URL: ""
+      # 容器网络内通过服务名访问，端口固定 5432（与宿主机发布端口无关）
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
 
       # 本编排面向本地测试，通过 HTTP 访问，故默认 development。
       #
@@ -68,21 +81,9 @@ services:
       # 详见 docs/DEPLOY.md 第八章。
       APP_ENV: ${APP_ENV:-development}
 
-      # 凭据类配置从 .env 透传
-      SESSION_SECRET: ${SESSION_SECRET:?请在 .env 中设置 SESSION_SECRET（至少 32 字符）}
-      SESSION_LIFETIME: ${SESSION_LIFETIME:-24h}
-      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
-      ADMIN_PASSWORD_HASH: ${ADMIN_PASSWORD_HASH:-}
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      # 容器内监听端口
+      PORT: ${PORT:-8080}
 
-      # AI Provider 选择，缺省 mock（无需凭据）
-      LLM_PROVIDER: ${LLM_PROVIDER:-mock}
-      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-mock}
-      RERANKER_PROVIDER: ${RERANKER_PROVIDER:-mock}
-      QWEN_API_KEY: ${QWEN_API_KEY:-}
-      QWEN_BASE_URL: ${QWEN_BASE_URL:-}
-      BAAI_API_KEY: ${BAAI_API_KEY:-}
-      BAAI_BASE_URL: ${BAAI_BASE_URL:-}
     ports:
       # 容器侧端口须与上方 PORT 一致，否则映射指向未监听的端口
       - "${APP_BIND:-0.0.0.0}:${APP_PORT:-8080}:${PORT:-8080}"

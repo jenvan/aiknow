@@ -14,10 +14,23 @@
 # 否则不会生效（config_test.go 中的 TestExampleYAMLMatchesParser 会守住这一致性）。
 
 # 数据库
+#
+# url 与下方分项二选一：填了 url 就忽略分项。
 database:
-  # 连接串。格式: postgres://user:password@host:port/database?sslmode=disable
+  # 完整连接串。格式: postgres://user:password@host:port/database?sslmode=disable
   # 对应环境变量 DATABASE_URL
   url: "postgres://postgres:password@127.0.0.1:5432/aiknow?sslmode=disable"
+
+  # 分项（url 为空时用于拼装连接串）。
+  # 密码会做 URL 编码，含 @ : / ? # 等特殊字符也无需手动转义。
+  # 对应环境变量 POSTGRES_HOST / POSTGRES_PORT / POSTGRES_USER /
+  #              POSTGRES_PASSWORD / POSTGRES_DB / POSTGRES_SSLMODE
+  host: ""          # 默认 postgres（docker compose 服务名）
+  port: 0           # 0 表示未设置，取默认 5432
+  user: ""          # 默认 postgres
+  password: ""
+  name: ""          # 默认 aiknow
+  sslmode: ""       # 默认 disable
 
 # HTTP 服务器
 server:

@@ -124,9 +124,9 @@ func migrate() {
 	ctx := context.Background()
 
 	cfg := config.NewConfig()
-	dsn, _ := cfg.Get("DATABASE_URL")
-	if dsn == "" {
-		fmt.Println("缺少 DATABASE_URL 配置（可通过环境变量或 .env 提供）")
+	dsn, _, err := cfg.DatabaseURL()
+	if err != nil {
+		fmt.Println(err)
 		os.Exit(1)
 	}
 
@@ -157,7 +157,15 @@ func serve() {
 	cfg.LogSources()
 
 	// 初始化数据库连接
-	dsn, _ := cfg.Get("DATABASE_URL")
+	//
+	// 优先 DATABASE_URL；为空时由 POSTGRES_* 分项拼装（compose 部署走这条路径）
+	dsn, dsnSrc, err := cfg.DatabaseURL()
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+	fmt.Printf("数据库配置来源: %s\n", dsnSrc)
+
 	db, err := repository.NewPostgresDB(ctx, dsn)
 	if err != nil {
 		fmt.Printf("数据库连接失败: %v\n", err)

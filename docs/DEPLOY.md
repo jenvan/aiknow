@@ -167,7 +167,9 @@ go run ./cmd/aiknow-server hashpwd 你的密码
 # 或构建后：docker compose run --rm app /app/aiknow-server hashpwd 你的密码
 ```
 
-> **`DATABASE_URL` 无需手动设置**：由 `docker-compose.yml` 按服务名 `postgres` 自动拼装。
+> **`DATABASE_URL` 无需设置**：compose 会将其置空，应用改用上面这组 `POSTGRES_*`
+> 分项拼装连接串，主机名与端口由编排固定为 `postgres:5432`。
+> `.env` 中已有的、面向宿主机的 `DATABASE_URL` 可以保留，不会被带入容器。
 >
 > `.env` 从 compose 的 project directory（即项目根）加载，因此需放在仓库根目录。
 
@@ -271,7 +273,13 @@ docker compose exec -T postgres psql -U postgres -d aiknow \
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
-| `DATABASE_URL` | 无（必填） | 数据库连接串 |
+| `DATABASE_URL` | 无 | 完整连接串。与下方分项**二选一**，填了它就忽略分项 |
+| `POSTGRES_HOST` | `postgres` | 分项：主机名，默认值为 compose 服务名 |
+| `POSTGRES_PORT` | `5432` | 分项：数据库端口（非宿主机发布端口） |
+| `POSTGRES_USER` | `postgres` | 分项：用户名 |
+| `POSTGRES_PASSWORD` | 无 | 分项：密码。走分项形态时必填 |
+| `POSTGRES_DB` | `aiknow` | 分项：库名 |
+| `POSTGRES_SSLMODE` | `disable` | 分项：SSL 模式 |
 | `PORT` | `8080` | 应用监听端口 |
 | `APP_ENV` | `development` | `development` \| `production` |
 | `SESSION_SECRET` | 无（必填，≥32 字符） | 见下文"尚未接线的配置项" |
@@ -297,18 +305,19 @@ docker compose exec -T postgres psql -U postgres -d aiknow \
 
 ### 仅 Docker Compose 使用的变量
 
-以下变量只在 `docker-compose.yml` 内做插值，**不会作为配置项被应用读取**。
-直跑二进制时可全部忽略。
+以下变量只在 `docker-compose.yml` 内做插值，用于宿主机侧的端口映射，
+**不会作为配置项被应用读取**。直跑二进制时可全部忽略。
 
 | 变量 | 默认值 | 用途 |
 |---|---|---|
-| `POSTGRES_USER` | `postgres` | 建库，兼用于拼装 `DATABASE_URL` |
-| `POSTGRES_PASSWORD` | 无（必填） | 同上；未设置时 compose 直接报错 |
-| `POSTGRES_DB` | `aiknow` | 同上 |
-| `POSTGRES_BIND` | `127.0.0.1` | 数据库端口映射的宿主机地址 |
-| `POSTGRES_PORT` | `5432` | 数据库端口映射的宿主机端口 |
-| `APP_BIND` | `0.0.0.0` | 应用端口映射的宿主机地址 |
-| `APP_PORT` | `8080` | 应用端口映射的宿主机端口 |
+| `POSTGRES_BIND` | `127.0.0.1` | 数据库发布到宿主机的地址 |
+| `POSTGRES_PUBLISH_PORT` | `5432` | 数据库发布到宿主机的端口 |
+| `APP_BIND` | `0.0.0.0` | 应用发布到宿主机的地址 |
+| `APP_PORT` | `8080` | 应用发布到宿主机的端口 |
+
+> `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` 不在此列 —— 它们既被
+> compose 用于建库，也被应用用于拼装连接串，属上表"应用读取的配置项"。
+> 一份值两处用，无需重复维护。
 
 ### `PORT` 与 `APP_PORT` 的区别
 
@@ -322,16 +331,25 @@ docker compose exec -T postgres psql -U postgres -d aiknow \
 
 ### `DATABASE_URL` 与 `POSTGRES_*` 的关系
 
-**两者不竞争，按部署方式各管一段：**
+**二选一，`DATABASE_URL` 优先**：填了它就忽略分项；为空时由 `POSTGRES_*` 拼装成
+`postgres://user:password@host:port/dbname?sslmode=...`。
 
-| 部署方式 | 生效的变量 | 不生效的变量 |
+拼装时密码会做 URL 编码，因此密码中含 `@` `:` `/` `?` `#` 等字符无需手动转义。
+
+两种部署形态各用一套，因此 `.env` 里两者可以并存：
+
+| 部署方式 | 实际生效 | 说明 |
 |---|---|---|
-| 直跑二进制 | `DATABASE_URL` | `POSTGRES_*`（完全无用） |
-| Docker Compose | `POSTGRES_*` | **`.env` 中的 `DATABASE_URL`** |
+| 直跑二进制（本地开发 / 生产） | `DATABASE_URL` | 只需填这一项 |
+| Docker Compose | `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | 主机名与端口由编排固定为 `postgres:5432` |
 
-compose 场景下，`DATABASE_URL` 由编排用 `POSTGRES_*` 按服务名 `postgres` 现场
-拼装后注入容器（`docker-compose.yml` 的 `environment:` 段）。**`.env` 里写的
-`DATABASE_URL` 不会被传入容器**，改它不起任何作用。
+**compose 下 `.env` 里的 `DATABASE_URL` 会被编排显式置空**
+（`docker-compose.yml` 的 `environment:` 段），原因是它通常指向 `127.0.0.1`，
+而容器内的回环地址是容器自己，会连不上且报错难以定位。置空后应用改走分项拼装，
+两者并存互不干扰。
+
+直跑二进制时若想改用分项而非 `DATABASE_URL`，需额外设置 `POSTGRES_HOST`
+（默认值 `postgres` 是 compose 服务名，本机应为 `127.0.0.1`）。
 
 ### 使用 config.yaml
 

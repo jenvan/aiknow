@@ -1,4 +1,107 @@
 # AiKnow 变更日志
+## [v0.5.5] - 2026-09-08
+
+### 数据库配置去重：DATABASE_URL 优先 + POSTGRES_* 分项兜底，compose 改用 env_file
+
+**背景**：`.env` 中同时存在 `DATABASE_URL` 与 `POSTGRES_*` 两套数据库配置，
+且 `docker-compose.yml` 的 app 服务逐项透传 14 个变量，冗长且易漏。
+
+#### 配置层：数据库连接二选一
+
+新增 `cfg.DatabaseURL() (string, ConfigSource, error)`：
+
+- 优先 `DATABASE_URL`；为空时由 `POSTGRES_HOST/PORT/USER/PASSWORD/DB/SSLMODE`
+  拼装
+- 拼装使用 `net/url`，**密码经 URL 编码** —— 字符串拼接会让密码中的
+  `@` `:` `/` `?` `#` 破坏 DSN 结构
+- 两者皆无时返回明确错误，而非交给数据库驱动报难以定位的连接失败
+
+分项新增默认值：`POSTGRES_HOST=postgres`（compose 服务名）、`PORT=5432`、
+`USER=postgres`、`DB=aiknow`、`SSLMODE=disable`。因此 compose 场景只需给
+`POSTGRES_PASSWORD` 一项即可拼出可用连接串。
+
+`Validate()` 同步放宽：接受"仅分项"这一形态，此前硬要求 `DATABASE_URL`
+会把 compose 配置误判为缺配置。
+
+`config.yaml` 的 `database` 段同步支持分项（`host` / `port` / `user` /
+`password` / `name` / `sslmode`）。
+
+#### 编排：app 改用 env_file
+
+- postgres 服务保持 `${VAR:-default}` 形式不变
+- app 服务改为 `env_file: .env` 整体注入，`environment:` 仅保留 5 项必须在
+  容器内覆盖的配置（`environment` 优先级高于 `env_file`，官方文档明确）：
+
+  | 覆盖项 | 原因 |
+  |---|---|
+  | `DATABASE_URL: ""` | 屏蔽 `.env` 中面向宿主机的 DSN |
+  | `POSTGRES_HOST: postgres` | 容器网络内按服务名访问 |
+  | `POSTGRES_PORT: "5432"` | 容器网络内端口，与宿主机发布端口无关 |
+  | `APP_ENV` | 本编排走 HTTP，默认 development |
+  | `PORT` | 容器内监听端口 |
+
+  app 服务的 `environment` 段由 14 项减至 5 项。
+
+**关键处理**：`env_file: .env` 会把本地开发用的
+`DATABASE_URL=...@127.0.0.1:5432/...` 原样带进容器，而容器内 `127.0.0.1` 是
+容器自己，应用会连不上且报错难以定位。因此显式置空 `DATABASE_URL`，让容器内
+一律走分项拼装 —— 这使得 `.env` 中两套配置可以并存，各自在对应部署形态下生效。
+
+#### 修复：POSTGRES_PORT 一名两用
+
+`POSTGRES_PORT` 原为宿主机发布端口；引入分项拼装后它同时成为应用连库的端口。
+若用户为避免端口冲突将其改为 `15432`，容器会去连 `postgres:15432`（网络内实为
+5432），连接失败。
+
+- 宿主机发布端口更名为 `POSTGRES_PUBLISH_PORT`
+- `POSTGRES_PORT` 专指数据库实际端口，容器内由编排固定为 `5432`
+
+#### 配置文件
+
+- `.env.example` 重写数据库段：改为「方式 1 `DATABASE_URL`（直跑二进制）/
+  方式 2 `POSTGRES_*` 分项（compose）」二选一结构，说明两者可并存的原因；
+  `POSTGRES_USER/PASSWORD/DB` 从「仅 compose 使用」区移入正文（它们现在
+  既用于建库也用于拼装连接串，一份值两处用）；末尾仅保留 4 个真正只供编排
+  插值的端口映射变量
+- `config.yaml.example` 数据库段补充分项字段
+
+#### 文档
+
+- `docs/DEPLOY.md` 第三章：「应用读取的配置项」表补入 6 个 `POSTGRES_*` 分项；
+  「仅 Docker Compose 使用的变量」表精简为 4 个端口映射变量并说明为何
+  `POSTGRES_USER/PASSWORD/DB` 不在其列；「`DATABASE_URL` 与 `POSTGRES_*` 的关系」
+  一节由「compose 拼装后注入」改写为「二选一 + 应用侧拼装 + compose 置空」
+- `AGENT.md`：必填项改为「数据库连接二者之一」；补充 `POSTGRES_PORT` 与
+  `POSTGRES_PUBLISH_PORT` 的区分及其由来，以及 `env_file` 与 `environment`
+  的优先级关系
+
+#### 测试
+
+`internal/config/config_test.go` 新增 8 个用例：
+
+- `DATABASE_URL` 优先于分项
+- 分项完整拼装 / 仅给密码时套用默认值
+- **密码含 `@:/?#` 时的转义**（校验解析回原值，且主机名与路径未被污染）
+- 两者皆无时报错
+- `Validate()` 接受仅分项形态
+- YAML 分项解析 / `database.port` 为 0 时不覆盖默认值
+
+**验证状态**：
+- `go build ./...` ✅
+- `go vet ./...` ✅
+- `go test ./...` ✅（新增 8 个用例，config 包共 24 个）
+- `gofmt` ✅（本次改动文件均合规）
+- compose YAML 解析 ✅（确认 5 项覆盖与端口映射符合预期）
+
+**行为变更**：`app` 服务改用 `env_file: .env` 后，`.env` 文件**必须存在**
+（此前可全部通过 shell 环境变量提供）。`docs/DEPLOY.md` 第二章已要求
+`cp .env.example .env`，正常流程不受影响。
+
+**仍需实机验证**（本机无 Docker）：compose 下 `environment` 对 `env_file`
+的覆盖行为、`DATABASE_URL` 置空后应用是否正确走分项拼装。
+
+---
+
 ## [v0.5.4] - 2026-09-08
 
 ### 配置体系修复 + AI Provider 与管理员凭据接线 + 三个安全修复

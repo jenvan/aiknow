@@ -2,6 +2,8 @@ package config
 
 import (
 	"fmt"
+	"net"
+	"net/url"
 	"os"
 	"sort"
 	"strconv"
@@ -18,8 +20,14 @@ import (
 // 此处登记一次。此前各来源各自维护一份硬编码列表，导致 PORT 与 APP_ENV 只在
 // 默认值分支出现、任何来源都无法覆盖。
 var managedKeys = []string{
-	// 数据库
+	// 数据库：DATABASE_URL 优先；缺省时由下列分项拼装
 	"DATABASE_URL",
+	"POSTGRES_HOST",
+	"POSTGRES_PORT",
+	"POSTGRES_USER",
+	"POSTGRES_PASSWORD",
+	"POSTGRES_DB",
+	"POSTGRES_SSLMODE",
 
 	// 服务器
 	"PORT",
@@ -52,6 +60,15 @@ var defaultValues = map[string]string{
 	"APP_ENV":          "development",
 	"ADMIN_USERNAME":   "admin",
 	"SESSION_LIFETIME": "24h",
+
+	// 数据库分项的缺省值。
+	// HOST 默认为 postgres：分项拼装主要服务于 docker compose 部署，
+	// 那里应用通过服务名访问数据库。直跑二进制通常直接给 DATABASE_URL。
+	"POSTGRES_HOST":    "postgres",
+	"POSTGRES_PORT":    "5432",
+	"POSTGRES_USER":    "postgres",
+	"POSTGRES_DB":      "aiknow",
+	"POSTGRES_SSLMODE": "disable",
 }
 
 // YAMLConfig config.yaml 的结构。
@@ -59,7 +76,15 @@ var defaultValues = map[string]string{
 // 采用嵌套形式，与 config.yaml.example 保持一致；解析后由 toFlat 映射为扁平键。
 type YAMLConfig struct {
 	Database struct {
+		// URL 完整连接串，优先于下列分项
 		URL string `yaml:"url"`
+		// 以下分项在 URL 为空时用于拼装连接串
+		Host     string `yaml:"host"`
+		Port     int    `yaml:"port"`
+		User     string `yaml:"user"`
+		Password string `yaml:"password"`
+		Name     string `yaml:"name"`
+		SSLMode  string `yaml:"sslmode"`
 	} `yaml:"database"`
 
 	Server struct {
@@ -102,6 +127,11 @@ type YAMLConfig struct {
 func (y *YAMLConfig) toFlat() map[string]string {
 	flat := map[string]string{
 		"DATABASE_URL":        y.Database.URL,
+		"POSTGRES_HOST":       y.Database.Host,
+		"POSTGRES_USER":       y.Database.User,
+		"POSTGRES_PASSWORD":   y.Database.Password,
+		"POSTGRES_DB":         y.Database.Name,
+		"POSTGRES_SSLMODE":    y.Database.SSLMode,
 		"APP_ENV":             y.App.Env,
 		"SESSION_SECRET":      y.Session.Secret,
 		"SESSION_LIFETIME":    y.Session.Lifetime,
@@ -120,6 +150,9 @@ func (y *YAMLConfig) toFlat() map[string]string {
 	// 0 表示 YAML 中未设置该项，不写入以免覆盖更低优先级来源
 	if y.Server.Port != 0 {
 		flat["PORT"] = strconv.Itoa(y.Server.Port)
+	}
+	if y.Database.Port != 0 {
+		flat["POSTGRES_PORT"] = strconv.Itoa(y.Database.Port)
 	}
 
 	for k, v := range flat {
@@ -280,6 +313,44 @@ func (c *Config) GetDuration(key string, fallback time.Duration) time.Duration {
 	return d
 }
 
+// DatabaseURL 解析数据库连接串。
+//
+// 优先使用 DATABASE_URL；为空时由 POSTGRES_* 分项拼装。这样两种部署形态各用
+// 一套配置，无需在 .env 中同时维护：
+//
+//   - 本地开发 / 生产：直接给 DATABASE_URL
+//   - docker compose：只给 POSTGRES_USER / POSTGRES_PASSWORD / POSTGRES_DB，
+//     由编排注入，主机名取服务名 postgres
+//
+// 分项拼装时密码经 URL 编码，避免密码中的 @ : / ? # 等字符破坏 DSN 结构。
+func (c *Config) DatabaseURL() (string, ConfigSource, error) {
+	if dsn, src := c.Get("DATABASE_URL"); dsn != "" {
+		return dsn, src, nil
+	}
+
+	password, pwdSrc := c.Get("POSTGRES_PASSWORD")
+	if password == "" {
+		return "", ConfigSourceDefault, fmt.Errorf(
+			"缺少数据库配置：请提供 DATABASE_URL，或提供 POSTGRES_PASSWORD 等分项（可通过环境变量、.env 或 config.yaml）")
+	}
+
+	host, _ := c.Get("POSTGRES_HOST")
+	port, _ := c.Get("POSTGRES_PORT")
+	user, _ := c.Get("POSTGRES_USER")
+	dbname, _ := c.Get("POSTGRES_DB")
+	sslmode, _ := c.Get("POSTGRES_SSLMODE")
+
+	u := url.URL{
+		Scheme: "postgres",
+		User:   url.UserPassword(user, password),
+		Host:   net.JoinHostPort(host, port),
+		Path:   "/" + dbname,
+	}
+	u.RawQuery = url.Values{"sslmode": []string{sslmode}}.Encode()
+
+	return u.String(), pwdSrc, nil
+}
+
 // MustGet 获取必需的配置值，不存在时 panic
 func (c *Config) MustGet(key string) string {
 	val, _ := c.Get(key)
@@ -300,10 +371,13 @@ const minSessionSecretLen = 32
 
 // Validate 验证必填配置
 func (c *Config) Validate() error {
-	for _, key := range []string{"DATABASE_URL", "SESSION_SECRET"} {
-		if val, _ := c.Get(key); val == "" {
-			return fmt.Errorf("缺少必需配置: %s（可通过环境变量、.env 或 config.yaml 提供）", key)
-		}
+	// 数据库配置两种形态皆可：DATABASE_URL，或 POSTGRES_* 分项
+	if _, _, err := c.DatabaseURL(); err != nil {
+		return err
+	}
+
+	if val, _ := c.Get("SESSION_SECRET"); val == "" {
+		return fmt.Errorf("缺少必需配置: SESSION_SECRET（可通过环境变量、.env 或 config.yaml 提供）")
 	}
 
 	if secret, _ := c.Get("SESSION_SECRET"); len(secret) < minSessionSecretLen {

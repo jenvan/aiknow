@@ -1,8 +1,10 @@
 package config
 
 import (
+	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -352,5 +354,155 @@ func TestExampleYAMLMatchesParser(t *testing.T) {
 		if got, src := c.Get(key); got == "" || src != ConfigSourceYAML {
 			t.Errorf("示例配置中的 %s 未被解析（值 %q，来源 %v）", key, got, src)
 		}
+	}
+}
+
+// ---- DatabaseURL：DSN 优先，缺省时由分项拼装 ----
+
+func TestDatabaseURLPrefersDSN(t *testing.T) {
+	withWorkDir(t)
+	clearManaged(t)
+
+	t.Setenv("DATABASE_URL", "postgres://dsn-wins@host:5432/db")
+	t.Setenv("POSTGRES_PASSWORD", "ignored")
+	t.Setenv("POSTGRES_DB", "ignored")
+
+	got, _, err := NewConfig().DatabaseURL()
+	if err != nil {
+		t.Fatalf("不应报错: %v", err)
+	}
+	if got != "postgres://dsn-wins@host:5432/db" {
+		t.Errorf("DATABASE_URL 应优先，实际 %q", got)
+	}
+}
+
+func TestDatabaseURLAssembledFromParts(t *testing.T) {
+	withWorkDir(t)
+	clearManaged(t)
+
+	t.Setenv("POSTGRES_USER", "alice")
+	t.Setenv("POSTGRES_PASSWORD", "pw")
+	t.Setenv("POSTGRES_HOST", "db.internal")
+	t.Setenv("POSTGRES_PORT", "6543")
+	t.Setenv("POSTGRES_DB", "mydb")
+	t.Setenv("POSTGRES_SSLMODE", "require")
+
+	got, _, err := NewConfig().DatabaseURL()
+	if err != nil {
+		t.Fatalf("不应报错: %v", err)
+	}
+	want := "postgres://alice:pw@db.internal:6543/mydb?sslmode=require"
+	if got != want {
+		t.Errorf("拼装结果 = %q，期望 %q", got, want)
+	}
+}
+
+// 分项缺省值：仅给密码即可拼出可用 DSN（compose 场景）
+func TestDatabaseURLPartsDefaults(t *testing.T) {
+	withWorkDir(t)
+	clearManaged(t)
+
+	t.Setenv("POSTGRES_PASSWORD", "secret")
+
+	got, _, err := NewConfig().DatabaseURL()
+	if err != nil {
+		t.Fatalf("不应报错: %v", err)
+	}
+	want := "postgres://postgres:secret@postgres:5432/aiknow?sslmode=disable"
+	if got != want {
+		t.Errorf("拼装结果 = %q，期望 %q", got, want)
+	}
+}
+
+// 密码含 DSN 保留字符时必须转义，否则连接串结构被破坏
+func TestDatabaseURLEscapesSpecialCharsInPassword(t *testing.T) {
+	withWorkDir(t)
+	clearManaged(t)
+
+	t.Setenv("POSTGRES_PASSWORD", "p@ss:w/rd?#x")
+
+	got, _, err := NewConfig().DatabaseURL()
+	if err != nil {
+		t.Fatalf("不应报错: %v", err)
+	}
+
+	// 裸密码不应出现在结果中
+	if strings.Contains(got, "p@ss:w/rd?#x") {
+		t.Errorf("密码未被转义: %q", got)
+	}
+	// 解析回来应还原为原始密码，且主机名未被污染
+	u, err := url.Parse(got)
+	if err != nil {
+		t.Fatalf("拼装出的 DSN 无法解析: %v（%q）", err, got)
+	}
+	pw, _ := u.User.Password()
+	if pw != "p@ss:w/rd?#x" {
+		t.Errorf("解析回的密码 = %q，期望原值", pw)
+	}
+	if u.Host != "postgres:5432" {
+		t.Errorf("Host = %q，密码中的字符污染了主机名", u.Host)
+	}
+	if u.Path != "/aiknow" {
+		t.Errorf("Path = %q，期望 /aiknow", u.Path)
+	}
+}
+
+func TestDatabaseURLErrorsWhenNothingProvided(t *testing.T) {
+	withWorkDir(t)
+	clearManaged(t)
+
+	if _, _, err := NewConfig().DatabaseURL(); err == nil {
+		t.Fatal("既无 DATABASE_URL 也无 POSTGRES_PASSWORD 时应报错")
+	}
+}
+
+// Validate 应接受「仅分项」这一形态（compose 部署）
+func TestValidateAcceptsPostgresPartsOnly(t *testing.T) {
+	withWorkDir(t)
+	clearManaged(t)
+
+	t.Setenv("POSTGRES_PASSWORD", "secret")
+	t.Setenv("SESSION_SECRET", "0123456789012345678901234567890123")
+	t.Setenv("ADMIN_PASSWORD", "dev")
+
+	if err := NewConfig().Validate(); err != nil {
+		t.Fatalf("仅提供分项应通过校验，实际报错: %v", err)
+	}
+}
+
+// YAML 的 database 分项应被解析
+func TestYAMLDatabasePartsParsed(t *testing.T) {
+	dir := withWorkDir(t)
+	clearManaged(t)
+
+	writeFile(t, dir, "config.yaml", `
+database:
+  host: "yamlhost"
+  port: 7777
+  user: "yamluser"
+  password: "yamlpw"
+  name: "yamldb"
+  sslmode: "verify-full"
+`)
+
+	got, _, err := NewConfig().DatabaseURL()
+	if err != nil {
+		t.Fatalf("不应报错: %v", err)
+	}
+	want := "postgres://yamluser:yamlpw@yamlhost:7777/yamldb?sslmode=verify-full"
+	if got != want {
+		t.Errorf("拼装结果 = %q，期望 %q", got, want)
+	}
+}
+
+// YAML 中 database.port 为 0（未设置）时不应覆盖默认值
+func TestYAMLZeroDatabasePortDoesNotOverride(t *testing.T) {
+	dir := withWorkDir(t)
+	clearManaged(t)
+
+	writeFile(t, dir, "config.yaml", "database:\n  password: \"pw\"\n")
+
+	if got, src := NewConfig().Get("POSTGRES_PORT"); got != "5432" || src != ConfigSourceDefault {
+		t.Errorf("POSTGRES_PORT = %q（来源 %v），期望 5432（来源 default）", got, src)
 	}
 }

@@ -420,8 +420,8 @@ POST /api/v1/search
 
 ### 6. 配置约束
 
-**无条件必填**：`DATABASE_URL`、`SESSION_SECRET`（≥32 字符），
-以及 `ADMIN_PASSWORD_HASH` 或 `ADMIN_PASSWORD` 二者之一。
+**无条件必填**：数据库连接（`DATABASE_URL` 或 `POSTGRES_*` 分项二者之一）、
+`SESSION_SECRET`（≥32 字符），以及 `ADMIN_PASSWORD_HASH` 或 `ADMIN_PASSWORD` 二者之一。
 
 **条件必填**：`QWEN_API_KEY` 仅在 `LLM_PROVIDER=qwen` 时必填；`BAAI_API_KEY` 仅在
 `EMBEDDING_PROVIDER` 或 `RERANKER_PROVIDER` 为 `baai` 时必填。三个 Provider 缺省
@@ -440,8 +440,16 @@ POST /api/v1/search
 保留必填是为 CSRF Token / Cookie 签名预留，勿因"看起来没用"而删除。
 
 **`PORT` 与 `APP_PORT` 不是重复项**：`PORT` 是容器内应用监听端口（Go 读取），
-`APP_PORT` 是映射到宿主机的端口（仅 compose 读取）。同理 `.env` 中的
-`DATABASE_URL` 在 compose 部署下不生效 —— 编排会用 `POSTGRES_*` 现场拼装后注入。
+`APP_PORT` 是映射到宿主机的端口（仅 compose 读取）。`POSTGRES_PORT` 与
+`POSTGRES_PUBLISH_PORT` 同理 —— 前者是应用拼 DSN 用的库端口，后者是宿主机发布端口，
+二者曾共用 `POSTGRES_PORT` 一名，改发布端口会让容器去连错端口，故拆开。
+
+**数据库连接优先 `DATABASE_URL`，为空时由 `POSTGRES_*` 分项拼装**
+（`cfg.DatabaseURL()`，密码经 URL 编码，无需手动转义特殊字符）。
+compose 部署下编排会把 `DATABASE_URL` 显式置空 —— 它通常指向 `127.0.0.1`，
+而容器内回环地址是容器自己。置空后走分项拼装，故 `.env` 中两者可以并存。
+`app` 服务用 `env_file: .env` 整体注入，只在 `environment:` 中覆盖容器内必须不同的项
+（`environment` 优先级高于 `env_file`）。
 
 ### 7. 目录结构
 ```
