@@ -349,8 +349,14 @@ POST /api/v1/search
 > 003/004 降级为空操作而非原地改写：已有开发库中它们已记录为"已应用"，
 > 原地改写不会重跑，新逻辑必须放在新版本号里。
 
-> 扩展（`vector`、`pg_search`）须手动创建——迁移执行器会跳过一切扩展创建语句，
-> 详见 `docs/DATABASE_SETUP.md`。
+**表结构的唯一来源就是这个目录**，不要在别处再放一份建表 DDL。开发期初始化用
+`make migrate-up`（等价于 `aiknow-server migrate`），与 `serve` 启动时执行的是同一套
+迁移代码。曾经在 `deploy/postgres/schema.sql` 放过一份"合并版 DDL"用于开发期建表，
+结果它与迁移迅速漂移（列名、缺列、默认配置项都对不上，且无人察觉），已删除。
+
+> 扩展（`vector`、`pg_search`）是唯一的例外，须由
+> `deploy/postgres/init/000_init.sql` 创建——迁移执行器会跳过一切扩展创建语句。
+> 该文件同时用于 docker compose 首次初始化与本地手动执行，详见 `docs/DATABASE_SETUP.md`。
 
 关键词检索还需标签/分类的 `lower(name)` 索引（精确匹配）+ `article_tags.tag_id` 索引。
 标题/摘要/正文的全文检索由 `articles_search_idx`（paradedb 索引）统一承担，不再使用 GIN 索引。
@@ -385,9 +391,16 @@ POST /api/v1/search
 
 ### 4. 迁移执行器约束
 
-- **会跳过一切扩展创建语句**，扩展须手动创建（见 `docs/DATABASE_SETUP.md`）；
+- **会跳过一切扩展创建语句**，扩展须由 `deploy/postgres/init/000_init.sql` 创建；
   迁移文件中亦不可在注释里出现该语句的英文字面量，否则会误伤紧随其后的语句
 - 已应用的迁移不会重跑，修改既有迁移无效——新逻辑一律放新版本号
+- `RunMigrations(ctx, tx)` 只接收事务、不负责提交，**调用方必须 Commit**。
+  统一走 `cmd/aiknow-server/main.go` 的 `runMigrations()`，不要另写一份事务管理。
+  曾出现过 `Begin` + `defer Rollback` 但漏掉 `Commit` 的情况：`serve` 会阻塞在
+  HTTP 服务上，导致该事务在进程存活期间一直开着，DDL 始终未提交，
+  连接池里其他连接看不到任何新表
+- `splitSQL` 支持美元引用（`$$`/`$tag$`）、`$1` 占位符、`''` 转义与注释；
+  新增 PL/pgSQL 函数体时无需规避 `;`
 
 ### 5. SSRF 防护要求
 - 仅允许 HTTP/HTTPS 协议

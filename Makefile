@@ -7,7 +7,7 @@ GIT_COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 # 编译目标二进制名称
 BINARY_NAME = aiknow
 
-.PHONY: build run test test-coverage vet fmt migrate-up clean docker-build up down logs ps
+.PHONY: build run test test-coverage vet fmt migrate-up db-init db-reset clean docker-build up down logs ps
 
 # 编译 cmd/aiknow-server，生成 bin/aiknow
 build:
@@ -36,11 +36,23 @@ vet:
 fmt:
 	go fmt ./...
 
-# 数据库迁移：服务启动时自动执行，无需单独命令
-migrate-up:
-	@echo "迁移在服务启动时自动执行（见 cmd/aiknow-server/main.go）"
-	@echo "迁移文件：internal/repository/migrations/（已通过 go:embed 打包）"
-	@echo "注意：扩展需手动创建，详见 docs/DATABASE_SETUP.md"
+# 执行数据库迁移（表结构的唯一来源：internal/repository/migrations/）
+# 服务启动时也会自动执行，此目标用于开发期单独初始化或重建
+# 前置条件：扩展需先创建，见 deploy/postgres/init/000_init.sql
+migrate-up: build
+	./bin/$(BINARY_NAME) migrate
+
+# 初始化扩展（仅需执行一次；docker compose 首次启动会自动执行）
+db-init:
+	psql "$${DATABASE_URL:-postgres://postgres:password@127.0.0.1:5432/aiknow?sslmode=disable}" \
+		-f deploy/postgres/init/000_init.sql
+
+# 重建数据库：清空 public schema 后重新初始化扩展与表结构
+db-reset:
+	psql "$${DATABASE_URL:-postgres://postgres:password@127.0.0.1:5432/aiknow?sslmode=disable}" \
+		-c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"
+	$(MAKE) db-init
+	$(MAKE) migrate-up
 
 # 清理编译产物
 clean:

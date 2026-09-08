@@ -1,4 +1,73 @@
 # AiKnow 变更日志
+## [v0.5.2] - 2026-09-08
+
+### 修复：表结构定义收敛为单一来源，修复迁移事务未提交
+
+**背景**：v0.5.1 为方便开发期建表，在 `deploy/postgres/schema.sql` 放了一份
+"合并版 DDL"。这属于同一份表结构存在两处定义，本次核查发现**两处已经漂移，
+且 `schema.sql` 是坏的**——它是凭重构而非逐字合并写出来的，四张表都对不上 Go 代码：
+
+| 表 | `schema.sql` 的偏差 | 后果 |
+|---|---|---|
+| `job_queue` | 丢失 `queue_name` 列 | `pkg/pgqueue` 用到该列 10 次，所有队列操作报错 |
+| `job_archive` | 丢失 `queue_name`，多出 3 个 NOT NULL 列 | 归档 INSERT（`pgqueue.go:277`）失败 |
+| `api_keys` | `is_active` 被改名为 `enabled`，丢失 `created_by` | `apikey_repo.go` 5 处查询报错 |
+| `mcp_request_logs` | 整表结构不同（丢 `trace_id`/`tool_name`/`request_body`/`api_key_id`） | `mcplog_repo.go` 全部报错 |
+| `settings` | 丢失 8 个默认配置项，凭空多出 `search.vector_top_k` | LLM / embedding 配置缺失 |
+| 索引 | `idx_job_queue_poll` 被改名为 `idx_job_queue_dequeue` | 与 007 不一致 |
+
+任何人用它初始化开发库，跑起来就是一片报错。
+
+#### 表结构收敛为单一来源
+
+- **删除 `deploy/postgres/schema.sql`**
+- 表结构的唯一来源确定为 `internal/repository/migrations/`
+- 新增 `migrate` 子命令：`aiknow-server migrate` 执行迁移后退出，
+  供开发期初始化/重建与 CI 使用。它与 `serve` 共用 `runMigrations()`，
+  **执行的是同一套代码**，从根上杜绝漂移
+
+扩展创建是唯一例外，仍在迁移之外——迁移执行器会跳过一切扩展创建语句
+（`migrations.go:75`），这是硬约束。
+
+#### 扩展初始化脚本合并为单文件
+
+- `deploy/postgres/000_init.sql` + `init/01-extensions.sql`（两文件 + 一层 `\ir` 间接）
+  合并为 `deploy/postgres/init/000_init.sql`
+- **同时修复一个部署期缺陷**：compose 仅挂载 `deploy/postgres/init` 目录，
+  容器内 `\ir ../000_init.sql` 会解析到未挂载的父目录，**首次启动初始化必然失败**。
+  合并为单文件后挂载路径自然对齐
+
+#### 修复迁移事务从未提交（独立缺陷）
+
+`cmd/aiknow-server/main.go` 中 `Begin` 后只有 `defer tx.Rollback(ctx)`，缺少 `Commit`。
+且 `serve` 会阻塞在 HTTP 服务上，导致该事务在进程存活期间一直保持打开，
+DDL 始终处于未提交状态——连接池内其他连接看不到任何新建的表。
+
+- 抽出 `runMigrations(ctx, db)`：在单个事务内执行迁移并 `Commit`
+- `serve` 与 `migrate` 共用该函数
+
+#### Makefile
+
+- `migrate-up`：由占位回显改为实际执行 `aiknow-server migrate`
+- 新增 `db-init`：创建扩展
+- 新增 `db-reset`：清空 `public` schema 后重新初始化扩展与表结构
+
+#### 文档
+
+- `docs/DATABASE_SETUP.md`：第一章改为「启动容器 → 创建扩展 → 配置 .env →
+  执行迁移 → 启动应用」，重建数据库改用 `make db-reset`
+- `AGENT.md`：明确「表结构的唯一来源就是 migrations 目录」，
+  记录 schema.sql 的漂移教训；补充 `RunMigrations` 不负责提交、调用方必须 Commit
+
+**验证状态**：
+- `go build ./...` ✅
+- `go vet ./...` ✅
+- `go test ./...` ✅
+- `--help` 含 `migrate` 子命令 ✅
+- `migrate` 缺少 `DATABASE_URL` 时正确报错退出 ✅
+
+---
+
 ## [v0.5.1] - 2026-09-08
 
 ### 开发环境优化：SQL 文件重组 + 文档重写

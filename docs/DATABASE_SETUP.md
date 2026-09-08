@@ -51,15 +51,20 @@ docker run -d \
 > **务必钉死版本号。** pg_search 的索引 DDL 与查询语法在 0.25.0 发生过不兼容变更，
 > 使用 `latest` 会在升级时静默破坏检索功能（见本文末"版本注意事项"）。
 
-### 2. 初始化数据库
+### 2. 创建扩展
+
+扩展只需创建一次。表结构不在此步，见第 4 步。
 
 ```bash
-# 创建扩展（vector + pg_search，含可用性验证）
-psql -h 127.0.0.1 -U postgres -d aiknow -f deploy/postgres/000_init.sql
-
-# 建表（合并了所有迁移中的建表 DDL）
-psql -h 127.0.0.1 -U postgres -d aiknow -f deploy/postgres/schema.sql
+psql -h 127.0.0.1 -U postgres -d aiknow -f deploy/postgres/init/000_init.sql
+# 或（读取 .env 中的 DATABASE_URL）
+make db-init
 ```
+
+脚本会创建 `vector` 与 `pg_search`，并验证 jieba 分词器可用。
+
+> 扩展不由迁移创建：迁移执行器会跳过一切扩展创建语句
+> （见 `internal/repository/migrations.go`），因此这一步必须单独执行。
 
 ### 3. 配置环境变量
 
@@ -83,7 +88,21 @@ go run ./cmd/aiknow-server hashpwd 你的密码
 
 开发期也可直接用明文密码（`ADMIN_PASSWORD=你的密码`），应用会自动哈希。
 
-### 4. 启动应用
+### 4. 建表（执行迁移）
+
+```bash
+make migrate-up
+# 或
+go run ./cmd/aiknow-server migrate
+```
+
+表结构的**唯一来源**是 `internal/repository/migrations/`（已通过 `go:embed` 打包进
+二进制）。开发期与生产环境执行的是同一套迁移，不存在第二份 DDL 定义。
+
+这一步可跳过 —— `serve` 启动时会自动执行迁移。单独提供 `migrate` 子命令是为了
+便于开发期初始化与重建，以及在 CI 中先建表再跑集成测试。
+
+### 5. 启动应用
 
 ```bash
 make run
@@ -95,13 +114,21 @@ go run ./cmd/aiknow-server serve
 
 ### 重建数据库
 
-```bash
-docker exec -it aiknow-postgres psql -U postgres -d aiknow \
-  -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"
+清空 `public` schema 后重新创建扩展与表结构：
 
-psql -h 127.0.0.1 -U postgres -d aiknow -f deploy/postgres/000_init.sql
-psql -h 127.0.0.1 -U postgres -d aiknow -f deploy/postgres/schema.sql
+```bash
+make db-reset
 ```
+
+等价于：
+
+```bash
+psql "$DATABASE_URL" -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"
+psql "$DATABASE_URL" -f deploy/postgres/init/000_init.sql
+go run ./cmd/aiknow-server migrate
+```
+
+> `DROP SCHEMA public CASCADE` 会删除该 schema 下的全部数据，仅用于开发环境。
 
 ---
 
@@ -143,7 +170,7 @@ make up
 首次启动会：
 1. 拉取 ParadeDB 0.25.6-pg17 镜像
 2. 构建应用镜像（基于本仓库 `Dockerfile`）
-3. 初始化数据库（`deploy/postgres/init/01-extensions.sql` 通过镜像的
+3. 创建扩展（`deploy/postgres/init/000_init.sql` 通过镜像的
    `docker-entrypoint-initdb.d` 机制执行，**仅在数据卷为空时运行一次**）
 4. 应用启动后自动执行迁移（迁移脚本已通过 `go:embed` 打包进二进制）
 
@@ -187,8 +214,11 @@ docker compose up -d --build
 
 几个要点：
 
-- **扩展自动创建**：`deploy/postgres/init/01-extensions.sql` 调用 `000_init.sql`，
-  仅在数据卷为空（首次初始化）时运行一次
+- **扩展自动创建**：`deploy/postgres/init/000_init.sql` 由镜像的
+  `docker-entrypoint-initdb.d` 机制执行，仅在数据卷为空（首次初始化）时运行一次。
+  该文件同时供本地开发手动执行，是扩展创建的唯一来源
+- **表结构由迁移创建**：应用启动时自动执行 `internal/repository/migrations/`，
+  编排中无需挂载任何建表 SQL
 - **数据库默认不暴露公网**：端口映射绑定 `127.0.0.1`，可用 `POSTGRES_BIND` 调整
 - **应用端口**：默认 `0.0.0.0:8080`，可用 `APP_BIND` / `APP_PORT` 调整
 
@@ -198,7 +228,7 @@ docker compose up -d --build
 
 ```bash
 docker compose exec -T postgres psql -U postgres -d aiknow \
-  < deploy/postgres/000_init.sql
+  < deploy/postgres/init/000_init.sql
 ```
 
 ---
@@ -224,9 +254,10 @@ docker compose exec -T postgres psql -U postgres -d aiknow \
 
 ### 1. UUID 作 `key_field`
 
-`deploy/postgres/schema.sql` 中两个 BM25 索引（`chunks_search_idx` / `articles_search_idx`）
-使用 UUID 列作为 `key_field`。官方文档对 `key_field` 只提出三项要求（唯一约束、位于列首、
-text 类型时不分词），UUID 均满足，但未明确背书该类型。
+`internal/repository/migrations/006_paradedb_search.sql` 中两个 BM25 索引
+（`chunks_search_idx` / `articles_search_idx`）使用 UUID 列作为 `key_field`。
+官方文档对 `key_field` 只提出三项要求（唯一约束、位于列首、text 类型时不分词），
+UUID 均满足，但未明确背书该类型。
 
 **若 `CREATE INDEX` 报类型错误**，需为表增加 bigint 代理键：
 

@@ -54,6 +54,12 @@ func main() {
 		return
 	}
 
+	// migrate 子命令
+	if len(os.Args) > 1 && os.Args[1] == "migrate" {
+		migrate()
+		return
+	}
+
 	// serve 子命令
 	if len(os.Args) > 1 && os.Args[1] == "serve" {
 		serve()
@@ -76,14 +82,66 @@ func printHelp() {
 
 子命令:
   hashpwd [密码]    生成 bcrypt 密码哈希
-  serve             启动 HTTP 服务（默认）
+  migrate           执行数据库迁移后退出（用于开发期初始化/重建）
+  serve             启动 HTTP 服务（启动时会自动执行迁移）
 
 示例:
   aiknow-server --help
   aiknow-server version
   aiknow-server hashpwd mysecretpassword
+  aiknow-server migrate
   aiknow-server serve
 `, version)
+}
+
+// runMigrations 在单个事务中执行所有待执行的迁移并提交。
+//
+// 迁移须整体提交：DDL 停留在未提交事务中时，连接池内其他连接无法看到新建的表。
+func runMigrations(ctx context.Context, db *repository.PostgresDB) error {
+	tx, err := db.GetPool().Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("开启迁移事务: %w", err)
+	}
+	// Commit 成功后 Rollback 为空操作，失败路径则由它回滚
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if err := repository.RunMigrations(ctx, tx); err != nil {
+		return err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("提交迁移事务: %w", err)
+	}
+	return nil
+}
+
+// migrate 执行数据库迁移后退出
+//
+// 迁移逻辑与 serve 共用 runMigrations，避免开发期与生产环境的表结构产生漂移。
+// 扩展（vector / pg_search）不由迁移创建，需预先执行
+// deploy/postgres/init/000_init.sql，详见 docs/DATABASE_SETUP.md。
+func migrate() {
+	ctx := context.Background()
+
+	cfg := config.NewConfig()
+	dsn, _ := cfg.Get("DATABASE_URL")
+	if dsn == "" {
+		fmt.Println("缺少 DATABASE_URL 配置（可通过环境变量或 .env 提供）")
+		os.Exit(1)
+	}
+
+	db, err := repository.NewPostgresDB(ctx, dsn)
+	if err != nil {
+		fmt.Printf("数据库连接失败: %v\n", err)
+		os.Exit(1)
+	}
+	defer db.Close()
+
+	if err := runMigrations(ctx, db); err != nil {
+		fmt.Printf("迁移失败: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Println("数据库迁移完成")
 }
 
 // serve 启动 HTTP 服务 - 装配所有路由和服务
@@ -108,14 +166,8 @@ func serve() {
 	defer db.Close()
 	fmt.Println("数据库连接成功")
 
-	// 执行迁移（通过连接池开启事务）
-	tx, err := db.GetPool().Begin(ctx)
-	if err != nil {
-		fmt.Printf("迁移事务失败: %v\n", err)
-		os.Exit(1)
-	}
-	defer tx.Rollback(ctx)
-	if err := repository.RunMigrations(ctx, tx); err != nil {
+	// 执行迁移
+	if err := runMigrations(ctx, db); err != nil {
 		fmt.Printf("迁移失败: %v\n", err)
 		os.Exit(1)
 	}
