@@ -7,6 +7,14 @@ import (
 	"github.com/jenvan/aiknow/internal/model"
 )
 
+// L2ConfigSource L2 业务配置来源（由 config.ConfigCache 实现）。
+//
+// 各服务在每次调用时读取最新的 L2 配置（后台可改且热生效），
+// 使管理后台设置的值优先于 L1 启动配置与代码内置默认。
+type L2ConfigSource interface {
+	Get() model.L2Config
+}
+
 // ChunkService Chunk 服务接口
 type ChunkService interface {
 	GetByArticle(ctx context.Context, articleID string) ([]model.Chunk, error)

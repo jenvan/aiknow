@@ -102,9 +102,20 @@ baai:
   base_url: "https://api.deepinfra.com/v1"
 
 # 网页采集（抓取文章 URL 时的请求）
+#
+# 超时、重定向、最小内容长度属 L1 启动配置（http.Client 在启动时创建，
+# 运行时修改需重启生效）。User-Agent 例外：后台「系统配置 → collector.user_agent」
+# 可覆盖此值并热生效。
 collector:
-  # 抓取网页时发送的 User-Agent，对应环境变量 COLLECTOR_USER_AGENT。
-  # 留空使用内置默认值。后台「系统配置 → collector.user_agent」可覆盖此值并热生效。
+  # 抓取超时，对应环境变量 COLLECTOR_TIMEOUT，默认 10s
+  timeout: "10s"
+  # 最大重定向次数，对应环境变量 COLLECTOR_MAX_REDIRECTS，默认 3
+  max_redirects: 3
+  # 最小内容长度（字符），低于此长度视为采集失败，对应环境变量
+  # COLLECTOR_MIN_CONTENT_LENGTH，默认 200
+  min_content_length: 200
+  # 抓取网页时发送的 User-Agent，对应环境变量 COLLECTOR_USER_AGENT，默认如下。
+  # 后台「系统配置 → collector.user_agent」可覆盖此值并热生效。
   user_agent: "AiKnow/1.0 (Internal Knowledge Base)"
 
 # ================================================================
@@ -118,8 +129,6 @@ collector:
 #   Embedding / Reranker 模型名
 #               BAAI/bge-large-zh-v1.5、BAAI/bge-reranker-v2-m3
 #               见 internal/service/provider/
-#   采集参数    超时、重定向次数、最小内容长度等属 L2 配置，
-#               存于 settings 表，由后台管理界面调整
 #
 # 登录失败锁定（lockout_duration / max_failed_attempts）尚未实现，
 # 故本文件不再列出这两项，避免误以为已生效。

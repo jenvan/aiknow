@@ -18,11 +18,28 @@ type LLMProvider interface {
 	// Generate 生成文本
 	Generate(ctx context.Context, messages []Message, options GenerateOptions) (*LLMResult, error)
 
-	// GenerateJSON 生成结构化 JSON 输出
-	GenerateJSON(ctx context.Context, prompt string, schema string) (json.RawMessage, error)
+	// GenerateJSON 生成结构化 JSON 输出。
+	// opts 传入调用方准备好的 LLM 参数（model / temperature / max_tokens），
+	// 空值由各 Provider 用自身默认。
+	GenerateJSON(ctx context.Context, prompt string, schema string, opts GenerateOptions) (json.RawMessage, error)
 
 	// Name 返回 provider 名称
 	Name() string
+}
+
+// ModelSource 运行时模型名来源（L2 配置）。
+//
+// 实现方返回当前生效的模型名；返回空串时回落启动配置（QWEN_MODEL）。
+// QwenProvider 通过 SetModelSource 注入，实现后台在线切换模型。
+type ModelSource interface {
+	LLMModel() string
+}
+
+// ModelSourceSetter 支持注入运行时模型名来源的 Provider。
+//
+// 通过类型断言识别：main.go 把 L2 ConfigCache 注入 QwenProvider。
+type ModelSourceSetter interface {
+	SetModelSource(src ModelSource)
 }
 
 // Message LLM 消息
@@ -64,7 +81,7 @@ func (m *MockLLM) Generate(ctx context.Context, messages []Message, options Gene
 	}, nil
 }
 
-func (m *MockLLM) GenerateJSON(ctx context.Context, prompt string, schema string) (json.RawMessage, error) {
+func (m *MockLLM) GenerateJSON(ctx context.Context, prompt string, schema string, opts GenerateOptions) (json.RawMessage, error) {
 	if m.Error != nil {
 		return nil, m.Error
 	}

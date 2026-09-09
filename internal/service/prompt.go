@@ -10,6 +10,7 @@ import (
 
 	"github.com/jenvan/aiknow/internal/model"
 	"github.com/jenvan/aiknow/internal/repository"
+	"github.com/jenvan/aiknow/internal/service/provider"
 )
 
 // PromptKeyAnalyze 分析提示词在 settings 表中的键（AGENT.md：v1 仅此一个模板）
@@ -27,7 +28,7 @@ type PromptService struct {
 
 // promptLLM 只取 LLMProvider 中试跑所需的方法，便于单测替身
 type promptLLM interface {
-	GenerateJSON(ctx context.Context, prompt, schema string) (json.RawMessage, error)
+	GenerateJSON(ctx context.Context, prompt, schema string, opts provider.GenerateOptions) (json.RawMessage, error)
 }
 
 // NewPromptService 创建提示词服务。
@@ -182,7 +183,7 @@ func (s *PromptService) TestPrompt(ctx context.Context, promptTemplate, articleI
 		return result, nil
 	}
 
-	raw, err := s.llmProvider.GenerateJSON(ctx, result.RenderedPrompt, "")
+	raw, err := s.llmProvider.GenerateJSON(ctx, result.RenderedPrompt, "", provider.GenerateOptions{})
 	if err != nil {
 		// 调用失败属试跑的有效结果之一，记入结果而非中断
 		result.ValidationError = "LLM 调用失败: " + err.Error()

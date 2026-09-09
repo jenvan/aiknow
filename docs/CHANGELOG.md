@@ -1,4 +1,64 @@
 # AiKnow 变更日志
+## [v0.6.2] - 2026-09-09
+
+### 配置层级收紧：L1 默认值完整、L2 可运行时修改且优先级最高
+
+**背景**：管理后台（L2 settings 表）此前混入两类不该出现的配置——与表结构/启动参数
+绑定的固定配置（embedding.dimension、采集超时等），以及配置从未真正热生效
+（ConfigCache.Reload 用 map 解析扁平标量必然失败，且 main.go 从未创建 ConfigCache）。
+
+#### L1 启动配置补全（config.yaml 体现全部默认值）
+- 网页采集超时/重定向次数/最小内容长度纳入 L1：
+  `collector.timeout`（COLLECTOR_TIMEOUT，默认 10s）、
+  `collector.max_redirects`（默认 3）、`collector.min_content_length`（默认 200）。
+  理由：`http.Client` 在 `serve()` 启动时创建，运行时改不生效，放 L2 会制造"改了没生效"假象
+- 变更：`internal/config/config.go`（managedKeys / defaultValues / YAMLConfig / toFlat）、
+  `cmd/aiknow-server/main.go`、`config.yaml.example`、`.env.example`
+
+#### L2 精简为真正可运行时修改的配置
+- 从 `L2Config` 删除：`embedding.dimension`（与 VECTOR(1024) 表结构绑定，不可改）、
+  `collector.timeout_ms / max_redirects / min_content_length`（移入 L1）
+- 新增：`llm.model`（L2 覆盖 L1 QWEN_MODEL，实现后台在线切换模型）
+- 迁移 `010_config_hierarchy_cleanup.sql`：删除上述 4 项、播种 `llm.model` 空值（=未覆盖）
+
+#### L2 优先级机制真正接通（此前完全未使用）
+- `ConfigCache.Reload` 重写：按各 key 已知类型直接解码扁平标量（数字 / JSON 字符串），
+  修复"从未热生效"的根因；`applySetting` 补齐全部 L2 key
+- `main.go`：创建 ConfigCache 并启动时 Reload；`SettingHandler` 配置变更（保存/重置）后
+  通过 onChanged 回调触发 Reload——后台改值即时生效且优先级最高
+- QwenProvider 支持运行时模型源（`SetModelSource`，Go 接口 `ModelSourceSetter`）：
+  模型名优先级 = 调用方显式指定 > L2 `llm.model` > L1 `QWEN_MODEL` > 内置 qwen-plus
+- 变更：`internal/config/cache.go`、`cmd/aiknow-server/main.go`、
+  `internal/handler/admin/setting.go`、`internal/model/setting.go`、
+  `internal/service/provider/llm.go`、`internal/service/provider/llm_qwen.go`
+
+#### 各消费端接入 L2 配置（后台参数真正生效）
+- 引入 `service.L2ConfigSource` 接口（`config.ConfigCache` 实现），各服务在每次调用时
+  读取最新 L2 值，兑现「后台配置优先级最高且热生效」：
+  - **AIPipeline**：LLM 参数（model/temperature/max_tokens，经 `GenerateJSON` 新增的
+    `opts` 参数传入）、分块 `chunk.size` / `chunk.overlap`（替代硬编码 400/50）
+  - **SearchService**：`search.*` 六项参数作为默认值；`reranker.top_k` 限制送入精排
+    的候选数（控制成本）
+  - **KeywordSearchService**：`keyword_search.*` 五项权重（此前仓库层硬编码 3.0/2.5/…）
+  - **LogHandler**：`mcp_log.retention_days` 作为日志清理默认保留天数
+- `GenerateJSON` 接口增加 `opts GenerateOptions` 参数（provider 与 `prompt.go` 同步更新）
+- 变更：`internal/service/interfaces.go`、`search.go`、`search_keyword.go`、
+  `ai_pipeline.go`、`prompt.go`、`internal/handler/admin/log.go`、`cmd/aiknow-server/main.go`、
+  `internal/service/provider/llm.go`、`llm_qwen.go`
+- `embedding.batch_size` 已入库可编辑，但当前 Embedding 逐条调用，暂无批量入口未消费
+
+#### 系统配置页按功能分组展示（不再按首字母排序）
+- 分组顺序固定，中文分组名（LLM / Embedding / Reranker / 混合检索 / 文本分块 /
+  关键词检索 / MCP 日志 / 网页采集 / 提示词），每个配置项带取值范围说明
+- 变更：`web/js/pages/settings.js`、`web/index.html`
+
+#### 新增/调整测试
+- `internal/config/cache_test.go`：扁平标量解码（字符串 / 数字）、未知 key 忽略
+- `internal/service/provider/llm_qwen_test.go`：L2 模型源覆盖启动配置、空源回落
+- `internal/service/l2config_test.go`：检索/关键词/AIPipeline/rerank 候选上限从 L2 读取
+- `config_test.go`：示例配置新增收集器字段校验
+- 新增 `docs/CONFIG_ARCHITECTURE.md` 记录配置分层设计与消费端接入清单
+
 ## [v0.6.1] - 2026-09-09
 
 ### 功能调整：LLM 模型名与采集 User-Agent 可配置

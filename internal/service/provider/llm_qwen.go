@@ -14,7 +14,9 @@ import (
 type QwenProvider struct {
 	baseURL string
 	apiKey  string
-	model   string
+	model   string // 启动配置（QWEN_MODEL）
+	// modelFn 可选：运行时模型名来源（L2 配置），非空时优先于启动配置
+	modelFn func() string
 	client  *http.Client
 }
 
@@ -38,6 +40,17 @@ func NewQwenProvider(baseURL, apiKey, model string) (*QwenProvider, error) {
 			Timeout: 30 * time.Second,
 		},
 	}, nil
+}
+
+// SetModelSource 注入运行时模型名来源（实现 ModelSource 接口）。
+//
+// 传入后每次调用从该来源读取当前模型名：非空则覆盖启动配置，可为 nil 还原。
+func (q *QwenProvider) SetModelSource(src ModelSource) {
+	if src == nil {
+		q.modelFn = nil
+		return
+	}
+	q.modelFn = src.LLMModel
 }
 
 func (q *QwenProvider) Name() string { return "qwen" }
@@ -64,9 +77,14 @@ type chatResponse struct {
 }
 
 func (q *QwenProvider) Generate(ctx context.Context, messages []Message, options GenerateOptions) (*LLMResult, error) {
-	// 未显式指定模型时回落到启动配置的模型名
+	// 模型名优先级：调用方显式指定 > 运行时来源（L2） > 启动配置（QWEN_MODEL）
 	if options.Model == "" {
 		options.Model = q.model
+		if q.modelFn != nil {
+			if m := q.modelFn(); m != "" {
+				options.Model = m
+			}
+		}
 	}
 
 	reqBody := chatRequest{
@@ -122,17 +140,17 @@ func (q *QwenProvider) Generate(ctx context.Context, messages []Message, options
 	}, nil
 }
 
-func (q *QwenProvider) GenerateJSON(ctx context.Context, prompt string, schema string) (json.RawMessage, error) {
+func (q *QwenProvider) GenerateJSON(ctx context.Context, prompt string, schema string, opts GenerateOptions) (json.RawMessage, error) {
 	messages := []Message{
 		{Role: "system", Content: "You are a helpful assistant. Always respond in JSON format."},
 		{Role: "user", Content: prompt},
 	}
 
-	options := GenerateOptions{
-		ResponseFormat: "json_object",
-	}
+	// 结构化输出固定 json_object；model / temperature / max_tokens 沿用调用方
+	// 传入值，未设时由 q.Generate 回落到启动配置默认。
+	opts.ResponseFormat = "json_object"
 
-	result, err := q.Generate(ctx, messages, options)
+	result, err := q.Generate(ctx, messages, opts)
 	if err != nil {
 		return nil, err
 	}

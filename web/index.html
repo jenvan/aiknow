@@ -125,37 +125,39 @@
                                         <div class="p-6 space-y-4">
                                             <template x-for="field in group.fields" :key="field.key">
                                                 <div class="flex items-start justify-between gap-6">
-                                                    <div class="pt-1 min-w-0">
-                                                        <div class="font-medium text-gray-800" x-text="field.key"></div>
-                                                        <div class="text-xs mt-1">
-                                                            <span x-show="field.override"
-                                                                  class="text-amber-600">后台已修改</span>
-                                                            <span x-show="!field.override"
-                                                                  class="text-gray-400">默认值</span>
-                                                        </div>
-                                                    </div>
-                                                    <div class="flex items-center gap-2 flex-shrink-0">
-                                                        <textarea x-show="field.type === 'textarea'"
-                                                                  x-model="field.value" rows="3"
-                                                                  class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-96"></textarea>
-                                                        <input x-show="field.type !== 'textarea'"
-                                                               :type="field.type"
-                                                               :step="field.type === 'number' ? 'any' : undefined"
-                                                               x-model="field.value"
-                                                               @keyup.enter="saveField(field)"
-                                                               class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-96">
-                                                        <button @click="saveField(field)"
-                                                                class="px-4 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-                                                                :disabled="saving">
-                                                            保存
-                                                        </button>
-                                                        <button @click="resetField(field)"
-                                                                x-show="field.override"
-                                                                class="px-4 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50">
-                                                            重置
-                                                        </button>
-                                                    </div>
-                                                </div>
+                            <div class="pt-1 min-w-0 flex-1">
+                                <div class="font-medium text-gray-800" x-text="field.key"></div>
+                                <div class="text-xs mt-1">
+                                    <span x-show="!field.override" class="text-gray-400">默认值</span>
+                                    <span x-show="field.override" class="text-amber-600">后台已修改</span>
+                                </div>
+                                <div class="text-xs text-gray-500 mt-1" x-show="field.hint"
+                                     x-text="field.hint"></div>
+                            </div>
+                            <div class="flex items-start gap-2 flex-shrink-0">
+                                <textarea x-show="field.type === 'textarea'"
+                                          x-model="field.value" rows="4"
+                                          class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-96 min-w-64"></textarea>
+                                <input x-show="field.type !== 'textarea'"
+                                       :type="field.type"
+                                       :step="field.type === 'number' ? 'any' : undefined"
+                                       x-model="field.value"
+                                       @keyup.enter="saveField(field)"
+                                       class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-72">
+                                <div class="flex flex-col gap-2">
+                                    <button @click="saveField(field)"
+                                            class="px-4 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 whitespace-nowrap"
+                                            :disabled="saving">
+                                        保存
+                                    </button>
+                                    <button @click="resetField(field)"
+                                            x-show="field.override"
+                                            class="px-4 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 whitespace-nowrap">
+                                        重置
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
                                             </template>
                                         </div>
                                     </div>

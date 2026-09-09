@@ -103,18 +103,20 @@ SELECT '你好世界，全文检索'::pdb.jieba::text[];
 | 分类不在候选列表 | 置「未分类」 |
 | 标签超 15 个 / 单个超 20 字 | 截取前 10 / 丢弃超长项 |
 
-### 6. 配置分层（v3.2，v3.3 调整）
+### 6. 配置分层（v3.2，v3.3 调整，v0.6.2 收紧）
 
 | 层级 | 存储 | 内容 | 变更方式 |
 |------|------|------|---------|
-| **L1 启动配置** | 环境变量 → `.env` → config.yaml | 连接串、密钥、端口、运行环境、provider、base_url、**LLM 模型名**、管理员账号、Session 有效期 | 需重启 |
-| **L2 业务配置** | `settings` 表 | 模型参数、提示词、检索参数、采集参数 | 后台改，热生效 |
+| **L1 启动配置** | 环境变量 → `.env` → config.yaml | 连接串、密钥、端口、运行环境、provider、base_url、LLM 模型名、采集超时/重定向/最小内容长度、管理员账号、Session 有效期 | 需重启 |
+| **L2 业务配置** | `settings` 表 | 真正支持运行时修改的业务参数（LLM 参数、检索/分块/关键词权重、提示词、User-Agent 覆盖） | 后台改，热生效 |
 | **L3 凭据数据** | `api_keys` 表 | API Key 哈希 | 后台管理 |
 
 **分层判断原则**：
-- 密钥类**绝不**进 `settings` 表和后台页面
-- `provider` / `base_url` 归 L1：切服务商是部署级变更，通常伴随换密钥
-- 向量维度**不是配置项**：与 `VECTOR(1024)` 表结构、HNSW 索引、bge-large-zh-v1.5
+- **隐私与密钥**（API Key、密码）绝不进 `settings` 表和后台页面
+- **启动期即固定的参数归 L1**：如采集超时/重定向次数——`http.Client` 在 `serve()`
+  启动时创建，运行时改 settings 表并不会重建连接，放 L2 只会制造"改了没生效"的假象
+- `provider` / `base_url` / LLM 模型名同时允许 L2 覆盖：起作用的运行时来源优先
+- **向量维度不是配置项**：与 `VECTOR(1024)` 表结构、HNSW 索引、bge-large-zh-v1.5
   三者强绑定，改了要重建表与索引并重灌数据。当前硬编码在
   `internal/service/provider/`，刻意不开放配置，避免给出"可调"的错误暗示
 
@@ -132,11 +134,25 @@ SELECT '你好世界，全文检索'::pdb.jieba::text[];
 
 **L2 热生效**：
 ```
-启动：settings 表 → 内存 ConfigCache
-运行：后台保存 → 写表 + history → 刷新 ConfigCache
-     多实例：PostgreSQL LISTEN/NOTIFY 广播重载
+启动：settings 表 → 内存 ConfigCache（serve() 创建并 Reload）
+运行：后台保存 → 写 settings 表 → SettingHandler.onChanged 回调 → ConfigCache.Reload
 ```
-`settings` 表缺键回落内置默认值，首次部署无需灌数据；「恢复默认」= 删除该行。
+`settings` 表缺键回落内置默认值，首次部署无需灌数据；「恢复默认」= 删除该行
+（随后同样触发 Reload）。
+
+**L2 值格式为扁平标量**：数字（`0.3`）或 JSON 编码字符串（`"qwen-plus"`）。此前
+ConfigCache.Reload 用 `map[string]interface{}` 解析，对扁平标量必然失败，L2 配置
+从未真正生效；v0.6.2 起按各 key 已知类型直接解码（见
+`internal/config/cache.go` 的 applySetting）。
+
+**运行时来源优先于启动配置**：各消费端通过 `service.L2ConfigSource` 接口（
+`config.ConfigCache` 实现）每次调用读取最新 L2 值。接入清单见
+`docs/CONFIG_ARCHITECTURE.md#消费端接入`：
+- 混合检索 / 关键词检索 / 文章处理 / 日志清理均读 L2 对应分组
+- `llm.model`：QwenProvider 注入 L2 ConfigCache（`SetModelSource`）；Generate 时
+  模型名优先级 = 调用方显式指定 > L2 `llm.model` > L1 `QWEN_MODEL` > 内置 qwen-plus
+- `collector.user_agent`：Collector 每次抓取读 settings 表；非空则覆盖 L1
+  `COLLECTOR_USER_AGENT`
 
 ### 7. API Key 存储：SHA-256 而非 bcrypt
 - API Key 是高熵随机串，无字典攻击风险
@@ -304,29 +320,35 @@ POST /api/v1/search
 
 ## 核心配置参数
 
-> 标注「L2」的参数在后台可改且热生效，其余为 L1 启动配置。
+> 标注「L2」的参数在后台可改且热生效；标注「L1 + L2 覆盖」的，L1 设默认、L2 可覆盖；
+> 其余 L1 为启动配置（需重启）。
 
 | 参数 | 值 | 层级 | 说明 |
 |------|-----|------|------|
-| LLM 模型名 | qwen-plus | L1 | `QWEN_MODEL`，Qwen 请求的 model 字段 |
-| 采集 User-Agent | AiKnow/1.0 (Internal Knowledge Base) | L1 + L2 覆盖 | `COLLECTOR_USER_AGENT` 设基线；后台系统配置页 `collector.user_agent` 可覆盖并热生效，留空回落基线 |
-| 向量维度 | 1024 | L1 | bge-large-zh-v1.5，与表结构绑定 |
+| LLM 模型名 | qwen-plus | L1 + L2 覆盖 | `QWEN_MODEL` 设基线；后台 `llm.model` 留空回落基线 |
+| LLM temperature | 0.3 | L2 | 0.0-2.0 |
+| LLM max_tokens | 2000 | L2 | 100-8000 |
+| LLM retry_count / timeout_ms | 3 / 30000 | L2 | 0-5 / 5000-120000 |
+| Embedding batch_size | 10 | L2 | 1-64 |
+| 采集 User-Agent | AiKnow/1.0 (Internal Knowledge Base) | L1 + L2 覆盖 | `COLLECTOR_USER_AGENT` 设基线；后台 `collector.user_agent` 留空回落基线 |
+| 采集超时 | 10s | L1 | `COLLECTOR_TIMEOUT`，重启生效 |
+| 采集重定向次数 | 3 | L1 | `COLLECTOR_MAX_REDIRECTS` |
+| 采集最小内容长度 | 200 | L1 | `COLLECTOR_MIN_CONTENT_LENGTH`（字符） |
+| 向量维度 | 1024 | 固定 | bge-large-zh-v1.5，与表结构绑定，不可配置 |
 | HNSW m | 16 | 建表参数 | 每层连接数 |
 | HNSW ef_construction | 64 | 建表参数 | 构建时列表大小 |
 | HNSW ef_search | 100 | L2 | 查询时列表大小 |
 | BM25 k1 | 1.2 | 建表参数 | 词频饱和参数 |
 | BM25 b | 0.75 | 建表参数 | 文档长度归一化 |
 | RRF k | 60 | L2 | 倒数排名融合参数 |
-| 向量权重 | 0.5 | L2 | 与 BM25 权重之和须为 1 |
-| BM25 权重 | 0.5 | L2 | 同上 |
+| 向量权重 / BM25 权重 | 0.5 / 0.5 | L2 | 之和须为 1 |
 | default_top_k | 5 | L2 | 须 ≤ candidate_k |
 | candidate_k | 20 | L2 | RRF 召回候选数 |
-| Chunk size | 400 | L2 | 200-800 字 |
-| Chunk overlap | 50 | L2 | 须 < size |
-| LLM temperature | 0.3 | L2 | 0.0-2.0 |
-| LLM max_tokens | 2000 | L2 | 100-8000 |
+| Chunk size / overlap | 400 / 50 | L2 | 200-800 / 0-200，overlap < size |
+| Reranker top_k | 20 | L2 | 1-50 |
 | mcp_log retention_days | 30 | L2 | 1-365，pg_cron 清理 |
 | keyword_search 权重组 | 见 8.1 节 | L2 | 5 项权重，0-100 |
+| prompt.analyze | 内置模板 | L2 | 文章分析提示词，后台可改 |
 
 ## v1 范围（MVP）
 

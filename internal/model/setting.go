@@ -34,15 +34,19 @@ type SettingHistory struct {
 }
 
 // L2Config L2 业务配置（内存缓存）
+//
+// 只包含支持运行时修改的配置项。固定配置（如 embedding.dimension）
+// 与表结构绑定，不在后台显示。
 type L2Config struct {
 	LLM struct {
+		Model       string  `json:"model"`
 		Temperature float32 `json:"temperature"`
 		MaxTokens   int     `json:"max_tokens"`
 		RetryCount  int     `json:"retry_count"`
 		TimeoutMS   int     `json:"timeout_ms"`
 	} `json:"llm"`
 	Embedding struct {
-		Dimension int `json:"dimension"`
+		// Dimension 固定为 1024，与 VECTOR(1024) 表结构绑定，不可运行时修改
 		BatchSize int `json:"batch_size"`
 	} `json:"embedding"`
 	Reranker struct {
@@ -71,9 +75,6 @@ type L2Config struct {
 		ContentWeight  float64 `json:"content_weight"`
 	} `json:"keyword_search"`
 	Collector struct {
-		TimeoutMS        int `json:"timeout_ms"`
-		MaxRedirects     int `json:"max_redirects"`
-		MinContentLength int `json:"min_content_length"`
 		// UserAgent 后台覆盖值；留空表示使用启动配置（COLLECTOR_USER_AGENT）
 		UserAgent string `json:"user_agent"`
 	} `json:"collector"`
@@ -83,24 +84,27 @@ type L2Config struct {
 }
 
 // DefaultL2Config 返回内置默认配置
+//
+// 注意：LLM.Model 默认从 L1 的 QWEN_MODEL 获取，这里用空字符串表示未覆盖。
+// Collector.UserAgent 默认空，表示使用 L1 的 COLLECTOR_USER_AGENT。
 func DefaultL2Config() L2Config {
 	return L2Config{
 		LLM: struct {
+			Model       string  `json:"model"`
 			Temperature float32 `json:"temperature"`
 			MaxTokens   int     `json:"max_tokens"`
 			RetryCount  int     `json:"retry_count"`
 			TimeoutMS   int     `json:"timeout_ms"`
 		}{
+			Model:       "",
 			Temperature: 0.3,
 			MaxTokens:   2000,
 			RetryCount:  3,
 			TimeoutMS:   30000,
 		},
 		Embedding: struct {
-			Dimension int `json:"dimension"`
 			BatchSize int `json:"batch_size"`
 		}{
-			Dimension: 1024,
 			BatchSize: 10,
 		},
 		Reranker: struct {
@@ -149,14 +153,9 @@ func DefaultL2Config() L2Config {
 			ContentWeight:  1.0,
 		},
 		Collector: struct {
-			TimeoutMS        int    `json:"timeout_ms"`
-			MaxRedirects     int    `json:"max_redirects"`
-			MinContentLength int    `json:"min_content_length"`
-			UserAgent        string `json:"user_agent"`
+			UserAgent string `json:"user_agent"`
 		}{
-			TimeoutMS:        10000,
-			MaxRedirects:     3,
-			MinContentLength: 200,
+			UserAgent: "",
 		},
 		Prompt: struct {
 			Analyze string `json:"analyze"`

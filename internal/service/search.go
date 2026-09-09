@@ -14,12 +14,14 @@ import (
 
 // SearchServiceImpl 检索服务实现
 type SearchServiceImpl struct {
-	searchRepo       repository.SearchRepository
+	searchRepo        repository.SearchRepository
 	embeddingProvider provider.EmbeddingProvider
 	rerankerProvider  provider.RerankerProvider
 	chunkRepo         repository.ChunkRepository
 	categoryRepo      repository.CategoryRepository
 	tagRepo           repository.TagRepository
+	// configSource 可选：L2 配置来源，调用方未显式指定参数时用其值
+	configSource L2ConfigSource
 }
 
 // NewSearchService 创建检索服务
@@ -30,8 +32,9 @@ func NewSearchService(
 	chunkRepo repository.ChunkRepository,
 	categoryRepo repository.CategoryRepository,
 	tagRepo repository.TagRepository,
+	configSources ...L2ConfigSource,
 ) SearchService {
-	return &SearchServiceImpl{
+	s := &SearchServiceImpl{
 		searchRepo:        searchRepo,
 		embeddingProvider: embeddingProvider,
 		rerankerProvider:  rerankerProvider,
@@ -39,22 +42,51 @@ func NewSearchService(
 		categoryRepo:      categoryRepo,
 		tagRepo:           tagRepo,
 	}
+	if len(configSources) > 0 && configSources[0] != nil {
+		s.configSource = configSources[0]
+	}
+	return s
+}
+
+// applyDefaults 用 L2 配置（或内置默认）补齐未显式指定的检索参数
+func (s *SearchServiceImpl) applyDefaults(params *model.SearchParams) {
+	d := model.DefaultL2Config()
+	if s.configSource != nil {
+		d = s.configSource.Get()
+	}
+	if params.CandidateK <= 0 {
+		params.CandidateK = d.Search.CandidateK
+	}
+	if params.RRFK <= 0 {
+		params.RRFK = d.Search.RRFK
+	}
+	if params.TopK <= 0 {
+		params.TopK = d.Search.TopK
+	}
+	if params.VectorWeight <= 0 {
+		params.VectorWeight = d.Search.VectorWeight
+	}
+	if params.BM25Weight <= 0 {
+		params.BM25Weight = d.Search.BM25Weight
+	}
+	if params.EFSearch <= 0 {
+		params.EFSearch = d.Search.EFSearch
+	}
+}
+
+// rerankCandidateLimit 送入精排的最大候选数（L2 reranker.top_k）；0 表示不限制
+func (s *SearchServiceImpl) rerankCandidateLimit() int {
+	if s.configSource != nil {
+		return s.configSource.Get().Reranker.TopK
+	}
+	return 0
 }
 
 // Search 混合检索（向量 + BM25 + RRF + Rerank）
 func (s *SearchServiceImpl) Search(ctx context.Context, query string, params model.SearchParams) (*model.SearchResult, error) {
 	start := time.Now()
 
-	// 默认参数
-	if params.CandidateK <= 0 {
-		params.CandidateK = 50
-	}
-	if params.RRFK <= 0 {
-		params.RRFK = 60
-	}
-	if params.TopK <= 0 {
-		params.TopK = 10
-	}
+	s.applyDefaults(&params)
 
 	// 1. 生成 Query 向量
 	embStart := time.Now()
@@ -85,10 +117,14 @@ func (s *SearchServiceImpl) Search(ctx context.Context, query string, params mod
 	rrfResults := rrfFuse(vectorResults, bm25Results, params.RRFK, params.VectorWeight, params.BM25Weight)
 	rrfMs := time.Since(rrfStart).Milliseconds()
 
-	// 5. Rerank 精排
+	// 5. Rerank 精排（候选按 L2 reranker.top_k 截断，控制精排成本）
 	rerankStart := time.Now()
-	documents := make([]string, len(rrfResults))
-	for i, r := range rrfResults {
+	candidates := rrfResults
+	if limit := s.rerankCandidateLimit(); limit > 0 && len(candidates) > limit {
+		candidates = candidates[:limit]
+	}
+	documents := make([]string, len(candidates))
+	for i, r := range candidates {
 		documents[i] = r.Content
 	}
 
@@ -103,7 +139,7 @@ func (s *SearchServiceImpl) Search(ctx context.Context, query string, params mod
 	rerankMs := time.Since(rerankStart).Milliseconds()
 
 	// 6. 按 Rerank 名次回取候选
-	finalResults := applyRerank(rrfResults, rerankResult.Results)
+	finalResults := applyRerank(candidates, rerankResult.Results)
 
 	totalMs := time.Since(start).Milliseconds()
 
@@ -148,15 +184,7 @@ func (s *SearchServiceImpl) DebugSearch(ctx context.Context, query string, param
 
 	start := time.Now()
 
-	if params.CandidateK <= 0 {
-		params.CandidateK = 50
-	}
-	if params.RRFK <= 0 {
-		params.RRFK = 60
-	}
-	if params.TopK <= 0 {
-		params.TopK = 10
-	}
+	s.applyDefaults(&params)
 
 	// 1. 向量检索
 	embStart := time.Now()
@@ -186,10 +214,14 @@ func (s *SearchServiceImpl) DebugSearch(ctx context.Context, query string, param
 	rrfResults := rrfFuse(vectorResults, bm25Results, params.RRFK, params.VectorWeight, params.BM25Weight)
 	rrfMs := time.Since(rrfStart).Milliseconds()
 
-	// 4. Rerank 精排
+	// 4. Rerank 精排（候选按 L2 reranker.top_k 截断）
 	rerankStart := time.Now()
-	documents := make([]string, len(rrfResults))
-	for i, r := range rrfResults {
+	candidates := rrfResults
+	if limit := s.rerankCandidateLimit(); limit > 0 && len(candidates) > limit {
+		candidates = candidates[:limit]
+	}
+	documents := make([]string, len(candidates))
+	for i, r := range candidates {
 		documents[i] = r.Content
 	}
 
@@ -204,7 +236,7 @@ func (s *SearchServiceImpl) DebugSearch(ctx context.Context, query string, param
 		// 直接返回融合结果并在该阶段留空更有助于定位问题
 		finalResults = rrfResults
 	} else {
-		finalResults = applyRerank(rrfResults, rerankResult.Results)
+		finalResults = applyRerank(candidates, rerankResult.Results)
 	}
 	rerankMs := time.Since(rerankStart).Milliseconds()
 
@@ -310,14 +342,16 @@ func SearchWithConcurrent(ctx context.Context, query string, params model.Search
 ) (*model.SearchResult, error) {
 	start := time.Now()
 
+	// 内置 L2 默认（无 ConfigCache 时使用；正式检索走 SearchServiceImpl.applyDefaults）
+	d := model.DefaultL2Config()
 	if params.CandidateK <= 0 {
-		params.CandidateK = 50
+		params.CandidateK = d.Search.CandidateK
 	}
 	if params.RRFK <= 0 {
-		params.RRFK = 60
+		params.RRFK = d.Search.RRFK
 	}
 	if params.TopK <= 0 {
-		params.TopK = 10
+		params.TopK = d.Search.TopK
 	}
 
 	// 1. 生成向量

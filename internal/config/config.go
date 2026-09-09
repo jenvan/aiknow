@@ -56,6 +56,9 @@ var managedKeys = []string{
 
 	// 网页采集
 	"COLLECTOR_USER_AGENT",
+	"COLLECTOR_TIMEOUT",
+	"COLLECTOR_MAX_REDIRECTS",
+	"COLLECTOR_MIN_CONTENT_LENGTH",
 }
 
 // defaultValues 任何来源都未提供时的兜底值
@@ -75,6 +78,12 @@ var defaultValues = map[string]string{
 	"POSTGRES_SSLMODE": "disable",
 
 	"QWEN_MODEL": "qwen-plus",
+
+	// 网页采集默认值（与 internal/service/collector.go DefaultCollectorConfig 一致）
+	"COLLECTOR_TIMEOUT":            "10s",
+	"COLLECTOR_MAX_REDIRECTS":      "3",
+	"COLLECTOR_MIN_CONTENT_LENGTH": "200",
+	"COLLECTOR_USER_AGENT":         "AiKnow/1.0 (Internal Knowledge Base)",
 }
 
 // YAMLConfig config.yaml 的结构。
@@ -130,7 +139,10 @@ type YAMLConfig struct {
 	} `yaml:"baai"`
 
 	Collector struct {
-		UserAgent string `yaml:"user_agent"`
+		Timeout          string `yaml:"timeout"`
+		MaxRedirects     int    `yaml:"max_redirects"`
+		MinContentLength int    `yaml:"min_content_length"`
+		UserAgent        string `yaml:"user_agent"`
 	} `yaml:"collector"`
 }
 
@@ -158,6 +170,14 @@ func (y *YAMLConfig) toFlat() map[string]string {
 		"BAAI_API_KEY":         y.BAAI.APIKey,
 		"BAAI_BASE_URL":        y.BAAI.BaseURL,
 		"COLLECTOR_USER_AGENT": y.Collector.UserAgent,
+		"COLLECTOR_TIMEOUT":    y.Collector.Timeout,
+	}
+
+	if y.Collector.MaxRedirects != 0 {
+		flat["COLLECTOR_MAX_REDIRECTS"] = strconv.Itoa(y.Collector.MaxRedirects)
+	}
+	if y.Collector.MinContentLength != 0 {
+		flat["COLLECTOR_MIN_CONTENT_LENGTH"] = strconv.Itoa(y.Collector.MinContentLength)
 	}
 
 	// 0 表示 YAML 中未设置该项，不写入以免覆盖更低优先级来源

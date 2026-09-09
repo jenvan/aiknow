@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -235,6 +236,20 @@ func serve() {
 	fmt.Printf("AI Provider 初始化完成: LLM=%s, Embedding=%s, Reranker=%s\n",
 		llmProvider.Name(), embeddingProvider.Name(), rerankerProvider.Name())
 
+	// L2 业务配置缓存（settings 表）。
+	//
+	// 后台系统配置页的修改通过 SettingHandler.onChanged 回调触发 Reload，
+	// 使 L2 配置保持热生效且优先级最高。
+	configCache := config.NewConfigCache(db.DB())
+	if err := configCache.Reload(ctx); err != nil {
+		fmt.Printf("警告: 加载 L2 配置失败: %v\n", err)
+	}
+
+	// QwenProvider 支持运行时模型名来源：后台设置 llm.model 后覆盖 L1 QWEN_MODEL
+	if s, ok := llmProvider.(provider.ModelSourceSetter); ok {
+		s.SetModelSource(configCache)
+	}
+
 	// AI 处理任务队列。
 	// 需在 articleService 之前创建：文章录入后由它投递异步处理任务。
 	queue := pgqueue.NewQueue(db.DB(), "article_processing")
@@ -257,6 +272,8 @@ func serve() {
 		db.GetChunkRepo(),
 		db.GetCategoryRepo(),
 		db.GetTagRepo(),
+		// L2 配置：检索参数（top_k / candidate_k / rrf_k / 权重）后台可改
+		configCache,
 	)
 
 	// 管理员凭据来自 L1 配置；此前 Login 内硬编码 admin/admin，
@@ -287,7 +304,10 @@ func serve() {
 
 	// MCP 服务在路由注册前构造：后台调试页与对外 /mcp 共用同一实例
 	keywordService := service.NewKeywordSearchService(
-		db.GetSearchRepo(), db.GetCategoryRepo(), db.GetTagRepo())
+		db.GetSearchRepo(), db.GetCategoryRepo(), db.GetTagRepo(),
+		// L2 配置：关键词权重（tag/category/title/summary/content）后台可改
+		configCache,
+	)
 	mcpLogService := service.NewMCPLogService(db.GetMCPLogRepo())
 	mcpService := service.NewMCPService(
 		searchService,
@@ -297,6 +317,17 @@ func serve() {
 		mcpLogService,
 	)
 	collectorConfig := service.DefaultCollectorConfig()
+	collectorConfig.Timeout = cfg.GetDuration("COLLECTOR_TIMEOUT", collectorConfig.Timeout)
+	if v, _ := cfg.Get("COLLECTOR_MAX_REDIRECTS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			collectorConfig.MaxRedirects = n
+		}
+	}
+	if v, _ := cfg.Get("COLLECTOR_MIN_CONTENT_LENGTH"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			collectorConfig.MinContentLength = n
+		}
+	}
 	collectorConfig.UserAgent = cfg.GetOr("COLLECTOR_USER_AGENT", collectorConfig.UserAgent)
 	collector := service.NewCollector(collectorConfig)
 	// 后台「系统配置 → collector.user_agent」可覆盖启动配置并热生效
@@ -371,12 +402,16 @@ func serve() {
 		mcpDebugHandler := admin.NewMCPDebugHandler(mcpService)
 		adminGroup.POST("/mcp/debug", mcpDebugHandler.Invoke)
 
-		logHandler := admin.NewLogHandler(mcpLogService)
+		logHandler := admin.NewLogHandler(mcpLogService, configCache)
 		adminGroup.GET("/logs", logHandler.List)
 		adminGroup.DELETE("/logs", logHandler.DeleteExpired)
 		adminGroup.GET("/logs/:trace_id", logHandler.Get)
 
-		settingHandler := admin.NewSettingHandler(cfg, db.GetSettingRepo())
+		settingHandler := admin.NewSettingHandler(cfg, db.GetSettingRepo(), func() {
+			if err := configCache.Reload(context.Background()); err != nil {
+				fmt.Printf("警告: 刷新 L2 配置失败: %v\n", err)
+			}
+		})
 		adminGroup.GET("/settings", settingHandler.GetSettings)
 		adminGroup.POST("/settings/reset", settingHandler.ResetAllSettings)
 		adminGroup.GET("/settings/:key", settingHandler.GetSetting)
@@ -430,6 +465,8 @@ func serve() {
 		// 传入 promptService，使后台修改的提示词对实际处理生效
 		promptService,
 	)
+	// L2 配置：分块大小与 LLM 参数（model / temperature / max_tokens）后台可调
+	pipeline.SetConfigSource(configCache)
 
 	worker := service.NewWorker(db, pipeline, queue, service.DefaultWorkerConfig())
 	go func() {

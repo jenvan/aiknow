@@ -31,14 +31,18 @@ type AIPipeline struct {
 	tagRepo           repository.TagRepository
 	// promptService 提供可在后台修改的分析提示词；为 nil 时用内置默认模板
 	promptService *PromptService
-	chunkSize     int
-	chunkOverlap  int
+	// configSource 可选：L2 配置来源（LLM 参数、分块大小等），nil 时用内置默认
+	configSource L2ConfigSource
+	// chunkSize / chunkOverlap 内置默认，configSource 存在时以 L2 为准
+	chunkSize    int
+	chunkOverlap int
 }
 
 // NewAIPipeline 创建 AI 处理流水线。
 //
 // promptService 可选：传入后使用后台可修改的分析提示词，
 // 不传则始终使用 L2 内置默认模板。
+// 运行时配置源通过 SetConfigSource 注入（L2 热生效）。
 func NewAIPipeline(
 	llmProvider provider.LLMProvider,
 	embeddingProvider provider.EmbeddingProvider,
@@ -62,6 +66,29 @@ func NewAIPipeline(
 		p.promptService = promptService[0]
 	}
 	return p
+}
+
+// SetConfigSource 注入 L2 配置来源：分块大小、LLM 参数等改后台后热生效
+func (p *AIPipeline) SetConfigSource(src L2ConfigSource) {
+	p.configSource = src
+}
+
+// l2Config 返回当前生效的 L2 配置（有来源读来源，否则内置默认）
+func (p *AIPipeline) l2Config() model.L2Config {
+	if p.configSource != nil {
+		return p.configSource.Get()
+	}
+	return model.DefaultL2Config()
+}
+
+// generateOptions 从 L2 读取 LLM 调用参数（模型名、温度、最大 token）
+func (p *AIPipeline) generateOptions() provider.GenerateOptions {
+	l2 := p.l2Config()
+	return provider.GenerateOptions{
+		Model:       l2.LLM.Model,
+		Temperature: l2.LLM.Temperature,
+		MaxTokens:   l2.LLM.MaxTokens,
+	}
 }
 
 // strPtr 返回字符串指针
@@ -141,8 +168,15 @@ func (p *AIPipeline) Process(ctx context.Context, article *model.Article) error 
 		return fmt.Errorf("delete old chunks: %w", err)
 	}
 
+	// 分块大小从 L2 读取（后台可调），未设置时用内置默认
+	chunkSize, chunkOverlap := p.chunkSize, p.chunkOverlap
+	if l2 := p.l2Config(); l2.Chunk.Size > 0 {
+		chunkSize = l2.Chunk.Size
+		chunkOverlap = l2.Chunk.Overlap
+	}
+
 	// 创建新 Chunk
-	newChunks, err := p.SplitContent(ctx, article.Content, p.chunkSize, p.chunkOverlap)
+	newChunks, err := p.SplitContent(ctx, article.Content, chunkSize, chunkOverlap)
 	if err != nil {
 		return fmt.Errorf("split content: %w", err)
 	}
@@ -236,7 +270,7 @@ func (p *AIPipeline) runLLM(ctx context.Context, article *model.Article) (*AIRes
 		return nil, fmt.Errorf("渲染提示词模板: %w", err)
 	}
 
-	result, err := p.llmProvider.GenerateJSON(ctx, promptBuf.String(), "")
+	result, err := p.llmProvider.GenerateJSON(ctx, promptBuf.String(), "", p.generateOptions())
 	if err != nil {
 		return nil, fmt.Errorf("LLM generate: %w", err)
 	}

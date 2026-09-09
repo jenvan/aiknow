@@ -13,11 +13,17 @@ import (
 // LogHandler MCP 日志 Handler
 type LogHandler struct {
 	mcpLogService service.MCPLogService
+	// configSource 可选：L2 配置来源，未显式指定 days 时用 mcp_log.retention_days
+	configSource service.L2ConfigSource
 }
 
 // NewLogHandler 创建日志 Handler
-func NewLogHandler(mcpLogService service.MCPLogService) *LogHandler {
-	return &LogHandler{mcpLogService: mcpLogService}
+func NewLogHandler(mcpLogService service.MCPLogService, configSources ...service.L2ConfigSource) *LogHandler {
+	h := &LogHandler{mcpLogService: mcpLogService}
+	if len(configSources) > 0 && configSources[0] != nil {
+		h.configSource = configSources[0]
+	}
+	return h
 }
 
 // List 日志列表
@@ -65,11 +71,22 @@ func (h *LogHandler) Get(c *gin.Context) {
 	c.JSON(http.StatusOK, log)
 }
 
+// defaultRetentionDays 默认保留天数：L2 配置优先，缺省 30
+func (h *LogHandler) defaultRetentionDays() int {
+	if h.configSource != nil {
+		if d := h.configSource.Get().MCPLog.RetentionDays; d > 0 {
+			return d
+		}
+	}
+	return 30
+}
+
 // DeleteExpired 清理过期日志。
 //
-// 保留天数由查询参数 days 指定（默认 30），删除该天数之前的记录。
+// 保留天数由查询参数 days 指定（默认取后台 mcp_log.retention_days，再缺省 30），
+// 删除该天数之前的记录。
 func (h *LogHandler) DeleteExpired(c *gin.Context) {
-	days := 30
+	days := h.defaultRetentionDays()
 	if d := c.Query("days"); d != "" {
 		parsed, err := strconv.Atoi(d)
 		if err != nil || parsed < 0 {

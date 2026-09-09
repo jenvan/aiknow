@@ -17,11 +17,24 @@ import (
 type SettingHandler struct {
 	config      *config.Config
 	settingRepo repository.SettingRepository
+	// onChanged 可选：配置变更（更新/恢复）后回调，用于刷新 L2 内存缓存
+	onChanged func()
 }
 
 // NewSettingHandler 创建配置 Handler
-func NewSettingHandler(cfg *config.Config, settingRepo repository.SettingRepository) *SettingHandler {
-	return &SettingHandler{config: cfg, settingRepo: settingRepo}
+func NewSettingHandler(cfg *config.Config, settingRepo repository.SettingRepository, onChanged ...func()) *SettingHandler {
+	h := &SettingHandler{config: cfg, settingRepo: settingRepo}
+	if len(onChanged) > 0 && onChanged[0] != nil {
+		h.onChanged = onChanged[0]
+	}
+	return h
+}
+
+// notifyChanged 配置变更后触发 L2 缓存刷新
+func (h *SettingHandler) notifyChanged() {
+	if h.onChanged != nil {
+		h.onChanged()
+	}
 }
 
 // ErrSettingNotFound 指定配置项不存在
@@ -101,6 +114,7 @@ func (h *SettingHandler) UpdateSetting(c *gin.Context) {
 		return
 	}
 
+	h.notifyChanged()
 	c.JSON(http.StatusOK, gin.H{"success": true, "setting": setting})
 }
 
@@ -119,6 +133,7 @@ func (h *SettingHandler) ResetSetting(c *gin.Context) {
 		return
 	}
 
+	h.notifyChanged()
 	c.JSON(http.StatusOK, gin.H{"success": true, "key": key})
 }
 
@@ -144,6 +159,7 @@ func (h *SettingHandler) ResetAllSettings(c *gin.Context) {
 		reset++
 	}
 
+	h.notifyChanged()
 	c.JSON(http.StatusOK, gin.H{"success": true, "reset": reset})
 }
 

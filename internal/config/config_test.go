@@ -350,6 +350,7 @@ func TestExampleYAMLMatchesParser(t *testing.T) {
 		"DATABASE_URL", "PORT", "APP_ENV", "SESSION_SECRET", "SESSION_LIFETIME",
 		"ADMIN_USERNAME", "LLM_PROVIDER", "EMBEDDING_PROVIDER", "RERANKER_PROVIDER",
 		"QWEN_BASE_URL", "QWEN_MODEL", "BAAI_BASE_URL", "COLLECTOR_USER_AGENT",
+		"COLLECTOR_TIMEOUT", "COLLECTOR_MAX_REDIRECTS", "COLLECTOR_MIN_CONTENT_LENGTH",
 	} {
 		if got, src := c.Get(key); got == "" || src != ConfigSourceYAML {
 			t.Errorf("示例配置中的 %s 未被解析（值 %q，来源 %v）", key, got, src)
