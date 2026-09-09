@@ -13,12 +13,15 @@ type SearchParams struct {
 }
 
 // SearchChunk 检索分块结果
+//
+// 不含 embedding 字段：向量属内部数据，调用方只需 content 与得分。
+// 曾经带过该字段并由 VectorSearch 填充，1024 维浮点数被原样序列化，
+// 单条结果多出约 4KB，且 omitempty 对非空切片不生效，无法靠标签规避。
 type SearchChunk struct {
 	ID         string  `json:"id"`
 	ArticleID  string  `json:"article_id"`
 	ChunkIndex int     `json:"chunk_index"`
 	Content    string  `json:"content"`
-	Embedding  []float32 `json:"embedding,omitempty"`
 	Score      float64 `json:"score"`
 	RRFScore   float64 `json:"rrf_score,omitempty"`
 	VectorRank int     `json:"vector_rank,omitempty"`

@@ -9,7 +9,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jenvan/aiknow/internal/model"
 	"github.com/jenvan/aiknow/internal/repository"
 	"github.com/jenvan/aiknow/pkg/pgqueue"
 )
@@ -164,6 +163,10 @@ func (w *Worker) consume(workerID int) {
 			}
 			if dead {
 				fmt.Printf("worker %d: 消息 %d 重试耗尽，已转入死信\n", workerID, msg.MsgID)
+				// 队列转死信后必须回写文章状态：流水线开始时已置为 processing，
+				// 只有 LLM 阶段失败会自行回写 failed，其余阶段（切分、向量、写库）
+				// 出错时无人收尾，文章会永久停留在 processing
+				w.markArticleFailed(message, err)
 			}
 			continue
 		}
@@ -175,55 +178,61 @@ func (w *Worker) consume(workerID int) {
 	}
 }
 
-// processMessage 处理单条消息
+// processMessage 处理单条消息。
+//
+// 载荷只携带 article_id：文章由写入侧同步落库（PRD 要求"提交后立即返回"），
+// worker 只负责后续的 AI 加工。此前这里从载荷取 title/content 再调一次
+// Create，与写入侧的同步创建重复，且必然撞上内容去重；因为当时没有任何一处
+// 入队，这段代码从未真正执行过。
 func (w *Worker) processMessage(ctx context.Context, workerID int, message map[string]interface{}) error {
-	articleService := NewArticleService(
-		w.db.GetArticleRepo(),
-		w.db.GetChunkRepo(),
-		w.db.GetCategoryRepo(),
-		w.db.GetTagRepo(),
-	)
-
-	// 从消息中构建 ArticleInput
-	title, _ := message["title"].(string)
-	content, _ := message["content"].(string)
-	sourceType, _ := message["source_type"].(string)
-	if sourceType == "" {
-		sourceType = "manual"
+	articleID, _ := message["article_id"].(string)
+	if articleID == "" {
+		return fmt.Errorf("消息缺少 article_id")
 	}
 
-	input := &model.ArticleInput{
-		Title:      title,
-		Content:    content,
-		SourceType: sourceType,
-	}
-
-	// 处理可选字段
-	if categoryID, ok := message["category_id"].(string); ok && categoryID != "" {
-		input.CategoryID = &categoryID
-	}
-	if categoryName, ok := message["category_name"].(string); ok && categoryName != "" {
-		input.CategoryName = &categoryName
-	}
-	if tags, ok := message["tags"].([]interface{}); ok {
-		for _, t := range tags {
-			if tag, ok := t.(string); ok {
-				input.Tags = append(input.Tags, tag)
-			}
-		}
-	}
-
-	article, err := articleService.Create(ctx, *input)
+	article, err := w.db.GetArticleRepo().GetByID(ctx, articleID)
 	if err != nil {
-		return fmt.Errorf("create article: %w", err)
+		return fmt.Errorf("load article %s: %w", articleID, err)
+	}
+	if article == nil {
+		// 文章已被删除，重投也不会成功，直接当作处理完成
+		fmt.Printf("worker %d: 文章 %s 不存在或已删除，跳过\n", workerID, articleID)
+		return nil
 	}
 
-	// 运行 AI 处理流水线
 	if err := w.pipeline.Process(ctx, article); err != nil {
 		return fmt.Errorf("AI pipeline: %w", err)
 	}
 
+	fmt.Printf("worker %d: 文章 %s 处理完成\n", workerID, articleID)
 	return nil
+}
+
+// markArticleFailed 任务转入死信后把文章状态回写为 failed。
+//
+// 单独用一个带超时的 context：此处可能在 worker 停止流程中被调用，
+// 复用 w.ctx 会因已取消而写不进去，反而留下 processing 状态。
+func (w *Worker) markArticleFailed(message map[string]interface{}, cause error) {
+	articleID, _ := message["article_id"].(string)
+	if articleID == "" {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	repo := w.db.GetArticleRepo()
+	article, err := repo.GetByID(ctx, articleID)
+	if err != nil || article == nil {
+		return
+	}
+
+	article.ProcessingStatus = "failed"
+	reason := cause.Error()
+	article.LastError = &reason
+	if err := repo.Update(ctx, article); err != nil {
+		fmt.Printf("worker: 回写文章 %s 失败状态出错: %v\n", articleID, err)
+	}
 }
 
 // GetQueue 获取队列

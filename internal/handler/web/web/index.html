@@ -5,100 +5,823 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AiKnow - AI 知识库</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- app.js 必须排在 Alpine 之前：两者都是延迟执行，按文档顺序运行。
+         若 Alpine 先执行，它会在 app.js 注册 alpine:init 监听器之前就
+         start() 并派发该事件，导致组件全部未注册（shell is not defined）。 -->
+    <script type="module" src="/web/js/app.js"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <link rel="stylesheet" href="/web/css/main.css">
 </head>
 <body class="bg-gray-50">
-    <div id="app" x-data="app()">
-        <!-- 登录态检查 -->
-        <template x-if="!isLoggedIn">
-            <div class="min-h-screen flex items-center justify-center">
-                <div class="text-center">
-                    <h1 class="text-2xl font-bold text-gray-800 mb-4">AiKnow</h1>
-                    <p class="text-gray-600 mb-8">AI 知识库管理工具</p>
-                    <a href="/ui/login" class="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700">
-                        登录
-                    </a>
+<div x-data="shell" x-cloak>
+    <!-- 会话确认前不渲染，避免已登录用户闪过一次登录提示 -->
+    <template x-if="ready && !isLoggedIn">
+        <div class="min-h-screen flex items-center justify-center">
+            <div class="text-center">
+                <h1 class="text-2xl font-bold text-gray-800 mb-4">AiKnow</h1>
+                <p class="text-gray-600 mb-8">AI 知识库管理工具</p>
+                <a href="/ui/login" class="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700">登录</a>
+            </div>
+        </div>
+    </template>
+
+    <template x-if="ready && isLoggedIn">
+        <div class="flex h-screen">
+            <aside class="w-56 bg-gray-900 text-white flex flex-col shrink-0">
+                <div class="p-4 border-b border-gray-800">
+                    <h1 class="text-xl font-bold">AiKnow</h1>
                 </div>
-            </div>
-        </template>
+                <nav class="flex-1 p-3 overflow-auto">
+                    <ul class="space-y-1">
+                        <template x-for="item in navItems" :key="item.page">
+                            <li>
+                                <a :href="item.href"
+                                   @click.prevent="navigate(item.href)"
+                                   class="block px-3 py-2 rounded-lg text-sm hover:bg-gray-800 cursor-pointer"
+                                   :class="currentPage === item.page ? 'bg-gray-800 font-medium' : ''"
+                                   x-text="item.label"></a>
+                            </li>
+                        </template>
+                    </ul>
+                </nav>
+                <div class="p-3 border-t border-gray-800">
+                    <div class="px-3 py-1 text-xs text-gray-400" x-text="username"></div>
+                    <button @click="logout()" class="w-full text-left px-3 py-2 rounded-lg text-sm hover:bg-gray-800">
+                        退出登录
+                    </button>
+                </div>
+            </aside>
 
-        <!-- 已登录：显示布局 -->
-        <template x-if="isLoggedIn">
-            <div class="flex h-screen">
-                <!-- 侧边栏 -->
-                <aside class="w-64 bg-gray-900 text-white flex flex-col">
-                    <div class="p-4 border-b border-gray-800">
-                        <h1 class="text-xl font-bold">AiKnow</h1>
-                    </div>
-                    <nav class="flex-1 p-4">
-                        <ul class="space-y-2">
-                            <li>
-                                <a href="/ui/dashboard"
-                                   class="flex items-center px-4 py-2 rounded-lg hover:bg-gray-800"
-                                   :class="{ 'bg-gray-800': currentPage === 'dashboard' }">
-                                    <span>仪表盘</span>
-                                </a>
-                            </li>
-                            <li>
-                                <a href="/ui/articles"
-                                   class="flex items-center px-4 py-2 rounded-lg hover:bg-gray-800"
-                                   :class="{ 'bg-gray-800': currentPage === 'articles' }">
-                                    <span>文章列表</span>
-                                </a>
-                            </li>
-                            <li>
-                                <a href="/ui/articles/new"
-                                   class="flex items-center px-4 py-2 rounded-lg hover:bg-gray-800"
-                                   :class="{ 'bg-gray-800': currentPage === 'new-article' }">
-                                    <span>录入文章</span>
-                                </a>
-                            </li>
-                            <li>
-                                <a href="/ui/search"
-                                   class="flex items-center px-4 py-2 rounded-lg hover:bg-gray-800"
-                                   :class="{ 'bg-gray-800': currentPage === 'search' }">
-                                    <span>检索测试</span>
-                                </a>
-                            </li>
-                            <li>
-                                <a href="/ui/settings"
-                                   class="flex items-center px-4 py-2 rounded-lg hover:bg-gray-800"
-                                   :class="{ 'bg-gray-800': currentPage === 'settings' }">
-                                    <span>系统配置</span>
-                                </a>
-                            </li>
-                        </ul>
-                    </nav>
-                    <div class="p-4 border-t border-gray-800">
-                        <button @click="logout()" class="w-full text-left px-4 py-2 rounded-lg hover:bg-gray-800">
-                            退出登录
-                        </button>
-                    </div>
-                </aside>
+            <main class="flex-1 overflow-auto">
+                <!-- ============ 仪表盘 ============ -->
+                <template x-if="currentPage === 'dashboard'">
+                    <div x-data="dashboardPage" class="p-6">
+                        <h2 class="text-2xl font-bold text-gray-800 mb-6">仪表盘</h2>
 
-                <!-- 主内容区 -->
-                <main class="flex-1 overflow-auto">
-                    <div id="page-content">
-                        <!-- 页面内容将通过 Alpine.js 动态加载 -->
-                        <div x-show="currentPage === 'dashboard'" x-transition>
-                            <div class="p-6">
-                                <h2 class="text-2xl font-bold text-gray-800 mb-4">仪表盘</h2>
-                                <p class="text-gray-600">加载中...</p>
+                        <template x-if="errors.length">
+                            <div class="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded text-sm text-yellow-800">
+                                <template x-for="e in errors" :key="e"><div x-text="e"></div></template>
+                            </div>
+                        </template>
+
+                        <div x-show="loading" class="text-gray-500">加载中…</div>
+
+                        <div x-show="!loading">
+                            <div class="grid grid-cols-4 gap-4 mb-6">
+                                <template x-for="c in cards()" :key="c.label">
+                                    <div class="bg-white rounded-lg shadow p-4">
+                                        <div class="text-sm text-gray-500" x-text="c.label"></div>
+                                        <div class="text-3xl font-bold text-gray-800 mt-1" x-text="num(c.value)"></div>
+                                    </div>
+                                </template>
+                            </div>
+
+                            <div class="grid grid-cols-2 gap-4 mb-6">
+                                <div class="bg-white rounded-lg shadow p-4">
+                                    <h3 class="font-semibold text-gray-800 mb-3">处理状态分布</h3>
+                                    <div class="space-y-2">
+                                        <template x-for="s in statusList()" :key="s.key">
+                                            <div class="flex items-center justify-between">
+                                                <span class="px-2 py-0.5 rounded text-xs" :class="s.cls" x-text="s.label"></span>
+                                                <span class="font-medium" x-text="s.count"></span>
+                                            </div>
+                                        </template>
+                                    </div>
+                                </div>
+
+                                <div class="bg-white rounded-lg shadow p-4">
+                                    <h3 class="font-semibold text-gray-800 mb-3">任务队列</h3>
+                                    <div class="space-y-2 text-sm">
+                                        <div class="flex justify-between">
+                                            <span class="text-gray-600">待处理深度</span>
+                                            <span class="font-medium" x-text="queue ? queue.depth : '-'"></span>
+                                        </div>
+                                        <div class="flex justify-between">
+                                            <span class="text-gray-600">死信数</span>
+                                            <span class="font-medium" :class="queue && queue.dlq_count > 0 ? 'text-red-600' : ''"
+                                                  x-text="queue ? queue.dlq_count : '-'"></span>
+                                        </div>
+                                        <div class="flex justify-between">
+                                            <span class="text-gray-600">最早消息等待</span>
+                                            <span class="font-medium" x-text="queueAge()"></span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="grid grid-cols-2 gap-4">
+                                <div class="bg-white rounded-lg shadow p-4">
+                                    <h3 class="font-semibold text-gray-800 mb-3">服务健康</h3>
+                                    <div class="space-y-2 text-sm">
+                                        <template x-for="row in healthRows()" :key="row.label">
+                                            <div class="flex justify-between items-center">
+                                                <span class="text-gray-600" x-text="row.label"></span>
+                                                <span class="px-2 py-0.5 rounded text-xs"
+                                                      :class="healthOK(row.value) ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'"
+                                                      x-text="row.value || '-'"></span>
+                                            </div>
+                                        </template>
+                                    </div>
+                                </div>
+
+                                <div class="bg-white rounded-lg shadow p-4">
+                                    <h3 class="font-semibold text-gray-800 mb-3">最近录入</h3>
+                                    <div x-show="!recent.length" class="text-sm text-gray-500">暂无数据</div>
+                                    <ul class="space-y-2">
+                                        <template x-for="a in recent.slice(0, 8)" :key="a.id">
+                                            <li class="flex items-center justify-between text-sm">
+                                                <a class="truncate mr-2 text-blue-600 hover:underline cursor-pointer"
+                                                   @click.prevent="navigate('/ui/articles/' + a.id)"
+                                                   x-text="a.title"></a>
+                                                <span class="px-2 py-0.5 rounded text-xs shrink-0"
+                                                      :class="meta(a.processing_status).cls"
+                                                      x-text="meta(a.processing_status).label"></span>
+                                            </li>
+                                        </template>
+                                    </ul>
+                                </div>
+                            </div>
+
+                            <template x-if="failed.length">
+                                <div class="bg-white rounded-lg shadow p-4 mt-4">
+                                    <h3 class="font-semibold text-red-700 mb-3">处理失败</h3>
+                                    <ul class="space-y-2">
+                                        <template x-for="a in failed" :key="a.id">
+                                            <li class="text-sm">
+                                                <div class="font-medium" x-text="a.title"></div>
+                                                <div class="text-red-600 text-xs mt-0.5" x-text="a.last_error || '-'"></div>
+                                            </li>
+                                        </template>
+                                    </ul>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+                </template>
+
+                <!-- ============ 文章列表 ============ -->
+                <template x-if="currentPage === 'articles'">
+                    <div x-data="articlesPage" class="p-6">
+                        <div class="flex items-center justify-between mb-6">
+                            <h2 class="text-2xl font-bold text-gray-800">文章列表</h2>
+                            <a href="/ui/articles/new" @click.prevent="navigate('/ui/articles/new')"
+                               class="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-700 cursor-pointer">录入文章</a>
+                        </div>
+
+                        <div x-show="error" class="mb-4 p-3 bg-red-50 border border-red-200 rounded text-sm text-red-700" x-text="error"></div>
+                        <div x-show="notice" class="mb-4 p-3 bg-green-50 border border-green-200 rounded text-sm text-green-700" x-text="notice"></div>
+
+                        <div class="bg-white rounded-lg shadow p-4 mb-4 flex flex-wrap gap-3 items-end">
+                            <div>
+                                <label class="block text-xs text-gray-600 mb-1">标题搜索</label>
+                                <input x-model="search" @keydown.enter="applyFilters()"
+                                       class="border rounded px-3 py-1.5 text-sm" placeholder="关键字">
+                            </div>
+                            <div>
+                                <label class="block text-xs text-gray-600 mb-1">状态</label>
+                                <select x-model="status" @change="applyFilters()" class="border rounded px-3 py-1.5 text-sm">
+                                    <option value="">全部</option>
+                                    <option value="pending">待处理</option>
+                                    <option value="processing">处理中</option>
+                                    <option value="completed">已完成</option>
+                                    <option value="failed">失败</option>
+                                </select>
+                            </div>
+                            <button @click="applyFilters()" class="bg-gray-800 text-white px-4 py-1.5 rounded text-sm">筛选</button>
+
+                            <div class="ml-auto flex gap-2" x-show="selectedCount > 0">
+                                <span class="text-sm text-gray-600 self-center">已选 <span x-text="selectedCount"></span> 项</span>
+                                <button @click="batchReprocess()" class="border border-gray-300 px-3 py-1.5 rounded text-sm">批量重处理</button>
+                                <button @click="batchDelete()" class="border border-red-300 text-red-700 px-3 py-1.5 rounded text-sm">批量删除</button>
                             </div>
                         </div>
-                        <div x-show="currentPage === 'articles'" x-transition>
-                            <div class="p-6">
-                                <h2 class="text-2xl font-bold text-gray-800 mb-4">文章列表</h2>
-                                <p class="text-gray-600">加载中...</p>
+
+                        <div x-show="loading" class="text-gray-500">加载中…</div>
+
+                        <div x-show="!loading" class="bg-white rounded-lg shadow overflow-hidden">
+                            <table class="w-full text-sm">
+                                <thead class="bg-gray-50 text-gray-600">
+                                    <tr>
+                                        <th class="p-3 w-8"><input type="checkbox" @change="toggleAll()"
+                                            :checked="items.length && selectedCount === items.length"></th>
+                                        <th class="p-3 text-left">标题</th>
+                                        <th class="p-3 text-left w-24">状态</th>
+                                        <th class="p-3 text-left w-32">分类</th>
+                                        <th class="p-3 text-left w-40 cursor-pointer" @click="toggleSort('created_at')">
+                                            创建时间 <span x-show="sortBy === 'created_at'" x-text="sortOrder === 'desc' ? '↓' : '↑'"></span>
+                                        </th>
+                                        <th class="p-3 text-right w-40">操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <template x-for="a in items" :key="a.id">
+                                        <tr class="border-t hover:bg-gray-50">
+                                            <td class="p-3"><input type="checkbox" :checked="isSelected(a.id)" @change="toggle(a.id)"></td>
+                                            <td class="p-3">
+                                                <a class="text-blue-600 hover:underline cursor-pointer"
+                                                   @click.prevent="navigate('/ui/articles/' + a.id)" x-text="a.title"></a>
+                                            </td>
+                                            <td class="p-3">
+                                                <span class="px-2 py-0.5 rounded text-xs" :class="meta(a.processing_status).cls"
+                                                      x-text="meta(a.processing_status).label"></span>
+                                            </td>
+                                            <td class="p-3 text-gray-600" x-text="a.category_name || '-'"></td>
+                                            <td class="p-3 text-gray-600" x-text="fmt(a.created_at)"></td>
+                                            <td class="p-3 text-right space-x-2">
+                                                <button @click="reprocess(a.id)" class="text-gray-600 hover:text-gray-900">重处理</button>
+                                                <button @click="remove(a.id, a.title)" class="text-red-600 hover:text-red-800">删除</button>
+                                            </td>
+                                        </tr>
+                                    </template>
+                                    <tr x-show="!items.length">
+                                        <td colspan="6" class="p-6 text-center text-gray-500">暂无文章</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+
+                            <div class="flex items-center justify-between p-3 border-t text-sm">
+                                <span class="text-gray-600">共 <span x-text="total"></span> 条</span>
+                                <div class="space-x-2">
+                                    <button @click="goPage(page - 1)" :disabled="page <= 1"
+                                            class="px-3 py-1 border rounded disabled:opacity-40">上一页</button>
+                                    <span x-text="page + ' / ' + (pages || 1)"></span>
+                                    <button @click="goPage(page + 1)" :disabled="pages && page >= pages"
+                                            class="px-3 py-1 border rounded disabled:opacity-40">下一页</button>
+                                </div>
                             </div>
                         </div>
                     </div>
-                </main>
-            </div>
-        </template>
-    </div>
+                </template>
 
-    <script src="/web/js/app.js"></script>
+                <!-- ============ 文章编辑 ============ -->
+                <template x-if="currentPage === 'article-edit'">
+                    <div x-data="articleEditPage" class="p-6">
+                        <div class="flex items-center justify-between mb-6">
+                            <h2 class="text-2xl font-bold text-gray-800">文章编辑</h2>
+                            <a href="/ui/articles" @click.prevent="navigate('/ui/articles')"
+                               class="text-sm text-gray-600 hover:text-gray-900 cursor-pointer">← 返回列表</a>
+                        </div>
+
+                        <div x-show="error" class="mb-4 p-3 bg-red-50 border border-red-200 rounded text-sm text-red-700" x-text="error"></div>
+                        <div x-show="notice" class="mb-4 p-3 bg-green-50 border border-green-200 rounded text-sm text-green-700" x-text="notice"></div>
+                        <div x-show="loading" class="text-gray-500">加载中…</div>
+
+                        <div x-show="!loading && article" class="grid grid-cols-3 gap-6">
+                            <div class="col-span-2 space-y-4">
+                                <div class="bg-white rounded-lg shadow p-4 space-y-3">
+                                    <div>
+                                        <label class="block text-xs text-gray-600 mb-1">标题</label>
+                                        <input x-model="form.title" class="w-full border rounded px-3 py-2 text-sm">
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs text-gray-600 mb-1">
+                                            正文
+                                            <span x-show="contentChanged" class="text-orange-600">（已修改，保存后将重新处理）</span>
+                                        </label>
+                                        <textarea x-model="form.content" rows="16"
+                                                  class="w-full border rounded px-3 py-2 text-sm font-mono"></textarea>
+                                    </div>
+                                    <div class="grid grid-cols-2 gap-3">
+                                        <div>
+                                            <label class="block text-xs text-gray-600 mb-1">分类</label>
+                                            <input x-model="form.category_name" class="w-full border rounded px-3 py-2 text-sm">
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs text-gray-600 mb-1">标签（逗号分隔）</label>
+                                            <input x-model="form.tags" class="w-full border rounded px-3 py-2 text-sm">
+                                        </div>
+                                    </div>
+                                    <div class="flex gap-2">
+                                        <button @click="save()" :disabled="saving"
+                                                class="bg-blue-600 text-white px-4 py-2 rounded text-sm disabled:opacity-50"
+                                                x-text="saving ? '保存中…' : '保存'"></button>
+                                        <button @click="reprocess()" class="border px-4 py-2 rounded text-sm">重新处理</button>
+                                    </div>
+                                </div>
+
+                                <div class="bg-white rounded-lg shadow p-4">
+                                    <div class="flex items-center justify-between mb-3">
+                                        <h3 class="font-semibold text-gray-800">Chunk 预览</h3>
+                                        <button @click="loadChunks()" class="text-sm text-blue-600">加载</button>
+                                    </div>
+                                    <div x-show="!chunks.length" class="text-sm text-gray-500">点击「加载」查看切分结果</div>
+                                    <ul class="space-y-2">
+                                        <template x-for="ch in chunks" :key="ch.id">
+                                            <li class="border rounded p-2 text-xs">
+                                                <div class="text-gray-500 mb-1">#<span x-text="ch.chunk_index"></span>
+                                                    · <span x-text="ch.word_count"></span> 字</div>
+                                                <div class="text-gray-800" x-text="ch.content"></div>
+                                            </li>
+                                        </template>
+                                    </ul>
+                                </div>
+                            </div>
+
+                            <div class="space-y-4">
+                                <div class="bg-white rounded-lg shadow p-4">
+                                    <h3 class="font-semibold text-gray-800 mb-3">状态</h3>
+                                    <div class="space-y-2 text-sm">
+                                        <div class="flex justify-between">
+                                            <span class="text-gray-600">处理状态</span>
+                                            <span class="px-2 py-0.5 rounded text-xs" :class="meta(article.processing_status).cls"
+                                                  x-text="meta(article.processing_status).label"></span>
+                                        </div>
+                                        <div class="flex justify-between"><span class="text-gray-600">索引时间</span>
+                                            <span x-text="fmt(article.indexed_at)"></span></div>
+                                        <div class="flex justify-between"><span class="text-gray-600">向量模型</span>
+                                            <span x-text="article.embedding_model || '-'"></span></div>
+                                        <div class="flex justify-between"><span class="text-gray-600">维度</span>
+                                            <span x-text="article.embedding_dim || '-'"></span></div>
+                                        <div class="flex justify-between"><span class="text-gray-600">重试次数</span>
+                                            <span x-text="article.retry_count"></span></div>
+                                        <div class="flex justify-between"><span class="text-gray-600">浏览量</span>
+                                            <span x-text="article.view_count"></span></div>
+                                    </div>
+                                    <template x-if="article.last_error">
+                                        <div class="mt-3 p-2 bg-red-50 border border-red-200 rounded text-xs text-red-700"
+                                             x-text="article.last_error"></div>
+                                    </template>
+                                </div>
+
+                                <div class="bg-white rounded-lg shadow p-4">
+                                    <h3 class="font-semibold text-gray-800 mb-2">AI 摘要</h3>
+                                    <p class="text-sm text-gray-700" x-text="article.summary || '尚未生成'"></p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </template>
+
+                <!-- ============ 文章录入 ============ -->
+                <template x-if="currentPage === 'article-new'">
+                    <div x-data="articleNewPage" class="p-6 max-w-4xl">
+                        <h2 class="text-2xl font-bold text-gray-800 mb-6">录入文章</h2>
+
+                        <div x-show="error" class="mb-4 p-3 bg-red-50 border border-red-200 rounded text-sm text-red-700" x-text="error"></div>
+                        <template x-if="notice">
+                            <div class="mb-4 p-3 bg-green-50 border border-green-200 rounded text-sm text-green-700">
+                                <span x-text="notice"></span>
+                                <a class="ml-2 underline cursor-pointer" @click.prevent="navigate('/ui/articles/' + createdId)">查看文章</a>
+                            </div>
+                        </template>
+
+                        <div class="bg-white rounded-lg shadow p-4">
+                            <div class="flex gap-2 mb-4 border-b pb-3">
+                                <button @click="mode = 'manual'" class="px-4 py-1.5 rounded text-sm"
+                                        :class="mode === 'manual' ? 'bg-blue-600 text-white' : 'border'">手动录入</button>
+                                <button @click="mode = 'url'" class="px-4 py-1.5 rounded text-sm"
+                                        :class="mode === 'url' ? 'bg-blue-600 text-white' : 'border'">URL 采集</button>
+                            </div>
+
+                            <div x-show="mode === 'url'" class="mb-4">
+                                <label class="block text-xs text-gray-600 mb-1">文章 URL</label>
+                                <div class="flex gap-2">
+                                    <input x-model="form.url" class="flex-1 border rounded px-3 py-2 text-sm"
+                                           placeholder="https://example.com/article">
+                                    <button @click="fetchUrl()" :disabled="fetching"
+                                            class="bg-gray-800 text-white px-4 py-2 rounded text-sm disabled:opacity-50"
+                                            x-text="fetching ? '采集中…' : '采集预览'"></button>
+                                </div>
+                                <template x-if="preview">
+                                    <p class="mt-2 text-xs text-gray-600">
+                                        已采集 <span x-text="(preview.content || '').length"></span> 字
+                                        <span x-show="preview.truncated" class="text-orange-600">（内容过长已截断）</span>
+                                    </p>
+                                </template>
+                            </div>
+
+                            <div class="space-y-3">
+                                <div>
+                                    <label class="block text-xs text-gray-600 mb-1">标题</label>
+                                    <input x-model="form.title" class="w-full border rounded px-3 py-2 text-sm">
+                                </div>
+                                <div>
+                                    <label class="block text-xs text-gray-600 mb-1">正文</label>
+                                    <textarea x-model="form.content" rows="14"
+                                              class="w-full border rounded px-3 py-2 text-sm font-mono"></textarea>
+                                </div>
+                                <div class="grid grid-cols-2 gap-3">
+                                    <div>
+                                        <label class="block text-xs text-gray-600 mb-1">分类（可选）</label>
+                                        <input x-model="form.category_name" class="w-full border rounded px-3 py-2 text-sm">
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs text-gray-600 mb-1">标签（逗号分隔，可选）</label>
+                                        <input x-model="form.tags" class="w-full border rounded px-3 py-2 text-sm">
+                                    </div>
+                                </div>
+                                <p class="text-xs text-gray-500">分类与标签留空时由 AI 自动生成。</p>
+                                <button @click="submit()" :disabled="submitting"
+                                        class="bg-blue-600 text-white px-5 py-2 rounded text-sm disabled:opacity-50"
+                                        x-text="submitting ? '提交中…' : '提交'"></button>
+                            </div>
+                        </div>
+                    </div>
+                </template>
+
+                <!-- ============ 检索测试 ============ -->
+                <template x-if="currentPage === 'search'">
+                    <div x-data="searchPage" class="p-6">
+                        <h2 class="text-2xl font-bold text-gray-800 mb-6">检索测试</h2>
+                        <div x-show="error" class="mb-4 p-3 bg-red-50 border border-red-200 rounded text-sm text-red-700" x-text="error"></div>
+
+                        <div class="bg-white rounded-lg shadow p-4 mb-4">
+                            <div class="flex gap-2 mb-4 border-b pb-3">
+                                <button @click="mode = 'hybrid'" class="px-4 py-1.5 rounded text-sm"
+                                        :class="mode === 'hybrid' ? 'bg-blue-600 text-white' : 'border'">混合检索</button>
+                                <button @click="mode = 'keywords'" class="px-4 py-1.5 rounded text-sm"
+                                        :class="mode === 'keywords' ? 'bg-blue-600 text-white' : 'border'">关键词检索</button>
+                            </div>
+
+                            <div x-show="mode === 'hybrid'" class="space-y-3">
+                                <input x-model="query" @keydown.enter="run()" class="w-full border rounded px-3 py-2 text-sm"
+                                       placeholder="输入检索词">
+                                <div class="grid grid-cols-5 gap-2">
+                                    <div><label class="block text-xs text-gray-600 mb-1">top_k</label>
+                                        <input type="number" x-model.number="params.top_k" class="w-full border rounded px-2 py-1 text-sm"></div>
+                                    <div><label class="block text-xs text-gray-600 mb-1">candidate_k</label>
+                                        <input type="number" x-model.number="params.candidate_k" class="w-full border rounded px-2 py-1 text-sm"></div>
+                                    <div><label class="block text-xs text-gray-600 mb-1">rrf_k</label>
+                                        <input type="number" x-model.number="params.rrf_k" class="w-full border rounded px-2 py-1 text-sm"></div>
+                                    <div><label class="block text-xs text-gray-600 mb-1">向量权重</label>
+                                        <input type="number" step="0.1" x-model.number="params.vector_weight" class="w-full border rounded px-2 py-1 text-sm"></div>
+                                    <div><label class="block text-xs text-gray-600 mb-1">BM25 权重</label>
+                                        <input type="number" step="0.1" x-model.number="params.bm25_weight" class="w-full border rounded px-2 py-1 text-sm"></div>
+                                </div>
+                            </div>
+
+                            <div x-show="mode === 'keywords'">
+                                <input x-model="keywords" @keydown.enter="run()" class="w-full border rounded px-3 py-2 text-sm"
+                                       placeholder="关键词，逗号分隔">
+                            </div>
+
+                            <button @click="run()" :disabled="running"
+                                    class="mt-3 bg-blue-600 text-white px-5 py-2 rounded text-sm disabled:opacity-50"
+                                    x-text="running ? '检索中…' : '执行检索'"></button>
+                        </div>
+
+                        <template x-if="result">
+                            <div>
+                                <div class="bg-white rounded-lg shadow p-4 mb-4">
+                                    <h3 class="font-semibold text-gray-800 mb-3">耗时明细</h3>
+                                    <div class="flex gap-4 text-sm flex-wrap">
+                                        <template x-for="t in timings()" :key="t.label">
+                                            <div><span class="text-gray-600" x-text="t.label"></span>
+                                                <span class="font-medium ml-1" x-text="(t.ms || 0) + ' ms'"></span></div>
+                                        </template>
+                                    </div>
+                                </div>
+
+                                <template x-for="stage in stages()" :key="stage.key">
+                                    <div class="bg-white rounded-lg shadow p-4 mb-4">
+                                        <h3 class="font-semibold text-gray-800 mb-3" x-text="stage.label"></h3>
+                                        <div x-show="!stage.data.results || !stage.data.results.length" class="text-sm text-gray-500">无结果</div>
+                                        <ul class="space-y-2">
+                                            <template x-for="(r, i) in (stage.data.results || [])" :key="stage.key + '-' + r.id">
+                                                <li class="border rounded p-2 text-sm">
+                                                    <div class="flex justify-between text-xs text-gray-500 mb-1">
+                                                        <span>#<span x-text="i + 1"></span> · chunk <span x-text="r.chunk_index"></span></span>
+                                                        <span>score <span x-text="score(r.score)"></span></span>
+                                                    </div>
+                                                    <div class="text-gray-800" x-text="r.content"></div>
+                                                </li>
+                                            </template>
+                                        </ul>
+                                    </div>
+                                </template>
+                            </div>
+                        </template>
+
+                        <template x-if="keywordResult">
+                            <div class="bg-white rounded-lg shadow p-4">
+                                <h3 class="font-semibold text-gray-800 mb-3">
+                                    关键词检索结果（<span x-text="keywordResult.total"></span> 条，
+                                    <span x-text="keywordResult.query_time_ms"></span> ms）
+                                </h3>
+                                <ul class="space-y-2">
+                                    <template x-for="a in (keywordResult.articles || [])" :key="a.id">
+                                        <li class="border rounded p-2 text-sm">
+                                            <div class="font-medium" x-text="a.title"></div>
+                                            <div class="text-xs text-gray-500 mt-0.5" x-text="a.summary || ''"></div>
+                                        </li>
+                                    </template>
+                                </ul>
+                            </div>
+                        </template>
+                    </div>
+                </template>
+
+                <!-- ============ MCP 调试 ============ -->
+                <template x-if="currentPage === 'mcp-debug'">
+                    <div x-data="mcpDebugPage" class="p-6">
+                        <h2 class="text-2xl font-bold text-gray-800 mb-6">MCP 调试</h2>
+                        <div x-show="error" class="mb-4 p-3 bg-red-50 border border-red-200 rounded text-sm text-red-700" x-text="error"></div>
+
+                        <div class="grid grid-cols-2 gap-4">
+                            <div class="bg-white rounded-lg shadow p-4 space-y-3">
+                                <div class="grid grid-cols-2 gap-3">
+                                    <div>
+                                        <label class="block text-xs text-gray-600 mb-1">method</label>
+                                        <select x-model="method" class="w-full border rounded px-3 py-2 text-sm">
+                                            <option value="tools/list">tools/list</option>
+                                            <option value="tools/call">tools/call</option>
+                                            <option value="initialize">initialize</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs text-gray-600 mb-1">鉴权 scope</label>
+                                        <select x-model="scope" @change="onScopeChange()" class="w-full border rounded px-3 py-2 text-sm">
+                                            <option value="readonly">readonly</option>
+                                            <option value="readwrite">readwrite</option>
+                                        </select>
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <label class="block text-xs text-gray-600 mb-1">可用工具（点击选择）</label>
+                                    <div class="flex flex-wrap gap-2">
+                                        <template x-for="t in tools" :key="t.name">
+                                            <button @click="selectTool(t.name)" class="px-2 py-1 border rounded text-xs"
+                                                    :class="tool === t.name ? 'bg-blue-600 text-white' : ''" x-text="t.name"></button>
+                                        </template>
+                                    </div>
+                                    <p x-show="!tools.length" class="text-xs text-gray-500">当前 scope 下无可用工具</p>
+                                </div>
+
+                                <div x-show="method === 'tools/call'">
+                                    <label class="block text-xs text-gray-600 mb-1">arguments (JSON)</label>
+                                    <textarea x-model="argsText" rows="8" class="w-full border rounded px-3 py-2 text-sm font-mono"></textarea>
+                                </div>
+
+                                <button @click="run()" :disabled="running"
+                                        class="bg-blue-600 text-white px-5 py-2 rounded text-sm disabled:opacity-50"
+                                        x-text="running ? '调用中…' : '发送请求'"></button>
+                            </div>
+
+                            <div class="bg-white rounded-lg shadow p-4">
+                                <div class="flex justify-between items-center mb-3">
+                                    <h3 class="font-semibold text-gray-800">响应</h3>
+                                    <span class="text-xs text-gray-500" x-show="durationMs"
+                                          x-text="durationMs + ' ms'"></span>
+                                </div>
+                                <pre class="text-xs bg-gray-50 p-3 rounded overflow-auto max-h-[32rem]"
+                                     x-text="response ? pretty(response) : '尚未发送请求'"></pre>
+                            </div>
+                        </div>
+                    </div>
+                </template>
+
+                <!-- ============ MCP 日志 ============ -->
+                <template x-if="currentPage === 'mcp-logs'">
+                    <div x-data="mcpLogsPage" class="p-6">
+                        <div class="flex items-center justify-between mb-6">
+                            <h2 class="text-2xl font-bold text-gray-800">MCP 请求日志</h2>
+                            <button @click="purge()" class="border border-red-300 text-red-700 px-3 py-1.5 rounded text-sm">清理过期</button>
+                        </div>
+
+                        <div x-show="error" class="mb-4 p-3 bg-red-50 border border-red-200 rounded text-sm text-red-700" x-text="error"></div>
+                        <div x-show="notice" class="mb-4 p-3 bg-green-50 border border-green-200 rounded text-sm text-green-700" x-text="notice"></div>
+
+                        <div class="bg-white rounded-lg shadow p-4 mb-4 flex flex-wrap gap-3 items-end">
+                            <div><label class="block text-xs text-gray-600 mb-1">trace_id</label>
+                                <input x-model="filters.trace_id" class="border rounded px-3 py-1.5 text-sm"></div>
+                            <div><label class="block text-xs text-gray-600 mb-1">工具名</label>
+                                <input x-model="filters.tool_name" class="border rounded px-3 py-1.5 text-sm"></div>
+                            <div><label class="block text-xs text-gray-600 mb-1">状态</label>
+                                <select x-model="filters.status" class="border rounded px-3 py-1.5 text-sm">
+                                    <option value="">全部</option><option value="success">成功</option><option value="error">失败</option>
+                                </select></div>
+                            <div><label class="block text-xs text-gray-600 mb-1">全文检索</label>
+                                <input x-model="filters.keyword" @keydown.enter="applyFilters()" class="border rounded px-3 py-1.5 text-sm"></div>
+                            <button @click="applyFilters()" class="bg-gray-800 text-white px-4 py-1.5 rounded text-sm">筛选</button>
+                            <button @click="resetFilters()" class="border px-4 py-1.5 rounded text-sm">重置</button>
+                        </div>
+
+                        <div x-show="loading" class="text-gray-500">加载中…</div>
+
+                        <div x-show="!loading" class="bg-white rounded-lg shadow overflow-hidden">
+                            <table class="w-full text-sm">
+                                <thead class="bg-gray-50 text-gray-600">
+                                    <tr>
+                                        <th class="p-3 text-left">时间</th>
+                                        <th class="p-3 text-left">method</th>
+                                        <th class="p-3 text-left">工具</th>
+                                        <th class="p-3 text-left w-20">状态</th>
+                                        <th class="p-3 text-left w-24">耗时</th>
+                                        <th class="p-3 text-left">trace_id</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <template x-for="log in logs" :key="log.id">
+                                        <tr class="border-t hover:bg-gray-50 cursor-pointer" @click="showDetail(log.trace_id)">
+                                            <td class="p-3 text-gray-600" x-text="fmt(log.created_at)"></td>
+                                            <td class="p-3" x-text="log.method"></td>
+                                            <td class="p-3" x-text="log.tool_name || '-'"></td>
+                                            <td class="p-3"><span class="px-2 py-0.5 rounded text-xs"
+                                                :class="statusCls(log.status)" x-text="log.status"></span></td>
+                                            <td class="p-3 text-gray-600" x-text="(log.duration_ms || 0) + ' ms'"></td>
+                                            <td class="p-3 text-xs font-mono text-gray-500" x-text="log.trace_id"></td>
+                                        </tr>
+                                    </template>
+                                    <tr x-show="!logs.length"><td colspan="6" class="p-6 text-center text-gray-500">暂无日志</td></tr>
+                                </tbody>
+                            </table>
+
+                            <div class="flex items-center justify-between p-3 border-t text-sm">
+                                <span class="text-gray-600">第 <span x-text="page"></span> 页</span>
+                                <div class="space-x-2">
+                                    <button @click="goPage(page - 1)" :disabled="page <= 1"
+                                            class="px-3 py-1 border rounded disabled:opacity-40">上一页</button>
+                                    <button @click="goPage(page + 1)" class="px-3 py-1 border rounded">下一页</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <template x-if="detail">
+                            <div class="bg-white rounded-lg shadow p-4 mt-4">
+                                <h3 class="font-semibold text-gray-800 mb-3">详情
+                                    <span class="text-xs font-mono text-gray-500 ml-2" x-text="detail.trace_id"></span></h3>
+                                <div class="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <div class="text-xs text-gray-600 mb-1">请求</div>
+                                        <pre class="text-xs bg-gray-50 p-3 rounded overflow-auto max-h-80" x-text="pretty(detail.request_body)"></pre>
+                                    </div>
+                                    <div>
+                                        <div class="text-xs text-gray-600 mb-1">响应</div>
+                                        <pre class="text-xs bg-gray-50 p-3 rounded overflow-auto max-h-80" x-text="pretty(detail.response_body)"></pre>
+                                    </div>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+                </template>
+
+                <!-- ============ 系统配置 ============ -->
+                <template x-if="currentPage === 'settings'">
+                    <div x-data="settingsPage" class="p-6">
+                        <div class="flex items-center justify-between mb-6">
+                            <h2 class="text-2xl font-bold text-gray-800">系统配置</h2>
+                            <button @click="resetAll()" class="border border-red-300 text-red-700 px-3 py-1.5 rounded text-sm">全部恢复默认</button>
+                        </div>
+
+                        <div x-show="error" class="mb-4 p-3 bg-red-50 border border-red-200 rounded text-sm text-red-700" x-text="error"></div>
+                        <div x-show="notice" class="mb-4 p-3 bg-green-50 border border-green-200 rounded text-sm text-green-700" x-text="notice"></div>
+                        <div x-show="loading" class="text-gray-500">加载中…</div>
+
+                        <div x-show="!loading" class="space-y-4">
+                            <template x-for="g in groups()" :key="g.name">
+                                <div class="bg-white rounded-lg shadow p-4">
+                                    <h3 class="font-semibold text-gray-800 mb-3" x-text="g.name"></h3>
+                                    <table class="w-full text-sm">
+                                        <tbody>
+                                            <template x-for="item in g.items" :key="item.key">
+                                                <tr class="border-t">
+                                                    <td class="py-2 pr-4 font-mono text-xs text-gray-700 align-top w-64">
+                                                        <span x-text="item.key"></span>
+                                                        <span x-show="isModified(item)"
+                                                              class="ml-2 px-1.5 py-0.5 bg-blue-100 text-blue-800 rounded text-xs">已改</span>
+                                                    </td>
+                                                    <td class="py-2 pr-4 align-top">
+                                                        <template x-if="editingKey === item.key">
+                                                            <div class="flex gap-2">
+                                                                <input x-model="editingText" @keydown.enter="save()"
+                                                                       class="flex-1 border rounded px-2 py-1 text-sm font-mono">
+                                                                <button @click="save()" :disabled="saving"
+                                                                        class="bg-blue-600 text-white px-3 py-1 rounded text-xs disabled:opacity-50">保存</button>
+                                                                <button @click="cancelEdit()" class="border px-3 py-1 rounded text-xs">取消</button>
+                                                            </div>
+                                                        </template>
+                                                        <template x-if="editingKey !== item.key">
+                                                            <div>
+                                                                <span class="font-mono" x-text="fmt(item.value)"></span>
+                                                                <span x-show="isModified(item)" class="text-xs text-gray-500 ml-2">
+                                                                    默认 <span x-text="fmt(item.defaultValue)"></span>
+                                                                </span>
+                                                            </div>
+                                                        </template>
+                                                    </td>
+                                                    <td class="py-2 text-right align-top space-x-2 w-40">
+                                                        <button @click="showHistory(item.key)" class="text-gray-600 text-xs">历史</button>
+                                                        <button @click="edit(item)" class="text-blue-600 text-xs">编辑</button>
+                                                        <button x-show="isModified(item)" @click="reset(item.key)"
+                                                                class="text-red-600 text-xs">恢复</button>
+                                                    </td>
+                                                </tr>
+                                            </template>
+                                        </tbody>
+                                    </table>
+
+                                    <template x-if="g.items.some(i => i.key === historyKey)">
+                                        <div class="mt-3 border-t pt-3">
+                                            <div class="text-xs text-gray-600 mb-2">
+                                                变更历史 · <span class="font-mono" x-text="historyKey"></span>
+                                            </div>
+                                            <div x-show="!history.length" class="text-xs text-gray-500">暂无变更记录</div>
+                                            <ul class="space-y-1">
+                                                <template x-for="h in history" :key="h.id">
+                                                    <li class="text-xs border rounded p-2">
+                                                        <span class="text-gray-500" x-text="h.created_at"></span>
+                                                        <span class="ml-2" x-text="JSON.stringify(h.old_value) + ' → ' + JSON.stringify(h.new_value)"></span>
+                                                    </li>
+                                                </template>
+                                            </ul>
+                                        </div>
+                                    </template>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+                </template>
+
+                <!-- ============ API Key 管理 ============ -->
+                <template x-if="currentPage === 'api-keys'">
+                    <div x-data="apiKeysPage" class="p-6">
+                        <h2 class="text-2xl font-bold text-gray-800 mb-6">API Key 管理</h2>
+
+                        <div x-show="error" class="mb-4 p-3 bg-red-50 border border-red-200 rounded text-sm text-red-700" x-text="error"></div>
+                        <div x-show="notice" class="mb-4 p-3 bg-green-50 border border-green-200 rounded text-sm text-green-700" x-text="notice"></div>
+
+                        <template x-if="newKey">
+                            <div class="mb-4 p-4 bg-amber-50 border-2 border-amber-300 rounded-lg">
+                                <h3 class="font-semibold text-amber-900 mb-2">请立即保存此 Key，它不会再次显示</h3>
+                                <p class="text-xs text-amber-800 mb-2">服务端只存哈希，关闭后无法找回，遗失只能重建。</p>
+                                <div class="flex gap-2">
+                                    <input readonly :value="newKey.key"
+                                           class="flex-1 border rounded px-3 py-2 text-sm font-mono bg-white">
+                                    <button @click="copyKey()" class="bg-amber-600 text-white px-4 py-2 rounded text-sm"
+                                            x-text="copied ? '已复制' : '复制'"></button>
+                                    <button @click="dismissNewKey()" class="border px-4 py-2 rounded text-sm">我已保存</button>
+                                </div>
+                            </div>
+                        </template>
+
+                        <div class="bg-white rounded-lg shadow p-4 mb-4">
+                            <h3 class="font-semibold text-gray-800 mb-3">创建新 Key</h3>
+                            <div class="flex gap-3 items-end">
+                                <div class="flex-1">
+                                    <label class="block text-xs text-gray-600 mb-1">用途描述</label>
+                                    <input x-model="form.description" class="w-full border rounded px-3 py-2 text-sm"
+                                           placeholder="例如：Claude Desktop">
+                                </div>
+                                <div>
+                                    <label class="block text-xs text-gray-600 mb-1">权限</label>
+                                    <select x-model="form.scope" class="border rounded px-3 py-2 text-sm">
+                                        <option value="readonly">只读</option>
+                                        <option value="readwrite">读写</option>
+                                    </select>
+                                </div>
+                                <button @click="create()" :disabled="creating"
+                                        class="bg-blue-600 text-white px-5 py-2 rounded text-sm disabled:opacity-50"
+                                        x-text="creating ? '创建中…' : '创建'"></button>
+                            </div>
+                        </div>
+
+                        <div x-show="loading" class="text-gray-500">加载中…</div>
+
+                        <div x-show="!loading" class="bg-white rounded-lg shadow overflow-hidden">
+                            <table class="w-full text-sm">
+                                <thead class="bg-gray-50 text-gray-600">
+                                    <tr>
+                                        <th class="p-3 text-left">描述</th>
+                                        <th class="p-3 text-left w-32">前缀</th>
+                                        <th class="p-3 text-left w-20">权限</th>
+                                        <th class="p-3 text-left w-20">状态</th>
+                                        <th class="p-3 text-left w-40">最近使用</th>
+                                        <th class="p-3 text-right w-32">操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <template x-for="k in keys" :key="k.id">
+                                        <tr class="border-t hover:bg-gray-50">
+                                            <td class="p-3" x-text="k.description"></td>
+                                            <td class="p-3 font-mono text-xs text-gray-500" x-text="k.key_prefix + '…'"></td>
+                                            <td class="p-3" x-text="scopeLabel(k.scope)"></td>
+                                            <td class="p-3">
+                                                <span class="px-2 py-0.5 rounded text-xs"
+                                                      :class="k.is_active ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'"
+                                                      x-text="k.is_active ? '启用' : '停用'"></span>
+                                            </td>
+                                            <td class="p-3 text-gray-600" x-text="k.last_used_at ? fmt(k.last_used_at) : '从未'"></td>
+                                            <td class="p-3 text-right space-x-2">
+                                                <button @click="toggle(k)" class="text-gray-600 hover:text-gray-900"
+                                                        x-text="k.is_active ? '禁用' : '启用'"></button>
+                                                <button @click="remove(k)" class="text-red-600 hover:text-red-800">删除</button>
+                                            </td>
+                                        </tr>
+                                    </template>
+                                    <tr x-show="!keys.length">
+                                        <td colspan="6" class="p-6 text-center text-gray-500">
+                                            尚无 API Key。对外 API 与 MCP 均需 Key 才能访问。
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </template>
+            </main>
+        </div>
+    </template>
+</div>
 </body>
 </html>

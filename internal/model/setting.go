@@ -1,28 +1,36 @@
 package model
 
 import (
+	"encoding/json"
 	"time"
 )
 
 // Setting 系统配置
 type Setting struct {
-	ID          string                 `json:"id" db:"id"`
-	Key         string                 `json:"key" db:"key"`
-	Value       map[string]interface{} `json:"value" db:"value"`
-	Description *string                `json:"description,omitempty" db:"description"`
-	CreatedAt   time.Time              `json:"created_at" db:"created_at"`
-	UpdatedAt   time.Time              `json:"updated_at" db:"updated_at"`
+	ID  string `json:"id" db:"id"`
+	Key string `json:"key" db:"key"`
+	// Value 为任意 JSON 值，不限于对象。
+	//
+	// 迁移 005 播种的配置项是扁平标量（'llm.temperature' → 0.3，
+	// 'llm.max_tokens' → 2000）。此前该字段声明为 map[string]interface{}，
+	// 使 ListAll/GetByKey 对每一条播种数据都报
+	// "cannot unmarshal number into Go value of type map[string]interface{}"，
+	// 系统配置接口完全不可用。改用 RawMessage 以容纳标量、数组与对象。
+	Value       json.RawMessage `json:"value" db:"value"`
+	Description *string         `json:"description,omitempty" db:"description"`
+	CreatedAt   time.Time       `json:"created_at" db:"created_at"`
+	UpdatedAt   time.Time       `json:"updated_at" db:"updated_at"`
 }
 
 // SettingHistory 配置变更记录
 type SettingHistory struct {
-	ID           string                 `json:"id" db:"id"`
-	SettingID    string                 `json:"setting_id" db:"setting_id"`
-	OldValue     map[string]interface{} `json:"old_value" db:"old_value"`
-	NewValue     map[string]interface{} `json:"new_value" db:"new_value"`
-	ChangedBy    *string                `json:"changed_by,omitempty" db:"changed_by"`
-	ChangeReason *string                `json:"change_reason,omitempty" db:"change_reason"`
-	CreatedAt    time.Time              `json:"created_at" db:"created_at"`
+	ID           string          `json:"id" db:"id"`
+	SettingID    string          `json:"setting_id" db:"setting_id"`
+	OldValue     json.RawMessage `json:"old_value" db:"old_value"`
+	NewValue     json.RawMessage `json:"new_value" db:"new_value"`
+	ChangedBy    *string         `json:"changed_by,omitempty" db:"changed_by"`
+	ChangeReason *string         `json:"change_reason,omitempty" db:"change_reason"`
+	CreatedAt    time.Time       `json:"created_at" db:"created_at"`
 }
 
 // L2Config L2 业务配置（内存缓存）

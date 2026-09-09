@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
@@ -155,7 +156,7 @@ func (r *ChunkRepositoryImpl) GetByID(ctx context.Context, id string) (*model.Ch
 		&chunk.Content, &chunk.WordCount, &emb, &chunk.CreatedAt)
 
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("query chunk: %w", err)

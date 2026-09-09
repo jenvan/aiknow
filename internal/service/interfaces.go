@@ -48,7 +48,13 @@ type AuthService interface {
 	Login(ctx context.Context, username, password string) (string, error)
 	Logout(ctx context.Context, sessionID string) error
 	GetSession(ctx context.Context, sessionID string) (string, error)
+	CSRFToken(ctx context.Context, sessionID string) (string, error)
+	ValidateCSRF(ctx context.Context, sessionID, token string) error
 	ValidateKey(ctx context.Context, key string) (*model.APIKey, error)
+	CreateKey(ctx context.Context, input model.APIKeyCreateInput, createdBy string) (*model.APIKeyPlaintext, error)
+	ListKeys(ctx context.Context) ([]model.APIKey, error)
+	SetKeyActive(ctx context.Context, id string, active bool) error
+	DeleteKey(ctx context.Context, id string) error
 }
 
 // MCPService MCP 服务接口

@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"errors"
 	"net/http"
 	"time"
 
@@ -46,15 +47,31 @@ func (h *AuthHandler) Login(c *gin.Context) {
 
 	sessionID, err := h.authService.Login(c.Request.Context(), req.Username, req.Password)
 	if err != nil {
-		// 不回传具体原因，避免区分"用户名不存在"与"密码错误"
+		// 锁定需要明确告知，否则用户会反复重试并不断延长锁定
+		if errors.Is(err, service.ErrAccountLocked) {
+			c.JSON(http.StatusTooManyRequests, gin.H{"error": err.Error()})
+			return
+		}
+		// 其余情况不回传具体原因，避免区分"用户名不存在"与"密码错误"
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid credentials"})
 		return
 	}
 
-	// HttpOnly 防止脚本读取；MaxAge 与 Session 有效期保持一致
+	// HttpOnly 防止脚本读取；MaxAge 与 Session 有效期保持一致。
+	// SameSite=Lax 阻断跨站写请求，与 CSRF Token 形成双重防护。
+	c.SetSameSite(http.SameSiteLaxMode)
 	c.SetCookie("session_id", sessionID, int(h.cookie.MaxAge.Seconds()),
 		"/", "", h.cookie.Secure, true)
-	c.JSON(http.StatusOK, gin.H{"success": true})
+
+	// CSRF Token 随登录响应下发，前端需在后续写请求中通过 X-CSRF-Token 提交。
+	// 该 Token 必须可被脚本读取，故走响应体而非 HttpOnly Cookie。
+	csrfToken, err := h.authService.CSRFToken(c.Request.Context(), sessionID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取 csrf token 失败"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true, "csrf_token": csrfToken})
 }
 
 // Logout 登出
@@ -64,11 +81,15 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 		_ = h.authService.Logout(c.Request.Context(), sessionID)
 	}
 
+	c.SetSameSite(http.SameSiteLaxMode)
 	c.SetCookie("session_id", "", -1, "/", "", h.cookie.Secure, true)
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 
-// GetSession 获取当前 Session
+// GetSession 获取当前 Session。
+//
+// 同时返回 CSRF Token：前端在页面加载时调用本接口恢复登录态，
+// 并取得后续写请求所需的 Token（登录响应中的 Token 在刷新后即丢失）。
 func (h *AuthHandler) GetSession(c *gin.Context) {
 	sessionID, err := c.Cookie("session_id")
 	if err != nil || sessionID == "" {
@@ -82,5 +103,11 @@ func (h *AuthHandler) GetSession(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"username": username})
+	csrfToken, err := h.authService.CSRFToken(c.Request.Context(), sessionID)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid session"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"username": username, "csrf_token": csrfToken})
 }

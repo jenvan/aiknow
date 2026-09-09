@@ -1,4 +1,309 @@
 # AiKnow 变更日志
+## [v0.6.0] - 2026-09-09
+
+### Phase 1：鉴权闭环 + 后台管理全部后端接口 + 10 个前端页面
+
+**本版本完成了 v0.5.8 未修复的三项遗留：对外 API 鉴权、API Key 落库、admin handler
+全部实现。同时补齐了 10 个前端页面，并在此过程中修复了多处设计与实现缺陷。**
+
+#### 鉴权体系
+
+三套鉴权全部接线，与 AGENT.md 的设计规格一致：
+
+| 入口 | 鉴权方式 | 状态 |
+|---|---|---|
+| `/api/v1/health` | 公开（探针/LB） | ✅ |
+| `/api/v1/admin/auth/login|logout|session` | 公开（登录自身即凭据） | ✅ |
+| `/api/v1/admin/*` | Session Cookie + CSRF Token | ✅ |
+| `/api/v1/articles`, `/api/v1/search` | API Key + scope（readonly/readwrite） | ✅ |
+| `/mcp` | API Key + scope | ✅ |
+
+**关键变更**：
+
+- `api.AuthMiddleware`（已完整实现但从未接线 → 接线到 `/api/v1`）
+- `admin.SessionMiddleware`（同上）
+- `admin.CSRFMiddleware`（从空实现 `c.Next()` → 同步器令牌模式，Token 在登录时生成、
+  绑定 Session、GET 放行、写请求须 X-CSRF-Token 请求头）
+- `RequireScope` 中间件：readonly 拒绝写入，readwrite 隐含 readonly
+- API Key 从数据库按 SHA-256 哈希直接查库（`idx_api_keys_key_hash` 索引命中），
+  替代此前只遍历内存切片且从未加载的实现
+- MCP `Bearer ` 前缀剥离（此前把整个 Authorization 头当 Key 传入，必然哈希不匹配）
+- 登录失败锁定（5 次 → 15 分钟，`ErrAccountLocked` → 429，此前规格写了但未实现）
+- SameSite=Lax + HttpOnly Cookie 双重防护
+
+**scope 验证**（实测确认）：readonly Key → GET 200、POST 403；readwrite Key → GET/POST 均 200；
+伪造 Key → 401；缺 Bearer → 401；小写 bearer → 200。
+
+#### API Key 管理
+
+- `service.CreateKey`：生成 `ak_` 前缀的 24 字节随机明文，SHA-256 哈希存储，
+  明文仅创建时一次性返回
+- `service.ValidateKey`：按哈希查 `GetByHash`，带 `last_used_at` 异步节流回写
+- `service.ScopeAllows`：readwrite 隐含 readonly
+- CLI 子命令 `aiknow-server apikey create|list|revoke`，无头部署与救急可用
+- 后台 API Key 管理页：创建/启用/禁用/删除，创建后显著提示立即保存明文
+
+#### 前端 10 个页面
+
+**新增 8 个页面模块**，此前只有 `index.html`（含 3 个占位 div）和 `login.html`：
+
+| 页面 | 状态 |
+|---|---|
+| 仪表盘 | 统计卡片·状态分布·队列深度·服务健康·最近活动·失败列表 |
+| 文章列表 | 筛选/搜索/排序/分页/行内操作/批量操作 |
+| 文章编辑 | 正文编辑/AI 结果修正/状态面板/Chunk 预览/正文变更自动重新处理 |
+| 文章录入 | 手动录入/URL 采集（含预览） |
+| 检索测试 | 混合检索分阶段结果/耗时明细/关键词检索对照 |
+| MCP 调试 | 参数表单/工具列表/scope 切换/原始请求响应/通过代理走 Session 免 Key |
+| MCP 日志 | 筛选/全文检索/trace_id 查询/详情/清理过期 |
+| 系统配置 | 24 项配置分 8 组展示/标量/JSON 编辑/变更历史/恢复默认 |
+| API Key 管理 | 创建/启用/禁用/删除/明文一次性显示 |
+| 登录 | 锁定提示/CSRF 下发 |
+
+**前端架构**：
+- 共享 API 客户端 `api.js`：CSRF Token 集中附加、401 统一跳登录、错误统一处理
+- Alpine.js `Alpine.data()` 组件 + 客户端 History API 路由
+- `index.html` 单一入口，模板全部内嵌，服务端无需 SSR
+- app.js 排在 Alpine CDN 之前加载（`alpine:init` 注册组件 → Alpine 再启动）
+- 新增 `x-cloak` 样式，避免模板渲染前的闪现
+
+#### 16 个 admin handler TODO 全部消除
+
+| 文件 | 变更 |
+|---|---|
+| `apikey.go` (5) | 全部实现，接 `authService.CreateKey/ListKeys/SetKeyActive/DeleteKey` |
+| `setting.go` (6) | 全部实现，接 `SettingRepository` |
+| `dashboard.go` (2) | 队列深度接 `pgqueue.Depth/DeadLetterCount`，健康检查实际 ping 库 |
+| `log.go` | `DeleteExpired` 接 `mcpLogService.DeleteExpired`，支持 days 参数 |
+| `search_debug.go` | `DebugKeywords` 接 `KeywordSearchService`，`NewSearchDebugHandler` 新增参数 |
+| `mcp_debug.go` | 重写：走后端代理调 MCP 服务，鉴权重用 Session，scope 可切换 |
+| `article.go` | 新增 Create/Preview，`BatchReprocess` 改为逐条汇总（此前 `_ =` 丢弃全部错误） |
+
+#### 顺带修复的设计与实现缺陷
+
+- **`setting.Value` 类型修正**：`map[string]interface{}` → `json.RawMessage`。
+  迁移 005 播种的值是标量（`0.3`、`2000`），`map` 类型导致 `ListAll` 对每一行报
+  `cannot unmarshal number into Go value of type map`，配置接口完全不可用。
+  连带 `SettingHistory.OldValue/NewValue` 一并修正。
+
+- **操作者列 UUID → TEXT**（新增迁移 009）：`api_keys.created_by`、`setting_history.changed_by`、
+  `articles.deleted_by` 三列建表时为 UUID，但 AGENT.md 决策 #10 明确 v1 单管理员、
+  凭据来自配置文件、**无用户表**——系统中根本不存在可填入的用户 UUID。
+  实际后果是写入 `created_by` 时报 `invalid input syntax for type uuid`。
+
+- **仓库层双重哈希陷阱**：`apikey_repo.Create` 在 `service.HashAPIKey` 已哈希的基础上
+  又做了一次 `sha256`，导致写入值与校验值永不一致。改为仓库层只存不哈希，哈希入口唯一。
+
+- **提示词持久化与管线接线**：
+  - `prompt.GetPrompt` 从只返回硬编码一句话 → 优先取库中值，回退 L2 默认值
+  - `prompt.UpdatePrompt` 从校验通过后 `return nil`（静默丢弃）→ 持久化到 settings 表
+  - 流水线 `runLLM` 从硬编码提示词 → 通过 `PromptService` 取可修改的模板，
+    否则后台改提示词对实际处理毫无影响
+
+- **`DebugSearch` 桩实现**：共享 `Search` 的检索逻辑，把各阶段中间结果分别保留。
+  此前两个方法拥有完全相同的检索代码，任意一方的逻辑变更都会导致调试页与
+  生产检索行为出现分歧——调试页就此失去参考价值。
+
+- **MCP 日志 `List` 查询**：完整的筛选/全文检索/分页实现。
+
+- **`articles` 表已应用迁移 008**（`retry_count`/`last_error` 补列）
+
+#### 新增测试
+
+`auth_apikey_test.go`，11 项覆盖：ValidateKey 从仓库读取、哈希存储而非明文、
+未知/停用 Key 拒绝、scope 校验、缺仓库报错、ScopeAllows、CSRF 会话绑定、
+CSRF 跨会话不通用、登出后 CSRF 失效、登录锁定、成功登录清零失败计数。
+
+#### 验证
+
+- `go build` / `go vet` / `go test ./...` 全绿
+- curl：51 条路由无冲突，匿名访问全 401，scope 逐级确认，CSRF 缺/错/对 三种情况
+- Playwright 真实浏览器：8 个页面均正确渲染，零控制台错误、零失败请求
+- 交互测：创建 API Key → 录入文章 → 列表出现 → 检索召回 → MCP 调试四阶段完整
+- 进程资源：CPU 0%、RSS 26MB
+- 测试数据已清理
+
+#### 剩余 TODO（2 个，属 Phase 2）
+
+`add_article_by_url` MCP 工具须接 Collector 入队；
+`htmlclean` 须接 `bluemonday` 生产级 HTML 清洗。
+
+## [v0.5.8] - 2026-09-09
+
+### 修复页面无限重定向，并修复接口联调中暴露的 12 处缺陷
+
+**起因**：服务启动后页面报 `ERR_TOO_MANY_REDIRECTS`。定位重定向根因后，
+对全部接口做了一轮实际联调，又发现 11 处问题（含一处会耗尽内存的死循环）。
+
+#### 1. 页面无限重定向（原始症状）
+
+`internal/handler/web/handler.go` 的 SPA 回退用 `c.FileFromFS("/index.html", ...)`。
+Gin 会把 `c.Request.URL.Path` 改写成目标路径后交给 `http.FileServer`，而
+net/http 的 `serveFile` 对任何以 `/index.html` 结尾的路径**无条件 301 跳到 `./`**。
+于是 `GET /` → NoRoute → 301 → `/` → NoRoute，无限循环。
+
+改为 `serveHTML()`：直接从嵌入 FS 读取内容并 `c.Data()` 写出，绕开该重定向规则。
+
+顺带发现前端预期的 `/ui/*` 路由**从未注册**（`/ui/login` 等全靠 NoRoute 兜底）。
+补齐 `/`、`/ui`、`/ui/*path` 三条路由。gin 的 catch-all 不能与同层静态路由并存
+（`/ui/login` + `/ui/*path` 会 panic），故登录页在 wildcard handler 内分流。
+
+验证：`/`、`/ui`、`/ui/login`、`/ui/dashboard`、`/ui/articles`、`/ui/articles/new`、
+`/ui/search`、`/ui/settings` 全部 `200 redirects=0`。
+
+#### 2. `sql.ErrNoRows` 等值比较恒为假（9 处）
+
+```go
+if err == sql.ErrNoRows {      // 永远不成立
+if errors.Is(err, sql.ErrNoRows) {   // 改为
+```
+
+本项目用 pgx 驱动，返回的是 `pgx.ErrNoRows`。它 wrap 了 `sql.ErrNoRows`，
+所以 `errors.Is` 为真、`==` 为假（已实测确认）。后果是"查无结果"这一正常分支
+被当作错误返回，例如创建文章时去重检查报
+`check content duplicate: no rows in result set`。
+
+涉及 `article_repo.go`（4）、`apikey_repo.go`（2）、`chunk_repo.go`、
+`mcplog_repo.go`、`setting_repo.go`。`worker.go:121` 原本就用 `errors.Is`，未改。
+
+#### 3. `articles` 表缺 `retry_count` / `last_error` 列
+
+新增 `008_articles_retry_columns.sql`。模型与三处 SELECT 自始就在读这两列，
+001 建表时漏掉，文章列表与详情接口报 `42703 column does not exist`。
+
+#### 4. 列表分页恒为空
+
+```go
+append(args, offset, query.PageSize)    // SQL 是 LIMIT $N OFFSET $N+1
+append(args, query.PageSize, offset)    // 改为
+```
+
+绑参顺序与占位符相反，首页 `offset=0` 使 `LIMIT 0`。表现为 `total` 正确
+但 `articles` 恒为空数组。
+
+#### 5. 去重命中返回 500
+
+新增哨兵错误 `service.ErrDuplicateArticle`，Handler 映射为 **409 Conflict**。
+去重命中属正常业务结果，原先用无类型 `fmt.Errorf`，调用方无从区分。
+
+#### 6. AI 处理任务从未入队
+
+全局搜索 `Send`/`Enqueue` **零调用**——文章创建后从不投递任务，worker 一直在
+空队列上轮询，所有文章永久停留在 `pending`。
+
+而 worker 的 `processMessage` 却是从消息载荷里取 title/content **再创建一次文章**，
+与写入侧的同步创建重复，且必然撞上内容去重。这段代码因为没有入队方，从未执行过。
+
+按 PRD"提交后立即返回，异步完成 AI 处理"的设计重新接线：
+
+- 新增 `service.JobEnqueuer` 接口，由 `pgqueue.Queue` 实现
+- 载荷只带 `article_id`，避免大文本进队列及与库中内容不一致
+- `Create` 入队失败**不**回滚、不报错（文章已落库，报 500 会让调用方重试撞上 409），
+  仅告警并停在 `pending`；`Reprocess` 入队失败**必须**报错
+- `processMessage` 改为按 ID 读取文章后直接跑流水线
+- main.go 中队列创建提前到服务初始化之前
+
+#### 7. 文本切分死循环（会耗尽内存）
+
+`SplitContent` 在末片不满 `chunkSize` 时无限循环。实测进程 **CPU 137%、RSS 4GB**。
+
+130 字正文、`chunkSize=400`、`overlap=50`：首轮 `end` 截到 130，
+`start = 130-50 = 80`；下一轮 `end` 又被截回 130，`start` 再算仍是 80。
+`start` 恒定不变，每轮 append 一片。原兜底判断 `start >= end`（80 >= 130）
+不成立，拦不住。
+
+**几乎所有真实文章都会命中**（只要末片不满一个窗口）。修复：`end == totalLen` 即 break。
+
+新增 `ai_pipeline_test.go` 覆盖 7 个边界（短于/等于/略超 chunkSize、末片不满、
+整除无重叠、单字符、overlap 超限）。
+
+#### 8. `range` 副本导致 chunk 字段写入丢失
+
+```go
+for i, chunk := range newChunks { chunk.ArticleID = ... }   // 改不到切片
+for i := range newChunks { newChunks[i].ArticleID = ... }   // 改为
+```
+
+`ArticleID`、`ChunkIndex`、`Embedding` 三项赋值全部丢失，`article_id` 保持空串，
+插库报 `invalid input syntax for type uuid: ""`。
+
+（`chunk_repo.go:53` 形似但无问题：那里切片元素是指针。）
+
+#### 9. `Update` 遗漏 4 个列
+
+UPDATE 语句的 SET 列表缺 `indexed_at`、`embedding_model`、`embedding_dim`、
+`last_error`。AI 流水线正是通过本方法保存这几项，导致处理完成后索引时间与
+向量模型信息始终为空，失败原因也无处落库。
+
+#### 10. 向量数据泄漏进检索响应
+
+`VectorSearch` 的 SELECT 取了 `c.embedding` 并一路带进 JSON，每条结果多出
+1024 维浮点数（约 4KB）。`omitempty` 对非空切片不生效，无法靠标签规避。
+
+`SearchChunk.Embedding` 全局无消费者，故一并从 SQL 与模型中移除。
+**响应体 22688 字节 → 1141 字节。**
+
+#### 11. 任务转入死信后文章永久停留在 `processing`
+
+流水线开始即把状态置为 `processing`，但只有 LLM 阶段失败会自行回写 `failed`；
+切分、向量、写库阶段出错时无人收尾。新增 `markArticleFailed()`，队列转死信后
+回写 `failed` 与 `last_error`（用独立的带超时 context，避免 worker 停止流程中
+因 `w.ctx` 已取消而写不进去）。
+
+#### 12. 前端 session 接口路径不一致
+
+`app.js` 请求 `/api/v1/admin/session/me`（404），后端实际为
+`/api/v1/admin/auth/session`。
+
+#### 验证
+
+`go build` / `go vet` / `go test ./...` 全部通过。端到端：录入立即返回
+`pending`，约 2 秒后 `completed`，`indexed_at`、`embedding_model=mock`、
+`embedding_dim=1024`、`summary` 均正确落库；向量检索与关键词检索均能召回；
+进程 CPU 0.2%、RSS 24MB。测试数据已清理。
+
+#### 未修复（需产品决策，详见 AGENT.md）
+
+- **`/api/v1/*` 全部接口无鉴权**：匿名 POST 可写入、DELETE 可删除（实测确认）
+- `admin` 包 34 个 handler 方法中仅 3 个（登录/登出/会话）注册了路由，
+  仪表盘、文章编辑、系统配置、MCP 调试与日志、API Key 管理等页面所需接口均缺失
+- API Key 从不从数据库加载，MCP 对任何 Key 均返回 401
+- `SessionMiddleware` / `CSRFMiddleware` 从未接线，后者本身是空实现
+
+## [v0.5.7] - 2026-09-08
+
+### 修复 001 迁移建表顺序错误导致的启动失败
+
+**症状**：全新数据库执行 `aiknow serve` 或 `aiknow migrate` 时首个迁移即失败：
+
+```
+Applying migration 1: 001_initial_schema.sql
+迁移失败: execute migration 001_initial_schema.sql:
+         ERROR: relation "categories" does not exist (SQLSTATE 42P01)
+```
+
+**根因**：`001_initial_schema.sql` 中 `articles` 表定义在文件最前，其
+`category_id UUID REFERENCES categories(id)` 引用的 `categories` 表却排在
+`articles` 之后。PostgreSQL 建表时外键的被引用表必须已存在，因此 `articles`
+建表语句直接报错。
+
+迁移执行器按 `;` 逐条提交语句（`internal/repository/migrations.go`），语句间
+不做依赖重排，文件内的书写顺序即执行顺序。
+
+**修复**：把 `categories`、`tags` 两张无外键依赖的基础表提到 `articles` 之前，
+建表顺序改为：
+
+```
+categories → tags → articles → article_tags → chunks
+```
+
+表定义内容未作任何改动，仅调整顺序，无 schema 变更。
+
+**影响范围**：仅影响从零初始化的数据库。此前已成功建库的环境
+（`schema_migrations` 中已有 version 1）不受影响，无需重跑。
+
+**验证**：全新库执行 `migrate`，001–007 七个迁移全部通过。
+
 ## [v0.5.6] - 2026-09-08
 
 ### 简化端口配置：移除监听地址与端口映射变量

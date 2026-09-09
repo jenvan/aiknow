@@ -137,10 +137,94 @@ func (s *SearchServiceImpl) SearchKeywords(ctx context.Context, keywords []strin
 	return &results[0], nil
 }
 
-// DebugSearch 检索调试
+// DebugSearch 检索调试：逐阶段返回中间结果，用于排查召回与排序问题。
+//
+// 与 Search 的差别只在于把各阶段结果分别保留下来，检索逻辑完全一致——
+// 若两者行为出现分歧，调试页就失去了参考价值。
 func (s *SearchServiceImpl) DebugSearch(ctx context.Context, query string, params model.SearchParams) (*model.SearchDebugResult, error) {
-	// TODO: 实现调试接口
-	return nil, fmt.Errorf("debug search not implemented")
+	if query == "" {
+		return nil, fmt.Errorf("检索词为空")
+	}
+
+	start := time.Now()
+
+	if params.CandidateK <= 0 {
+		params.CandidateK = 50
+	}
+	if params.RRFK <= 0 {
+		params.RRFK = 60
+	}
+	if params.TopK <= 0 {
+		params.TopK = 10
+	}
+
+	// 1. 向量检索
+	embStart := time.Now()
+	embResult, err := s.embeddingProvider.Embed(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("embedding: %w", err)
+	}
+	embeddingMs := time.Since(embStart).Milliseconds()
+
+	vectorStart := time.Now()
+	vectorResults, err := s.searchRepo.VectorSearch(ctx, embResult.Embedding, params.CandidateK)
+	if err != nil {
+		return nil, fmt.Errorf("vector search: %w", err)
+	}
+	vectorMs := time.Since(vectorStart).Milliseconds()
+
+	// 2. BM25 检索
+	bm25Start := time.Now()
+	bm25Results, err := s.searchRepo.BM25Search(ctx, query, params.CandidateK)
+	if err != nil {
+		return nil, fmt.Errorf("bm25 search: %w", err)
+	}
+	bm25Ms := time.Since(bm25Start).Milliseconds()
+
+	// 3. RRF 融合
+	rrfStart := time.Now()
+	rrfResults := rrfFuse(vectorResults, bm25Results, params.RRFK, params.VectorWeight, params.BM25Weight)
+	rrfMs := time.Since(rrfStart).Milliseconds()
+
+	// 4. Rerank 精排
+	rerankStart := time.Now()
+	documents := make([]string, len(rrfResults))
+	for i, r := range rrfResults {
+		documents[i] = r.Content
+	}
+
+	var finalResults []model.SearchChunk
+	rerankResult, err := s.rerankerProvider.Rerank(ctx, provider.RerankRequest{
+		Query:     query,
+		Documents: documents,
+		TopK:      params.TopK,
+	})
+	if err != nil {
+		// 精排失败不中断调试：前两路召回本身就是要观察的对象，
+		// 直接返回融合结果并在该阶段留空更有助于定位问题
+		finalResults = rrfResults
+	} else {
+		finalResults = applyRerank(rrfResults, rerankResult.Results)
+	}
+	rerankMs := time.Since(rerankStart).Milliseconds()
+
+	totalMs := time.Since(start).Milliseconds()
+
+	timings := model.SearchTimings{
+		EmbeddingMs: int(embeddingMs),
+		VectorMs:    int(vectorMs),
+		BM25Ms:      int(bm25Ms),
+		RRFMs:       int(rrfMs),
+		RerankMs:    int(rerankMs),
+		TotalMs:     int(totalMs),
+	}
+
+	return &model.SearchDebugResult{
+		SearchParams: params,
+		VectorResult: &model.SearchResult{Query: query, Results: vectorResults, Timings: timings},
+		BM25Result:   &model.SearchResult{Query: query, Results: bm25Results, Timings: timings},
+		RerankResult: &model.SearchResult{Query: query, Results: finalResults, Timings: timings},
+	}, nil
 }
 
 // rrfFuse RRF 倒数排名融合

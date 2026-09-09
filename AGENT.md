@@ -4,7 +4,7 @@
 
 - **项目名称**：爱脑 (AiKnow)
 - **定位**：企业内部知识库管理 + RAG 检索 + API/MCP 接入
-- **当前版本**：v3.5（W1 开发中）
+- **当前版本**：v0.6.0（W5-W6 鉴权+后台已完成）
 - **状态**：PRD 已评审完成，W1 基础框架骨架已落地
 
 ## 核心技术栈
@@ -238,6 +238,16 @@ v1 单管理员，凭据来自 `ADMIN_USERNAME` + `ADMIN_PASSWORD_HASH`，无用
 
 v1 单管理员，无角色区分。
 
+> ✅ **v0.6.0 已全部接线，上表即为当前实现**。具体变更见 `docs/CHANGELOG.md` v0.6.0。
+>
+> - 对外 API 与 MCP 走 API Key + scope（`readonly` 拒绝写入，`readwrite` 隐含只读）
+> - 后台管理走 Session Cookie + CSRF Token（同步器令牌模式，Token 随登录下发，
+>   GET 放行，写请求须 `X-CSRF-Token` 请求头）
+> - 登录失败锁定已实现（5 次 → 15 分钟）
+> - API Key 按 SHA-256 哈希直接查库（`idx_api_keys_key_hash` 索引命中），
+>   可通过后台页面或 CLI（`aiknow-server apikey create|list|revoke`）管理
+> - `sameSite=Lax` + `HttpOnly` 双重防护
+
 ## 数据表清单
 
 **核心业务表**：`articles`、`chunks`、`categories`、`tags`、`article_tags`
@@ -351,6 +361,8 @@ POST /api/v1/search
 005_settings_apikeys_mcplogs.sql # settings/setting_history/api_keys/mcp_request_logs
 006_paradedb_search.sql         # pg_search BM25 索引（jieba）+ chunks.deleted 冗余列
 007_job_queue.sql               # 任务队列表 job_queue / job_archive
+008_articles_retry_columns.sql  # articles 补 retry_count / last_error 列
+009_operator_columns_to_text.sql # api_keys.created_by / setting_history.changed_by / articles.deleted_by UUID → TEXT
 ```
 
 > 003/004 降级为空操作而非原地改写：已有开发库中它们已记录为"已应用"，
@@ -396,12 +408,26 @@ POST /api/v1/search
 - 消费者取走任务后须在租约（默认 5 分钟）内调用 `Archive` 或 `Fail`，
   否则任务会被回收重投
 - 重试采用指数退避（10s 起，上限 10 分钟），重试耗尽转入死信（`status='failed'`）
+- **消息载荷只放 `article_id`**，正文由 worker 按 ID 自行读取。不要把 title/content
+  塞进载荷：大文本进队列既浪费空间，又可能与库中内容不一致。
+  文章由写入侧同步落库（PRD 要求"提交后立即返回"），worker 只做后续 AI 加工
+- **队列转入死信后必须回写文章状态**（`Worker.markArticleFailed`）。流水线开始即把
+  状态置为 `processing`，但只有 LLM 阶段失败会自行回写 `failed`，切分/向量/写库
+  阶段出错时无人收尾，文章会永久停留在 `processing`。
+  回写用独立的带超时 context，不要复用 `w.ctx`——它可能已在停止流程中被取消
+- `Create` 入队失败**不**回滚已落库的文章、也不返回错误（否则调用方重试会撞上
+  内容去重 409，更难恢复），仅告警并停在 `pending`；`Reprocess` 入队失败**必须**报错
 
 ### 4. 迁移执行器约束
 
 - **会跳过一切扩展创建语句**，扩展须由根目录的 `docker-compose-initdb.sql` 创建；
   迁移文件中亦不可在注释里出现该语句的英文字面量，否则会误伤紧随其后的语句
-- 已应用的迁移不会重跑，修改既有迁移无效——新逻辑一律放新版本号
+- 已应用的迁移不会重跑，修改既有迁移无效——新逻辑一律放新版本号。
+  唯一的例外是"该迁移在任何环境都从未成功过"（如语句报错导致整体回滚，
+  `schema_migrations` 里根本没有记录），此时原地修正才是对的，无需新版本号
+- **语句按文件内书写顺序逐条执行，不做依赖重排**：带外键的表必须排在被引用表之后。
+  001 曾把 `articles`（引用 `categories`）写在 `categories` 之前，
+  全新库初始化即报 `relation "categories" does not exist`（v0.5.7 修复）
 - `RunMigrations(ctx, tx)` 只接收事务、不负责提交，**调用方必须 Commit**。
   统一走 `cmd/aiknow-server/main.go` 的 `runMigrations()`，不要另写一份事务管理。
   曾出现过 `Begin` + `defer Rollback` 但漏掉 `Commit` 的情况：`serve` 会阻塞在
@@ -456,7 +482,107 @@ compose 部署下编排会把 `DATABASE_URL` 显式置空 —— 它通常指向
 `app` 服务用 `env_file: .env` 整体注入，只在 `environment:` 中覆盖容器内必须不同的项
 （`environment` 优先级高于 `env_file`）。
 
-### 7. 目录结构
+### 7. 反复踩过的编码陷阱
+
+以下每一条都实际造成过线上级别的故障（v0.5.8 一轮联调中集中暴露），改动相关代码时务必对照：
+
+**`sql.ErrNoRows` 只能用 `errors.Is` 判断**
+
+```go
+if err == sql.ErrNoRows {            // ✗ 恒为假
+if errors.Is(err, sql.ErrNoRows) {   // ✓
+```
+
+本项目用 pgx 驱动，`QueryRow(...).Scan` 返回的是 `pgx.ErrNoRows`。它 wrap 了
+`sql.ErrNoRows`，故 `errors.Is` 为真而 `==` 为假。写错的后果是"查无结果"这个
+正常分支被当成错误往上抛。曾在 9 处同时存在。
+
+**`range` 的第二个返回值是副本**
+
+```go
+for i, c := range chunks { c.ArticleID = id }        // ✗ 改不到切片
+for i := range chunks { chunks[i].ArticleID = id }   // ✓
+```
+
+元素为指针（`[]*T`）时通过指针改字段是有效的，值切片（`[]T`）则必须按下标。
+曾导致 chunk 的 `article_id` 保持空串，插库报 `invalid input syntax for type uuid`。
+
+**切分/滑窗循环必须显式判断已到结尾**
+
+末片不满窗口时 `end` 被截到 `totalLen`，而 `start = end - overlap` 会回退到一个
+仍小于 `totalLen` 的位置，下一轮 `end` 又被截回 `totalLen`，`start` 恒定不变形成
+死循环，切片无限增长直至耗尽内存（实测 RSS 4GB）。`SplitContent` 现以
+`end == totalLen` 退出，并有 `ai_pipeline_test.go` 覆盖边界。
+
+**不要用 `c.FileFromFS` 送 HTML**
+
+Gin 会把 `c.Request.URL.Path` 改写成目标路径后交给 `http.FileServer`，而 net/http 的
+`serveFile` 对任何以 `/index.html` 结尾的路径**无条件 301 跳到 `./`**，SPA 回退因此
+无限重定向（`ERR_TOO_MANY_REDIRECTS`）。改用 `web.serveHTML()`：读出内容后 `c.Data()`。
+
+**gin 的 catch-all 不能与同层静态路由并存**
+
+`/ui/login` 与 `/ui/*path` 同时注册会 panic。同层的具体路径需在 wildcard handler
+内部分流。
+
+**占位符绑参顺序**
+
+`LIMIT $N OFFSET $N+1` 必须按 `(pageSize, offset)` 传参。曾传成 `(offset, pageSize)`，
+首页 `offset=0` 使 `LIMIT 0`，表现为 `total` 正确但列表恒空。
+
+**改 SELECT 时同步检查 UPDATE 的 SET 列表**
+
+`articleRepo.Update` 曾遗漏 `indexed_at`、`embedding_model`、`embedding_dim`、
+`last_error`——AI 流水线正是通过它保存这几项，导致算完的值全都落不了库。
+
+**不要把向量查进检索响应**
+
+`SearchChunk` 不含 `embedding` 字段。1024 维浮点数会被原样序列化（每条约 4KB，
+实测响应从 22KB 降到 1.1KB），且 `omitempty` 对非空切片不生效，无法靠标签规避。
+`VectorSearch` 的 SQL 也不要 `SELECT c.embedding`。
+
+**业务预期的失败要用哨兵错误**
+
+去重命中返回 `service.ErrDuplicateArticle`，Handler 映射 409；用无类型
+`fmt.Errorf` 会让调用方无从区分，一律落到 500。
+
+**JSONB ≠ Go `map[string]interface{}`**
+
+迁移 005 播种的 `settings.value` 是标量（`0.3`、`2000`），而模型声明为
+`map[string]interface{}`，导致 `ListAll` 对每一行报 `cannot unmarshal number`。
+用 `json.RawMessage` 容纳任意 JSON 值，这是 DB JSONB 列的通用方案。
+
+**模型类型 ≠ DB 列类型**
+
+本项目的 `created_by` / `changed_by` / `deleted_by` 三列建表时定为 UUID，但
+v1 无用户表（管理员凭据在配置文件中），系统中不存在可填入的用户 UUID。
+实际后果是写入时报 `invalid input syntax for type uuid`（SQLSTATE 22P02）。
+在确认需要外键引用前，这些列应保持 TEXT。
+
+**仓库存取时不要自行哈希**
+
+`apikey_repo.Create` 在 `service.HashAPIKey` 已哈希的基础上又做了一次 `sha256`，
+等于要求调用方把明文放进名为 `KeyHash` 的字段，实际传入哈希时就会因双重哈希
+导致写入值与校验值永不一致。哈希入口必须唯一，仓库层只存不哈希。
+
+**管线硬编码的常量如能被后台修改，应走服务层读取**
+
+`runLLM` 的提示词模板曾硬编码在流水线内部，后台的"提示词"修改对此毫无影响。
+改为经 `PromptService` 读取库中模板——否则用户改了配置却看不到效果。
+
+**修改后不持久化的 handler 不是未实现，是已在运行但数据悄悄丢失**
+
+`prompt.UpdatePrompt` 曾做完整的校验流程，然后 `return nil`——调用方收到
+200，下次读取仍是旧值。这种"无声无操作"比报错更危险，找起来极费时间。
+
+**Alpine.js CDN 与 ES module 的加载顺序**
+
+Alpine CDN 和 type=module 的 app.js 都是异步加载，但按文档顺序解析。
+若 Alpine 先启动，它会在 app.js 注册 `alpine:init` 监听器之前就 `start()`
+并派发该事件，导致组件全部未注册（`shell is not defined`）。
+app.js 必须排在 Alpine CDN 之前。
+
+### 8. 目录结构
 ```
 aiknow/
 ├── cmd/aiknow-server/      # 服务入口（含 hashpwd 子命令）
@@ -480,7 +606,7 @@ aiknow/
 └── docs/                   # 文档
 ```
 
-### 8. 开发路线图（7 周）
+### 9. 开发路线图（7 周）
 | Phase | 周 | 内容 | 状态 |
 |-------|-----|------|------|
 | 1 | W1 | 基础框架 + 配置分层加载（env > .env > yaml） | ✅ 骨架完成 |

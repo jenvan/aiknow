@@ -9,11 +9,12 @@ import (
 
 // PromptHandler 提示词管理 Handler
 type PromptHandler struct {
-	promptService service.PromptService
+	// service.PromptService 是结构体而非接口，故此处用指针
+	promptService *service.PromptService
 }
 
 // NewPromptHandler 创建提示词 Handler
-func NewPromptHandler(promptService service.PromptService) *PromptHandler {
+func NewPromptHandler(promptService *service.PromptService) *PromptHandler {
 	return &PromptHandler{promptService: promptService}
 }
 

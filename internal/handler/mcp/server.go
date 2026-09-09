@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jenvan/aiknow/internal/model"
@@ -36,7 +37,14 @@ func (s *Server) Handle(c *gin.Context) {
 		return
 	}
 
-	key, err := s.authService.ValidateKey(c.Request.Context(), authHeader)
+	// 必须剥掉 "Bearer " 前缀再校验：此前把整个头部当作 Key 传入，
+	// 即便 Key 正确也永远匹配不上哈希
+	apiKey := authHeader
+	if len(authHeader) >= 7 && strings.EqualFold(authHeader[:7], "bearer ") {
+		apiKey = strings.TrimSpace(authHeader[7:])
+	}
+
+	key, err := s.authService.ValidateKey(c.Request.Context(), apiKey)
 	if err != nil || key == nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid API key"})
 		c.Abort()

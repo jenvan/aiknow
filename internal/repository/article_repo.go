@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -73,7 +74,7 @@ func (r *ArticleRepositoryImpl) GetByID(ctx context.Context, id string) (*model.
 	)
 
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("query article: %w", err)
@@ -194,7 +195,9 @@ func (r *ArticleRepositoryImpl) List(ctx context.Context, query model.ArticleLis
 		ORDER BY %s %s
 		LIMIT $%d OFFSET $%d
 	`, whereClause, sortField, sortOrder, argIdx, argIdx+1),
-		append(args, offset, query.PageSize)...)
+		// 顺序必须与 LIMIT/OFFSET 占位符一致：曾误传 (offset, pageSize)，
+		// 首页 offset=0 使 LIMIT 0，列表恒为空而 total 正常
+		append(args, query.PageSize, offset)...)
 	if err != nil {
 		return nil, fmt.Errorf("query articles: %w", err)
 	}
@@ -242,15 +245,20 @@ func (r *ArticleRepositoryImpl) List(ctx context.Context, query model.ArticleLis
 func (r *ArticleRepositoryImpl) Update(ctx context.Context, article *model.Article) error {
 	article.UpdatedAt = time.Now()
 
+	// indexed_at / embedding_model / embedding_dim / last_error 必须一并写入：
+	// AI 流水线正是通过本方法保存这几项，此前 SET 列表遗漏，
+	// 处理完成后索引时间与向量模型信息始终为空，失败原因也无处落库
 	_, err := r.db.pool.Exec(ctx, `
 		UPDATE articles SET
 			title = $1, content = $2, source_url = $3,
 			processing_status = $4, summary = $5, category_id = $6,
-			published = $7, updated_at = $8
-		WHERE id = $9 AND deleted_at IS NULL
+			published = $7, indexed_at = $8, embedding_model = $9,
+			embedding_dim = $10, last_error = $11, updated_at = $12
+		WHERE id = $13 AND deleted_at IS NULL
 	`, article.Title, article.Content, article.SourceURL,
 		article.ProcessingStatus, article.Summary, article.CategoryID,
-		article.Published, article.UpdatedAt, article.ID)
+		article.Published, article.IndexedAt, article.EmbeddingModel,
+		article.EmbeddingDim, article.LastError, article.UpdatedAt, article.ID)
 
 	if err != nil {
 		return fmt.Errorf("update article: %w", err)
@@ -331,7 +339,7 @@ func (r *ArticleRepositoryImpl) FindByURL(ctx context.Context, url string) (*mod
 	)
 
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("find by URL: %w", err)
@@ -354,7 +362,7 @@ func (r *ArticleRepositoryImpl) FindByContentHash(ctx context.Context, hash stri
 	)
 
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("find by content hash: %w", err)
@@ -442,7 +450,7 @@ func (r *ArticleRepositoryImpl) GetArticleStatus(ctx context.Context, id string)
 	)
 
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("query article status: %w", err)

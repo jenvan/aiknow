@@ -1,21 +1,34 @@
 package admin
 
 import (
+	"database/sql"
+	"errors"
 	"net/http"
 
+	"github.com/gin-gonic/gin"
 	"github.com/jenvan/aiknow/internal/model"
 	"github.com/jenvan/aiknow/internal/repository"
-	"github.com/gin-gonic/gin"
+	"github.com/jenvan/aiknow/pkg/pgqueue"
 )
 
 // DashboardHandler 仪表盘 Handler
 type DashboardHandler struct {
-	db *repository.PostgresDB
+	db       *repository.PostgresDB
+	queue    *pgqueue.Queue
+	provider ProviderInfo
+}
+
+// ProviderInfo 当前生效的 AI Provider 名称，用于健康检查展示。
+// 由 main.go 在装配时注入实际值，此前这里硬编码为 "mock"。
+type ProviderInfo struct {
+	LLM       string
+	Embedding string
+	Reranker  string
 }
 
 // NewDashboardHandler 创建仪表盘 Handler
-func NewDashboardHandler(db *repository.PostgresDB) *DashboardHandler {
-	return &DashboardHandler{db: db}
+func NewDashboardHandler(db *repository.PostgresDB, queue *pgqueue.Queue, provider ProviderInfo) *DashboardHandler {
+	return &DashboardHandler{db: db, queue: queue, provider: provider}
 }
 
 // GetStats 获取统计数据
@@ -65,11 +78,31 @@ func (h *DashboardHandler) GetStats(c *gin.Context) {
 
 // GetQueueStatus 获取队列状态
 func (h *DashboardHandler) GetQueueStatus(c *gin.Context) {
-	// TODO: 查询任务队列深度（pgqueue.Depth）
+	ctx := c.Request.Context()
+
+	depth, err := h.queue.Depth(ctx)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "查询队列深度失败: " + err.Error()})
+		return
+	}
+
+	dlq, err := h.queue.DeadLetterCount(ctx)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "查询死信数失败: " + err.Error()})
+		return
+	}
+
+	// 队列为空时返回 sql.ErrNoRows，属正常情况而非故障
+	age, err := h.queue.OldestMessageAge(ctx)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "查询最早消息时间失败: " + err.Error()})
+		return
+	}
+
 	c.JSON(http.StatusOK, gin.H{
-		"depth":                 0,
-		"oldest_message_age_ms": 0,
-		"dlq_count":             0,
+		"depth":                 depth,
+		"oldest_message_age_ms": age.Milliseconds(),
+		"dlq_count":             dlq,
 	})
 }
 
@@ -114,11 +147,16 @@ func (h *DashboardHandler) GetRecentActivity(c *gin.Context) {
 
 // GetHealth 服务健康检查
 func (h *DashboardHandler) GetHealth(c *gin.Context) {
-	// TODO: 检查数据库连接、AI Provider 状态
+	// 实际探测数据库连通性，而非固定返回 connected
+	dbStatus := "connected"
+	if err := h.db.GetPool().Ping(c.Request.Context()); err != nil {
+		dbStatus = "error: " + err.Error()
+	}
+
 	c.JSON(http.StatusOK, gin.H{
-		"database":           "connected",
-		"llm_provider":       "mock",
-		"embedding_provider": "mock",
-		"reranker_provider":  "mock",
+		"database":           dbStatus,
+		"llm_provider":       h.provider.LLM,
+		"embedding_provider": h.provider.Embedding,
+		"reranker_provider":  h.provider.Reranker,
 	})
 }

@@ -1,9 +1,16 @@
-/* AiKnow 主样式 */
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+/* AiKnow 主样式
+ *
+ * 注意：Tailwind 经 CDN 引入（见 index.html），本文件不参与任何构建流程。
+ * 此前这里写有 @tailwind base/components/utilities 三条指令，但没有
+ * PostCSS 构建步骤会处理它们，浏览器直接忽略——已移除以免误导。
+ * 此处只放 Tailwind 覆盖不到的少量自定义样式。
+ */
 
-/* 自定义样式 */
+/* x-cloak：Alpine 初始化完成前隐藏元素，避免闪现未渲染的模板 */
+[x-cloak] {
+    display: none !important;
+}
+
 .page-transition {
     transition: opacity 0.2s ease-in-out;
 }
@@ -15,4 +22,9 @@
 @keyframes fadeIn {
     from { opacity: 0; }
     to { opacity: 1; }
+}
+
+/* 长文本域使用等宽字体时保留换行与空格 */
+textarea {
+    white-space: pre-wrap;
 }

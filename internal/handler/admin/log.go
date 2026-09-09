@@ -2,6 +2,7 @@ package admin
 
 import (
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -64,10 +65,30 @@ func (h *LogHandler) Get(c *gin.Context) {
 	c.JSON(http.StatusOK, log)
 }
 
-// DeleteExpired 清理过期日志
+// DeleteExpired 清理过期日志。
+//
+// 保留天数由查询参数 days 指定（默认 30），删除该天数之前的记录。
 func (h *LogHandler) DeleteExpired(c *gin.Context) {
-	// TODO: 实现
-	before := time.Now().AddDate(0, 0, -30)
-	_ = before
-	c.JSON(http.StatusOK, gin.H{"success": true})
+	days := 30
+	if d := c.Query("days"); d != "" {
+		parsed, err := strconv.Atoi(d)
+		if err != nil || parsed < 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "days 须为非负整数"})
+			return
+		}
+		days = parsed
+	}
+
+	before := time.Now().AddDate(0, 0, -days)
+	deleted, err := h.mcpLogService.DeleteExpired(c.Request.Context(), before)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"deleted": deleted,
+		"before":  before.Format(time.RFC3339),
+	})
 }

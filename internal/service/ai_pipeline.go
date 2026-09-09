@@ -1,10 +1,12 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
+	"text/template"
 	"time"
 
 	"github.com/jenvan/aiknow/internal/model"
@@ -27,11 +29,16 @@ type AIPipeline struct {
 	chunkRepo         repository.ChunkRepository
 	categoryRepo      repository.CategoryRepository
 	tagRepo           repository.TagRepository
-	chunkSize         int
-	chunkOverlap      int
+	// promptService 提供可在后台修改的分析提示词；为 nil 时用内置默认模板
+	promptService *PromptService
+	chunkSize     int
+	chunkOverlap  int
 }
 
-// NewAIPipeline 创建 AI 处理流水线
+// NewAIPipeline 创建 AI 处理流水线。
+//
+// promptService 可选：传入后使用后台可修改的分析提示词，
+// 不传则始终使用 L2 内置默认模板。
 func NewAIPipeline(
 	llmProvider provider.LLMProvider,
 	embeddingProvider provider.EmbeddingProvider,
@@ -39,8 +46,9 @@ func NewAIPipeline(
 	chunkRepo repository.ChunkRepository,
 	categoryRepo repository.CategoryRepository,
 	tagRepo repository.TagRepository,
+	promptService ...*PromptService,
 ) *AIPipeline {
-	return &AIPipeline{
+	p := &AIPipeline{
 		llmProvider:       llmProvider,
 		embeddingProvider: embeddingProvider,
 		articleRepo:       articleRepo,
@@ -50,6 +58,10 @@ func NewAIPipeline(
 		chunkSize:         400,
 		chunkOverlap:      50,
 	}
+	if len(promptService) > 0 && promptService[0] != nil {
+		p.promptService = promptService[0]
+	}
+	return p
 }
 
 // strPtr 返回字符串指针
@@ -147,10 +159,14 @@ func (p *AIPipeline) Process(ctx context.Context, article *model.Article) error 
 	}
 
 	// 8. 保存 Chunk 和向量
-	for i, chunk := range newChunks {
-		chunk.ArticleID = article.ID
-		chunk.ChunkIndex = i
-		chunk.Embedding = embeddingResults[i].Embedding
+	//
+	// 必须按下标赋值：range 的第二个返回值是元素副本，改它不会影响切片，
+	// 此前 ArticleID / ChunkIndex / Embedding 三项写入全部丢失，
+	// article_id 保持空串导致插库报 invalid input syntax for type uuid
+	for i := range newChunks {
+		newChunks[i].ArticleID = article.ID
+		newChunks[i].ChunkIndex = i
+		newChunks[i].Embedding = embeddingResults[i].Embedding
 	}
 
 	chunkPtrs := make([]*model.Chunk, len(newChunks))
@@ -194,34 +210,33 @@ func (p *AIPipeline) runLLM(ctx context.Context, article *model.Article) (*AIRes
 		categoryList = strings.Join(names, ", ")
 	}
 
-	// 构建提示词
-	prompt := fmt.Sprintf(`你是一个知识库内容分析师。请阅读以下文章，并提取关键信息。
+	// 构建提示词。
+	//
+	// 模板取自 promptService（库中已保存值，未保存则回落 L2 默认值），
+	// 不再在此处硬编码：否则后台"系统配置 → 提示词"的修改对实际处理毫无影响，
+	// 用户会以为改生效了。promptService 为 nil 时用内置默认模板。
+	promptTemplate := model.DefaultL2Config().Prompt.Analyze
+	if p.promptService != nil {
+		if stored, err := p.promptService.GetPrompt(ctx, PromptKeyAnalyze); err == nil && stored != "" {
+			promptTemplate = stored
+		}
+	}
 
-# 文章标题
-%s
+	tmpl, err := template.New("analyze").Parse(promptTemplate)
+	if err != nil {
+		return nil, fmt.Errorf("解析提示词模板: %w", err)
+	}
 
-# 文章正文
-%s
+	var promptBuf bytes.Buffer
+	if err := tmpl.Execute(&promptBuf, promptVars{
+		Title:      article.Title,
+		Content:    content,
+		Categories: categoryList,
+	}); err != nil {
+		return nil, fmt.Errorf("渲染提示词模板: %w", err)
+	}
 
-# 现有分类列表
-%s
-
-请以 JSON 格式返回分析结果，必须包含以下字段：
-- summary: 100-300 字的摘要
-- category: 从上述分类列表中选择一个最合适的分类
-- tags: 3-10 个关键词标签，每个标签不超过 20 字
-
-JSON 格式示例：
-{
-  "summary": "...",
-  "category": "...",
-  "tags": ["tag1", "tag2", "tag3"]
-}
-
-注意：返回必须是合法的 JSON，不要包含任何其他文字。`,
-		article.Title, content, categoryList)
-
-	result, err := p.llmProvider.GenerateJSON(ctx, prompt, "")
+	result, err := p.llmProvider.GenerateJSON(ctx, promptBuf.String(), "")
 	if err != nil {
 		return nil, fmt.Errorf("LLM generate: %w", err)
 	}
@@ -268,10 +283,19 @@ func (p *AIPipeline) SplitContent(ctx context.Context, content string, chunkSize
 			WordCount: end - start,
 		})
 
-		start = end - overlap
-		if start >= end {
-			start = end
+		// 已切到结尾即结束。
+		//
+		// 必须在此处退出：末片不满 chunkSize 时 end 被截到 totalLen，
+		// 而 start = end - overlap 会回退到一个仍小于 totalLen 的位置，
+		// 下一轮 end 又被截回 totalLen，start 恒定不变形成死循环，
+		// chunks 无限增长直至耗尽内存（原兜底判断 start >= end 不成立，拦不住）。
+		if end == totalLen {
+			break
 		}
+
+		// overlap < chunkSize 已在上方收敛，故 start 每轮至少前进
+		// chunkSize-overlap，不会停滞
+		start = end - overlap
 	}
 
 	return chunks, nil

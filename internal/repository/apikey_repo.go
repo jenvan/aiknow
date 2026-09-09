@@ -2,9 +2,8 @@ package repository
 
 import (
 	"context"
-	"crypto/sha256"
 	"database/sql"
-	"encoding/hex"
+	"errors"
 	"fmt"
 	"time"
 
@@ -22,19 +21,21 @@ func NewAPIKeyRepository(db *PostgresDB) *APIKeyRepositoryImpl {
 	return &APIKeyRepositoryImpl{db: db}
 }
 
-// Create 创建 API Key
+// Create 创建 API Key。
+//
+// key.KeyHash 必须已是 SHA-256 哈希（由 service.HashAPIKey 计算），本方法原样存储。
+// 此前这里会对 key.KeyHash 再哈希一次，等于要求调用方把**明文**放进一个名为
+// KeyHash 的字段；一旦调用方按字段名传入哈希，写入值与校验值便永不一致。
 func (r *APIKeyRepositoryImpl) Create(ctx context.Context, key *model.APIKey) error {
 	key.ID = uuid.New().String()
 	key.CreatedAt = time.Now()
 
-	// 计算 key 哈希
-	hash := sha256.Sum256([]byte(key.KeyHash))
-	key.KeyHash = hex.EncodeToString(hash[:])
-
 	_, err := r.db.pool.Exec(ctx, `
-		INSERT INTO api_keys (id, key_hash, key_prefix, description, scope, is_active, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
-	`, key.ID, key.KeyHash, key.KeyPrefix, key.Description, key.Scope, key.IsActive, key.CreatedAt)
+		INSERT INTO api_keys (
+			id, key_hash, key_prefix, description, scope, is_active, created_at, created_by
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+	`, key.ID, key.KeyHash, key.KeyPrefix, key.Description, key.Scope,
+		key.IsActive, key.CreatedAt, key.CreatedBy)
 
 	if err != nil {
 		return fmt.Errorf("create api key: %w", err)
@@ -43,16 +44,31 @@ func (r *APIKeyRepositoryImpl) Create(ctx context.Context, key *model.APIKey) er
 	return nil
 }
 
+// TouchLastUsed 更新最近使用时间。
+//
+// 单独成方法而非走 Update：Update 会覆盖 scope/is_active/description，
+// 鉴权路径上只应触碰 last_used_at。
+func (r *APIKeyRepositoryImpl) TouchLastUsed(ctx context.Context, id string) error {
+	_, err := r.db.pool.Exec(ctx,
+		"UPDATE api_keys SET last_used_at = now() WHERE id = $1", id)
+	if err != nil {
+		return fmt.Errorf("touch api key last_used_at: %w", err)
+	}
+	return nil
+}
+
 // GetByID 根据 ID 获取 API Key
 func (r *APIKeyRepositoryImpl) GetByID(ctx context.Context, id string) (*model.APIKey, error) {
 	key := &model.APIKey{}
 	err := r.db.pool.QueryRow(ctx, `
-		SELECT id, key_hash, key_prefix, description, scope, is_active, last_used_at, created_at
+		SELECT id, key_hash, key_prefix, description, scope, is_active,
+		       last_used_at, created_at, created_by
 		FROM api_keys WHERE id = $1
-	`, id).Scan(&key.ID, &key.KeyHash, &key.KeyPrefix, &key.Description, &key.Scope, &key.IsActive, &key.LastUsedAt, &key.CreatedAt)
+	`, id).Scan(&key.ID, &key.KeyHash, &key.KeyPrefix, &key.Description, &key.Scope,
+		&key.IsActive, &key.LastUsedAt, &key.CreatedAt, &key.CreatedBy)
 
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("get api key: %w", err)
@@ -65,12 +81,14 @@ func (r *APIKeyRepositoryImpl) GetByID(ctx context.Context, id string) (*model.A
 func (r *APIKeyRepositoryImpl) GetByHash(ctx context.Context, hash string) (*model.APIKey, error) {
 	key := &model.APIKey{}
 	err := r.db.pool.QueryRow(ctx, `
-		SELECT id, key_hash, key_prefix, description, scope, is_active, last_used_at, created_at
+		SELECT id, key_hash, key_prefix, description, scope, is_active,
+		       last_used_at, created_at, created_by
 		FROM api_keys WHERE key_hash = $1
-	`, hash).Scan(&key.ID, &key.KeyHash, &key.KeyPrefix, &key.Description, &key.Scope, &key.IsActive, &key.LastUsedAt, &key.CreatedAt)
+	`, hash).Scan(&key.ID, &key.KeyHash, &key.KeyPrefix, &key.Description, &key.Scope,
+		&key.IsActive, &key.LastUsedAt, &key.CreatedAt, &key.CreatedBy)
 
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("get api key by hash: %w", err)
@@ -82,7 +100,8 @@ func (r *APIKeyRepositoryImpl) GetByHash(ctx context.Context, hash string) (*mod
 // ListAll 获取所有 API Key
 func (r *APIKeyRepositoryImpl) ListAll(ctx context.Context) ([]model.APIKey, error) {
 	rows, err := r.db.pool.Query(ctx, `
-		SELECT id, key_hash, key_prefix, description, scope, is_active, last_used_at, created_at
+		SELECT id, key_hash, key_prefix, description, scope, is_active,
+		       last_used_at, created_at, created_by
 		FROM api_keys ORDER BY created_at DESC
 	`)
 	if err != nil {
@@ -93,7 +112,8 @@ func (r *APIKeyRepositoryImpl) ListAll(ctx context.Context) ([]model.APIKey, err
 	var keys []model.APIKey
 	for rows.Next() {
 		var key model.APIKey
-		if err := rows.Scan(&key.ID, &key.KeyHash, &key.KeyPrefix, &key.Description, &key.Scope, &key.IsActive, &key.LastUsedAt, &key.CreatedAt); err != nil {
+		if err := rows.Scan(&key.ID, &key.KeyHash, &key.KeyPrefix, &key.Description, &key.Scope,
+			&key.IsActive, &key.LastUsedAt, &key.CreatedAt, &key.CreatedBy); err != nil {
 			return nil, fmt.Errorf("scan api key: %w", err)
 		}
 		keys = append(keys, key)

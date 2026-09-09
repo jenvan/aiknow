@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -32,7 +33,7 @@ func (r *SettingRepositoryImpl) GetByKey(ctx context.Context, key string) (*mode
 	`, key).Scan(&setting.ID, &setting.Key, &valueBytes, &setting.Description, &setting.CreatedAt, &setting.UpdatedAt)
 
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("get setting: %w", err)

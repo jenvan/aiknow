@@ -1,0 +1,1 @@
+/Users/jenvan/work/aiknow/internal/repository/migrations/009_operator_columns_to_text.sql

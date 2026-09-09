@@ -1,6 +1,7 @@
 package api
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -28,6 +29,11 @@ func (h *ArticleHandler) Create(c *gin.Context) {
 
 	article, err := h.articleService.Create(c.Request.Context(), input)
 	if err != nil {
+		// 去重命中属正常业务结果，不是服务故障
+		if errors.Is(err, service.ErrDuplicateArticle) {
+			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}

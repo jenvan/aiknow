@@ -69,6 +69,7 @@ type APIKeyRepository interface {
 	GetByHash(ctx context.Context, hash string) (*model.APIKey, error)
 	ListAll(ctx context.Context) ([]model.APIKey, error)
 	Update(ctx context.Context, key *model.APIKey) error
+	TouchLastUsed(ctx context.Context, id string) error
 	Delete(ctx context.Context, id string) error
 }
 

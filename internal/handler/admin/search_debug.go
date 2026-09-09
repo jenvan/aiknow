@@ -2,6 +2,7 @@ package admin
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jenvan/aiknow/internal/model"
@@ -10,12 +11,19 @@ import (
 
 // SearchDebugHandler 检索调试 Handler
 type SearchDebugHandler struct {
-	searchService service.SearchService
+	searchService  service.SearchService
+	keywordService service.KeywordSearchService
 }
 
 // NewSearchDebugHandler 创建检索调试 Handler
-func NewSearchDebugHandler(searchService service.SearchService) *SearchDebugHandler {
-	return &SearchDebugHandler{searchService: searchService}
+func NewSearchDebugHandler(
+	searchService service.SearchService,
+	keywordService service.KeywordSearchService,
+) *SearchDebugHandler {
+	return &SearchDebugHandler{
+		searchService:  searchService,
+		keywordService: keywordService,
+	}
 }
 
 // Debug 检索调试
@@ -43,6 +51,17 @@ func (h *SearchDebugHandler) DebugKeywords(c *gin.Context) {
 		return
 	}
 
-	// TODO: 调用关键词检索调试接口
-	c.JSON(http.StatusOK, gin.H{"keywords": req.Keywords, "results": []interface{}{}})
+	start := time.Now()
+	result, err := h.keywordService.SearchKeywords(c.Request.Context(), req.Keywords, req.Params)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"keywords":      req.Keywords,
+		"total":         result.Total,
+		"articles":      result.Articles,
+		"query_time_ms": time.Since(start).Milliseconds(),
+	})
 }

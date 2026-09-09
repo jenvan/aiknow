@@ -13,6 +13,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/jenvan/aiknow/cmd/aiknow-server/apikey"
 	"github.com/jenvan/aiknow/cmd/aiknow-server/hashpwd"
 	"github.com/jenvan/aiknow/internal/config"
 	"github.com/jenvan/aiknow/internal/handler/admin"
@@ -60,6 +61,12 @@ func main() {
 		return
 	}
 
+	// apikey 子命令
+	if len(os.Args) > 1 && os.Args[1] == "apikey" {
+		apikey.Main(os.Args[2:])
+		return
+	}
+
 	// serve 子命令
 	if len(os.Args) > 1 && os.Args[1] == "serve" {
 		serve()
@@ -83,6 +90,7 @@ func printHelp() {
 子命令:
   hashpwd [密码]    生成 bcrypt 密码哈希
   migrate           执行数据库迁移后退出（用于开发期初始化/重建）
+  apikey            管理对外 API / MCP 所用的 API Key（create / list / revoke）
   serve             启动 HTTP 服务（启动时会自动执行迁移）
 
 示例:
@@ -225,13 +233,20 @@ func serve() {
 	fmt.Printf("AI Provider 初始化完成: LLM=%s, Embedding=%s, Reranker=%s\n",
 		llmProvider.Name(), embeddingProvider.Name(), rerankerProvider.Name())
 
+	// AI 处理任务队列。
+	// 需在 articleService 之前创建：文章录入后由它投递异步处理任务。
+	queue := pgqueue.NewQueue(db.DB(), "article_processing")
+
 	// 初始化服务
 	articleService := service.NewArticleService(
 		db.GetArticleRepo(),
 		db.GetChunkRepo(),
 		db.GetCategoryRepo(),
 		db.GetTagRepo(),
+		queue,
 	)
+
+	chunkService := service.NewChunkService(db.GetChunkRepo())
 
 	searchService := service.NewSearchService(
 		db.GetSearchRepo(),
@@ -253,6 +268,8 @@ func serve() {
 		PasswordHash:    adminHash,
 		Password:        adminPwd,
 		SessionLifetime: cfg.GetDuration("SESSION_LIFETIME", service.DefaultSessionLifetime),
+		// 缺少仓库时 ValidateKey 一律拒绝，避免以"任何 Key 都无效"的静默状态运行
+		APIKeyRepo: db.GetAPIKeyRepo(),
 	})
 	if err != nil {
 		fmt.Printf("初始化认证服务失败: %v\n", err)
@@ -266,45 +283,128 @@ func serve() {
 	// 初始化 Gin 路由器
 	r := gin.Default()
 
-	// API v1 路由组
-	apiGroup := r.Group("/api/v1")
+	// MCP 服务在路由注册前构造：后台调试页与对外 /mcp 共用同一实例
+	keywordService := service.NewKeywordSearchService(
+		db.GetSearchRepo(), db.GetCategoryRepo(), db.GetTagRepo())
+	mcpLogService := service.NewMCPLogService(db.GetMCPLogRepo())
+	mcpService := service.NewMCPService(
+		searchService,
+		keywordService,
+		articleService,
+		authService,
+		mcpLogService,
+	)
+	collector := service.NewCollector(service.DefaultCollectorConfig())
+	promptService := service.NewPromptService(
+		db.GetSettingRepo(), db.GetArticleRepo(), db.GetCategoryRepo(), llmProvider)
+
+	// Cookie 的 Secure 由环境决定：本地开发走 HTTP，置 true 浏览器不会回传
+	authHandler := admin.NewAuthHandler(authService, admin.CookieConfig{
+		MaxAge: cfg.GetDuration("SESSION_LIFETIME", service.DefaultSessionLifetime),
+		Secure: cfg.IsProduction(),
+	})
+
+	// ---- 公开路由（无鉴权）----
+	//
+	// 仅限：健康探针、登录、以及登录态查询（自身即以 Cookie 为凭据）。
+	// 其余一律落入下面两个受保护分组。
+	public := r.Group("/api/v1")
 	{
-		// 健康检查
-		apiGroup.GET("/health", func(c *gin.Context) {
+		public.GET("/health", func(c *gin.Context) {
 			c.JSON(http.StatusOK, gin.H{"status": "ok", "version": version})
 		})
+		public.POST("/admin/auth/login", authHandler.Login)
+		public.POST("/admin/auth/logout", authHandler.Logout)
+		public.GET("/admin/auth/session", authHandler.GetSession)
+	}
 
-		// 认证路由
-		// Cookie 的 Secure 由环境决定：本地开发走 HTTP，置 true 浏览器不会回传
-		authHandler := admin.NewAuthHandler(authService, admin.CookieConfig{
-			MaxAge: cfg.GetDuration("SESSION_LIFETIME", service.DefaultSessionLifetime),
-			Secure: cfg.IsProduction(),
+	// ---- 后台管理路由（Session Cookie + CSRF）----
+	//
+	// 管理后台不复用对外 API：后者已锁 API Key，且 admin 侧接口更完整
+	// （批量操作、Chunk 预览、重新处理等）。
+	adminGroup := r.Group("/api/v1/admin")
+	adminGroup.Use(
+		admin.SessionMiddleware(authService),
+		admin.CSRFMiddleware(authService),
+	)
+	{
+		adminArticle := admin.NewArticleHandler(articleService, chunkService, collector)
+		adminGroup.GET("/articles", adminArticle.List)
+		adminGroup.POST("/articles", adminArticle.Create)
+		adminGroup.POST("/articles/preview", adminArticle.Preview)
+		// 静态段须先于 :id 注册，否则 batch-delete 会被当作文章 ID
+		adminGroup.POST("/articles/batch-delete", adminArticle.BatchDelete)
+		adminGroup.POST("/articles/batch-reprocess", adminArticle.BatchReprocess)
+		adminGroup.GET("/articles/:id", adminArticle.Get)
+		adminGroup.PUT("/articles/:id", adminArticle.Update)
+		adminGroup.DELETE("/articles/:id", adminArticle.Delete)
+		adminGroup.GET("/articles/:id/chunks", adminArticle.GetChunks)
+		adminGroup.POST("/articles/:id/reprocess", adminArticle.Reprocess)
+
+		apiKeyHandler := admin.NewAPIKeyHandler(authService)
+		adminGroup.GET("/api-keys", apiKeyHandler.List)
+		adminGroup.POST("/api-keys", apiKeyHandler.Create)
+		adminGroup.POST("/api-keys/:id/enable", apiKeyHandler.Enable)
+		adminGroup.POST("/api-keys/:id/disable", apiKeyHandler.Disable)
+		adminGroup.DELETE("/api-keys/:id", apiKeyHandler.Delete)
+
+		dashboardHandler := admin.NewDashboardHandler(db, queue, admin.ProviderInfo{
+			LLM:       llmProvider.Name(),
+			Embedding: embeddingProvider.Name(),
+			Reranker:  rerankerProvider.Name(),
 		})
-		apiGroup.POST("/admin/auth/login", authHandler.Login)
-		apiGroup.POST("/admin/auth/logout", authHandler.Logout)
-		apiGroup.GET("/admin/auth/session", authHandler.GetSession)
+		adminGroup.GET("/dashboard/stats", dashboardHandler.GetStats)
+		adminGroup.GET("/dashboard/queue", dashboardHandler.GetQueueStatus)
+		adminGroup.GET("/dashboard/activity", dashboardHandler.GetRecentActivity)
+		adminGroup.GET("/dashboard/health", dashboardHandler.GetHealth)
 
-		// 文章路由
+		searchDebugHandler := admin.NewSearchDebugHandler(searchService, keywordService)
+		adminGroup.POST("/search/debug", searchDebugHandler.Debug)
+		adminGroup.POST("/search/debug/keywords", searchDebugHandler.DebugKeywords)
+
+		mcpDebugHandler := admin.NewMCPDebugHandler(mcpService)
+		adminGroup.POST("/mcp/debug", mcpDebugHandler.Invoke)
+
+		logHandler := admin.NewLogHandler(mcpLogService)
+		adminGroup.GET("/logs", logHandler.List)
+		adminGroup.DELETE("/logs", logHandler.DeleteExpired)
+		adminGroup.GET("/logs/:trace_id", logHandler.Get)
+
+		settingHandler := admin.NewSettingHandler(cfg, db.GetSettingRepo())
+		adminGroup.GET("/settings", settingHandler.GetSettings)
+		adminGroup.POST("/settings/reset", settingHandler.ResetAllSettings)
+		adminGroup.GET("/settings/:key", settingHandler.GetSetting)
+		adminGroup.PUT("/settings/:key", settingHandler.UpdateSetting)
+		adminGroup.POST("/settings/:key/reset", settingHandler.ResetSetting)
+		adminGroup.GET("/settings/:key/history", settingHandler.GetHistory)
+
+		promptHandler := admin.NewPromptHandler(promptService)
+		// 参数名须与 handler 中的 c.Param("key") 一致
+		adminGroup.GET("/prompts/:key", promptHandler.GetPrompt)
+		adminGroup.PUT("/prompts/:key", promptHandler.UpdatePrompt)
+		adminGroup.POST("/prompts/test", promptHandler.TestPrompt)
+	}
+
+	// ---- 对外 API 路由（API Key + scope）----
+	//
+	// scope 语义：读操作需 readonly，写操作需 readwrite；
+	// readwrite 隐含 readonly（见 service.ScopeAllows）。
+	apiGroup := r.Group("/api/v1")
+	apiGroup.Use(api.AuthMiddleware(authService))
+	{
 		articleHandler := api.NewArticleHandler(articleService)
-		apiGroup.GET("/articles", articleHandler.List)
-		apiGroup.GET("/articles/:id", articleHandler.GetByID)
-		apiGroup.POST("/articles", articleHandler.Create)
-		apiGroup.DELETE("/articles/:id", articleHandler.SoftDelete)
+		apiGroup.GET("/articles", api.RequireScope(service.ScopeReadOnly), articleHandler.List)
+		apiGroup.GET("/articles/:id", api.RequireScope(service.ScopeReadOnly), articleHandler.GetByID)
+		apiGroup.POST("/articles", api.RequireScope(service.ScopeReadWrite), articleHandler.Create)
+		apiGroup.DELETE("/articles/:id", api.RequireScope(service.ScopeReadWrite), articleHandler.SoftDelete)
 
-		// 检索路由
 		searchHandler := api.NewSearchHandler(searchService)
-		apiGroup.POST("/search", searchHandler.Search)
-		apiGroup.POST("/search/keywords", searchHandler.SearchKeywords)
+		// 检索虽用 POST，但语义是读，故只需 readonly
+		apiGroup.POST("/search", api.RequireScope(service.ScopeReadOnly), searchHandler.Search)
+		apiGroup.POST("/search/keywords", api.RequireScope(service.ScopeReadOnly), searchHandler.SearchKeywords)
 	}
 
 	// MCP 路由（需要 API Key 鉴权）
-	mcpService := service.NewMCPService(
-		searchService,
-		service.NewKeywordSearchService(db.GetSearchRepo(), db.GetCategoryRepo(), db.GetTagRepo()),
-		articleService,
-		authService,
-		service.NewMCPLogService(nil), // TODO: 接入 MCPLogRepository
-	)
 	mcpHandler := mcp.NewServer(mcpService, authService)
 	r.GET("/mcp", mcpHandler.Handle)
 	r.POST("/mcp", mcpHandler.Handle)
@@ -313,8 +413,7 @@ func serve() {
 	webHandler := web.NewWebHandler()
 	webHandler.RegisterRoutes(r)
 
-	// 启动 Worker（AI 处理流水线）
-	queue := pgqueue.NewQueue(db.DB(), "article_processing")
+	// 启动 Worker（AI 处理流水线）。队列已在服务初始化前创建。
 	pipeline := service.NewAIPipeline(
 		llmProvider,
 		embeddingProvider,
@@ -322,6 +421,8 @@ func serve() {
 		db.GetChunkRepo(),
 		db.GetCategoryRepo(),
 		db.GetTagRepo(),
+		// 传入 promptService，使后台修改的提示词对实际处理生效
+		promptService,
 	)
 
 	worker := service.NewWorker(db, pipeline, queue, service.DefaultWorkerConfig())

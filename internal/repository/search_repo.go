@@ -26,9 +26,12 @@ func (r *SearchRepositoryImpl) VectorSearch(ctx context.Context, query []float32
 	}
 	// 使用 <=> （余弦距离），与 002_vector.sql 中 HNSW 索引的 vector_cosine_ops
 	// 保持一致；此前误用 <-> （L2 距离）导致索引失效、退化为全表扫描。
+	// 不查询 c.embedding：调用方只需要 content 与得分，
+	// 取回 1024 维向量会被原样序列化进检索响应（每条约 4KB），
+	// 既浪费带宽也把内部向量暴露给客户端
 	queryVec := pgvector.NewVector(query)
 	rows, err := r.db.pool.Query(ctx, `
-		SELECT c.id, c.article_id, c.chunk_index, c.content, c.embedding,
+		SELECT c.id, c.article_id, c.chunk_index, c.content,
 		       1 - (c.embedding <=> $1) AS similarity
 		FROM chunks c
 		WHERE c.embedding IS NOT NULL
@@ -43,13 +46,11 @@ func (r *SearchRepositoryImpl) VectorSearch(ctx context.Context, query []float32
 
 	var results []model.SearchChunk
 	for rows.Next() {
-		var emb pgvector.Vector
 		var c model.SearchChunk
 		var similarity float64
-		if err := rows.Scan(&c.ID, &c.ArticleID, &c.ChunkIndex, &c.Content, &emb, &similarity); err != nil {
+		if err := rows.Scan(&c.ID, &c.ArticleID, &c.ChunkIndex, &c.Content, &similarity); err != nil {
 			return nil, fmt.Errorf("扫描 chunk: %w", err)
 		}
-		c.Embedding = emb.Slice()
 		c.Score = similarity
 		results = append(results, c)
 	}
