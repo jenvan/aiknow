@@ -15,6 +15,7 @@ type L1ProviderConfig struct {
 	LLMProvider       string // qwen | mock
 	LLMBaseURL        string
 	LLMAPIKey         string
+	LLMModel          string
 	EmbeddingProvider string // baai | mock
 	EmbeddingBaseURL  string
 	EmbeddingAPIKey   string
@@ -32,7 +33,7 @@ func NewProviderFactory(config L1ProviderConfig) *ProviderFactory {
 func (f *ProviderFactory) CreateLLM(ctx context.Context) (LLMProvider, error) {
 	switch f.config.LLMProvider {
 	case "qwen":
-		return NewQwenProvider(f.config.LLMBaseURL, f.config.LLMAPIKey)
+		return NewQwenProvider(f.config.LLMBaseURL, f.config.LLMAPIKey, f.config.LLMModel)
 	case "mock", "":
 		return &MockLLM{}, nil
 	default:

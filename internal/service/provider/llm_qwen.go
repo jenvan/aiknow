@@ -14,21 +14,26 @@ import (
 type QwenProvider struct {
 	baseURL string
 	apiKey  string
+	model   string
 	client  *http.Client
 }
 
 // NewQwenProvider 创建 Qwen Provider
-func NewQwenProvider(baseURL, apiKey string) (*QwenProvider, error) {
+func NewQwenProvider(baseURL, apiKey, model string) (*QwenProvider, error) {
 	if baseURL == "" {
 		baseURL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 	}
 	if apiKey == "" {
 		return nil, fmt.Errorf("Qwen API key is required")
 	}
+	if model == "" {
+		model = "qwen-plus"
+	}
 
 	return &QwenProvider{
 		baseURL: baseURL,
 		apiKey:  apiKey,
+		model:   model,
 		client: &http.Client{
 			Timeout: 30 * time.Second,
 		},
@@ -59,6 +64,11 @@ type chatResponse struct {
 }
 
 func (q *QwenProvider) Generate(ctx context.Context, messages []Message, options GenerateOptions) (*LLMResult, error) {
+	// 未显式指定模型时回落到启动配置的模型名
+	if options.Model == "" {
+		options.Model = q.model
+	}
+
 	reqBody := chatRequest{
 		Model:       options.Model,
 		Messages:    messages,

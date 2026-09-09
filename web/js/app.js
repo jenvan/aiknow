@@ -6,7 +6,7 @@ function app() {
         async init() {
             // 检查登录状态
             try {
-                const res = await fetch('/api/v1/admin/session/me');
+                const res = await fetch('/api/v1/admin/auth/session');
                 if (res.ok) {
                     this.isLoggedIn = true;
                     this.updatePage();

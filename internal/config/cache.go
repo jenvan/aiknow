@@ -8,8 +8,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/jenvan/aiknow/internal/model"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jenvan/aiknow/internal/model"
 )
 
 // ConfigCache L2 配置缓存（热重载）
@@ -130,9 +130,12 @@ func (c *ConfigCache) applySetting(cfg *model.L2Config, key string, value map[st
 		if v, ok := value["content_weight"].(float64); ok {
 			cfg.KeywordSearch.ContentWeight = v
 		}
+	case "collector.user_agent":
+		if v, ok := value["user_agent"].(string); ok {
+			cfg.Collector.UserAgent = v
+		}
 	}
 }
-
 
 // LastReloadTime 获取最后重载时间
 func (c *ConfigCache) LastReloadTime() time.Time {

@@ -107,7 +107,7 @@ SELECT '你好世界，全文检索'::pdb.jieba::text[];
 
 | 层级 | 存储 | 内容 | 变更方式 |
 |------|------|------|---------|
-| **L1 启动配置** | 环境变量 → `.env` → config.yaml | 连接串、密钥、端口、运行环境、provider、base_url、管理员账号、Session 有效期 | 需重启 |
+| **L1 启动配置** | 环境变量 → `.env` → config.yaml | 连接串、密钥、端口、运行环境、provider、base_url、**LLM 模型名**、管理员账号、Session 有效期 | 需重启 |
 | **L2 业务配置** | `settings` 表 | 模型参数、提示词、检索参数、采集参数 | 后台改，热生效 |
 | **L3 凭据数据** | `api_keys` 表 | API Key 哈希 | 后台管理 |
 
@@ -308,6 +308,8 @@ POST /api/v1/search
 
 | 参数 | 值 | 层级 | 说明 |
 |------|-----|------|------|
+| LLM 模型名 | qwen-plus | L1 | `QWEN_MODEL`，Qwen 请求的 model 字段 |
+| 采集 User-Agent | AiKnow/1.0 (Internal Knowledge Base) | L1 + L2 覆盖 | `COLLECTOR_USER_AGENT` 设基线；后台系统配置页 `collector.user_agent` 可覆盖并热生效，留空回落基线 |
 | 向量维度 | 1024 | L1 | bge-large-zh-v1.5，与表结构绑定 |
 | HNSW m | 16 | 建表参数 | 每层连接数 |
 | HNSW ef_construction | 64 | 建表参数 | 构建时列表大小 |

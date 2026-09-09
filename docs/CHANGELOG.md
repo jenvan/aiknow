@@ -1,4 +1,38 @@
 # AiKnow 变更日志
+## [v0.6.1] - 2026-09-09
+
+### 功能调整：LLM 模型名与采集 User-Agent 可配置
+
+- **LLM 模型名（L1 启动配置）**：新增 `QWEN_MODEL`（config.yaml 的 `qwen.model`，默认
+  `qwen-plus`）。此前真实 Qwen 调用发送的 model 字段为空串，无法通过 DashScope 鉴权。
+  现在 `QwenProvider` 持有启动配置的模型名：`Generate` 未显式指定模型时回落该值，
+  显式传入时优先。
+  - 变更：`internal/config/config.go`（managedKeys / defaultValues / YAMLConfig / toFlat）、
+    `internal/service/provider/factory.go`（L1ProviderConfig.LLMModel）、
+    `internal/service/provider/llm_qwen.go`（NewQwenProvider 增加 model 参数）、
+    `cmd/aiknow-server/main.go`
+- **采集 User-Agent（config.yaml 设基线 + 后台可覆盖）**：新增 `COLLECTOR_USER_AGENT`
+  （config.yaml 的 `collector.user_agent`，默认 `AiKnow/1.0 (Internal Knowledge Base)`）。
+  后台「系统配置 → collector.user_agent」可覆盖并热生效：留空（或未设置）时回落启动
+  配置值，实现双通道控制。
+  - 变更：`internal/service/collector.go`（`SetUserAgentSource` / `effectiveUserAgent`，
+    每次抓取实时读取 settings 表）、`internal/model/setting.go`（L2Config.Collector.UserAgent）、
+    `internal/config/cache.go`（applySetting 支持 `collector.user_agent`）、
+    `cmd/aiknow-server/main.go`、`internal/config/config.go`
+- **管理后台系统配置页可用**：此前 10 个前端页面均为占位壳，系统配置页既未渲染也无法
+  保存；app.js 还会轮询一个不存在的会话接口（`/admin/session/me`）导致登录态永远不可见。
+  - 实现系统配置页：按 defaults 分组渲染全部 L2 配置项，逐项保存/恢复（含 CSRF Token），
+    采集 User-Agent 即可在后台直接修改；修复 app.js 会话端点为 `/admin/auth/session`
+  - 修复 `UpdateSetting`：此前把整个请求体 `{"value": ...}` 存入 settings 表，消费方
+    读到的始终是外层对象（与迁移 005 播种的扁平标量不一致）；改为仅存内层 `value`
+  - 变更：`web/index.html`、`web/js/pages/settings.js`（重写）、`web/js/app.js`、
+    `internal/handler/admin/setting.go`
+- 同步更新：`config.yaml.example`（移除「LLM 模型名固定不可配」的暗示）、`.env.example`、
+  AGENT.md「核心配置参数」表
+- 新增测试：`internal/service/provider/llm_qwen_test.go`（模型回落与显式覆盖）、
+  `internal/service/collector_test.go`（User-Agent 覆盖优先 / 空覆盖回落 / 无覆盖回落）、
+  `internal/handler/admin/setting_test.go`（UpdateSetting 存内层 value）
+
 ## [v0.6.0] - 2026-09-09
 
 ### Phase 1：鉴权闭环 + 后台管理全部后端接口 + 10 个前端页面

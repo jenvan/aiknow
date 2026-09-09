@@ -74,6 +74,8 @@ type L2Config struct {
 		TimeoutMS        int `json:"timeout_ms"`
 		MaxRedirects     int `json:"max_redirects"`
 		MinContentLength int `json:"min_content_length"`
+		// UserAgent 后台覆盖值；留空表示使用启动配置（COLLECTOR_USER_AGENT）
+		UserAgent string `json:"user_agent"`
 	} `json:"collector"`
 	Prompt struct {
 		Analyze string `json:"analyze"`
@@ -147,9 +149,10 @@ func DefaultL2Config() L2Config {
 			ContentWeight:  1.0,
 		},
 		Collector: struct {
-			TimeoutMS        int `json:"timeout_ms"`
-			MaxRedirects     int `json:"max_redirects"`
-			MinContentLength int `json:"min_content_length"`
+			TimeoutMS        int    `json:"timeout_ms"`
+			MaxRedirects     int    `json:"max_redirects"`
+			MinContentLength int    `json:"min_content_length"`
+			UserAgent        string `json:"user_agent"`
 		}{
 			TimeoutMS:        10000,
 			MaxRedirects:     3,

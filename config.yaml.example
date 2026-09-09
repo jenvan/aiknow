@@ -89,6 +89,8 @@ qwen:
   api_key: ""
   # 对应环境变量 QWEN_BASE_URL
   base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+  # LLM 使用的模型名称，对应环境变量 QWEN_MODEL，默认 qwen-plus
+  model: "qwen-plus"
 
 # BAAI（ai.embedding_provider / reranker_provider = baai 时使用）
 #
@@ -99,6 +101,12 @@ baai:
   # 对应环境变量 BAAI_BASE_URL
   base_url: "https://api.deepinfra.com/v1"
 
+# 网页采集（抓取文章 URL 时的请求）
+collector:
+  # 抓取网页时发送的 User-Agent，对应环境变量 COLLECTOR_USER_AGENT。
+  # 留空使用内置默认值。后台「系统配置 → collector.user_agent」可覆盖此值并热生效。
+  user_agent: "AiKnow/1.0 (Internal Knowledge Base)"
+
 # ================================================================
 # 以下配置项当前由代码固定，不通过本文件读取：
 #
@@ -107,7 +115,8 @@ baai:
 #   HTTP 超时   Read/Write 15s / Idle 60s
 #               见 cmd/aiknow-server/main.go
 #   向量维度    1024（与 bge-large-zh-v1.5 绑定，不可改）
-#   模型名      BAAI/bge-large-zh-v1.5、BAAI/bge-reranker-v2-m3
+#   Embedding / Reranker 模型名
+#               BAAI/bge-large-zh-v1.5、BAAI/bge-reranker-v2-m3
 #               见 internal/service/provider/
 #   采集参数    超时、重定向次数、最小内容长度等属 L2 配置，
 #               存于 settings 表，由后台管理界面调整

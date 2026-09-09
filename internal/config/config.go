@@ -50,8 +50,12 @@ var managedKeys = []string{
 	// AI 服务凭据
 	"QWEN_API_KEY",
 	"QWEN_BASE_URL",
+	"QWEN_MODEL",
 	"BAAI_API_KEY",
 	"BAAI_BASE_URL",
+
+	// 网页采集
+	"COLLECTOR_USER_AGENT",
 }
 
 // defaultValues 任何来源都未提供时的兜底值
@@ -69,6 +73,8 @@ var defaultValues = map[string]string{
 	"POSTGRES_USER":    "postgres",
 	"POSTGRES_DB":      "aiknow",
 	"POSTGRES_SSLMODE": "disable",
+
+	"QWEN_MODEL": "qwen-plus",
 }
 
 // YAMLConfig config.yaml 的结构。
@@ -115,36 +121,43 @@ type YAMLConfig struct {
 	Qwen struct {
 		APIKey  string `yaml:"api_key"`
 		BaseURL string `yaml:"base_url"`
+		Model   string `yaml:"model"`
 	} `yaml:"qwen"`
 
 	BAAI struct {
 		APIKey  string `yaml:"api_key"`
 		BaseURL string `yaml:"base_url"`
 	} `yaml:"baai"`
+
+	Collector struct {
+		UserAgent string `yaml:"user_agent"`
+	} `yaml:"collector"`
 }
 
 // toFlat 将嵌套结构映射为扁平配置键；空值不参与映射，交由下一优先级来源提供
 func (y *YAMLConfig) toFlat() map[string]string {
 	flat := map[string]string{
-		"DATABASE_URL":        y.Database.URL,
-		"POSTGRES_HOST":       y.Database.Host,
-		"POSTGRES_USER":       y.Database.User,
-		"POSTGRES_PASSWORD":   y.Database.Password,
-		"POSTGRES_DB":         y.Database.Name,
-		"POSTGRES_SSLMODE":    y.Database.SSLMode,
-		"APP_ENV":             y.App.Env,
-		"SESSION_SECRET":      y.Session.Secret,
-		"SESSION_LIFETIME":    y.Session.Lifetime,
-		"ADMIN_USERNAME":      y.Admin.Username,
-		"ADMIN_PASSWORD":      y.Admin.Password,
-		"ADMIN_PASSWORD_HASH": y.Admin.PasswordHash,
-		"LLM_PROVIDER":        y.AI.LLMProvider,
-		"EMBEDDING_PROVIDER":  y.AI.EmbeddingProvider,
-		"RERANKER_PROVIDER":   y.AI.RerankerProvider,
-		"QWEN_API_KEY":        y.Qwen.APIKey,
-		"QWEN_BASE_URL":       y.Qwen.BaseURL,
-		"BAAI_API_KEY":        y.BAAI.APIKey,
-		"BAAI_BASE_URL":       y.BAAI.BaseURL,
+		"DATABASE_URL":         y.Database.URL,
+		"POSTGRES_HOST":        y.Database.Host,
+		"POSTGRES_USER":        y.Database.User,
+		"POSTGRES_PASSWORD":    y.Database.Password,
+		"POSTGRES_DB":          y.Database.Name,
+		"POSTGRES_SSLMODE":     y.Database.SSLMode,
+		"APP_ENV":              y.App.Env,
+		"SESSION_SECRET":       y.Session.Secret,
+		"SESSION_LIFETIME":     y.Session.Lifetime,
+		"ADMIN_USERNAME":       y.Admin.Username,
+		"ADMIN_PASSWORD":       y.Admin.Password,
+		"ADMIN_PASSWORD_HASH":  y.Admin.PasswordHash,
+		"LLM_PROVIDER":         y.AI.LLMProvider,
+		"EMBEDDING_PROVIDER":   y.AI.EmbeddingProvider,
+		"RERANKER_PROVIDER":    y.AI.RerankerProvider,
+		"QWEN_API_KEY":         y.Qwen.APIKey,
+		"QWEN_BASE_URL":        y.Qwen.BaseURL,
+		"QWEN_MODEL":           y.Qwen.Model,
+		"BAAI_API_KEY":         y.BAAI.APIKey,
+		"BAAI_BASE_URL":        y.BAAI.BaseURL,
+		"COLLECTOR_USER_AGENT": y.Collector.UserAgent,
 	}
 
 	// 0 表示 YAML 中未设置该项，不写入以免覆盖更低优先级来源

@@ -2,12 +2,14 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
 	"time"
 
+	"github.com/jenvan/aiknow/internal/repository"
 	"github.com/jenvan/aiknow/pkg/htmlclean"
 	"github.com/jenvan/aiknow/pkg/ssrf"
 )
@@ -25,6 +27,8 @@ type Collector struct {
 	ssrfCheck *ssrf.Checker
 	cleaner   *htmlclean.Cleaner
 	config    CollectorConfig
+	// settingRepo 可选：非空时每次抓取读取后台 collector.user_agent 覆盖启动配置
+	settingRepo repository.SettingRepository
 }
 
 // CollectorConfig 采集器配置
@@ -77,6 +81,28 @@ func NewCollector(config CollectorConfig) *Collector {
 	}
 }
 
+// SetUserAgentSource 设置后台 User-Agent 覆盖来源（settings 表）。
+//
+// 传入后每次抓取都会读取 collector.user_agent 配置：非空则覆盖启动配置，
+// 为空（或未设置）则使用启动配置值，实现「config.yaml 设基线 + 后台可覆盖」。
+func (c *Collector) SetUserAgentSource(repo repository.SettingRepository) {
+	c.settingRepo = repo
+}
+
+// effectiveUserAgent 解析最终 User-Agent：后台覆盖优先，否则用启动配置
+func (c *Collector) effectiveUserAgent(ctx context.Context) string {
+	ua := c.config.UserAgent
+	if c.settingRepo != nil {
+		if s, err := c.settingRepo.GetByKey(ctx, "collector.user_agent"); err == nil && s != nil {
+			var override string
+			if json.Unmarshal(s.Value, &override) == nil && override != "" {
+				ua = override
+			}
+		}
+	}
+	return ua
+}
+
 // Fetch 采集 URL 内容
 func (c *Collector) Fetch(ctx context.Context, url string) (*CollectorResult, error) {
 	// SSRF 检查
@@ -92,7 +118,7 @@ func (c *Collector) Fetch(ctx context.Context, url string) (*CollectorResult, er
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
-	req.Header.Set("User-Agent", c.config.UserAgent)
+	req.Header.Set("User-Agent", c.effectiveUserAgent(ctx))
 	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
 
 	resp, err := c.client.Do(req)

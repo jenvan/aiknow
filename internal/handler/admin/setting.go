@@ -82,15 +82,20 @@ func (h *SettingHandler) UpdateSetting(c *gin.Context) {
 		return
 	}
 
-	// 值可以是任意 JSON（标量 / 数组 / 对象）：迁移 005 播种的配置项
-	// 本身就是扁平标量，如 llm.temperature = 0.3
-	var value json.RawMessage
-	if err := c.ShouldBindJSON(&value); err != nil {
+	// 请求体形如 {"value": <任意 JSON>}，仅存储内层 value。
+	//
+	// 此前直接把整个请求体读进 json.RawMessage，存储结果变成 {"value": ...}，
+	// 与迁移 005 播种的扁平标量（llm.temperature = 0.3）形态不一致，导致
+	// ConfigCache 与各消费方都读不到实际值。
+	var body struct {
+		Value json.RawMessage `json:"value"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "配置值须为合法 JSON: " + err.Error()})
 		return
 	}
 
-	setting := &model.Setting{Key: key, Value: value}
+	setting := &model.Setting{Key: key, Value: body.Value}
 	if err := h.settingRepo.Upsert(c.Request.Context(), setting); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

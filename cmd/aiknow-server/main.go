@@ -195,6 +195,7 @@ func serve() {
 	// 选择 qwen / baai 时，对应的 API Key 必填，否则构造函数会报错。
 	qwenKey, _ := cfg.Get("QWEN_API_KEY")
 	qwenBaseURL, _ := cfg.Get("QWEN_BASE_URL")
+	qwenModel, _ := cfg.Get("QWEN_MODEL")
 	baaiKey, _ := cfg.Get("BAAI_API_KEY")
 	baaiBaseURL, _ := cfg.Get("BAAI_BASE_URL")
 
@@ -202,6 +203,7 @@ func serve() {
 		LLMProvider: cfg.GetOr("LLM_PROVIDER", "mock"),
 		LLMAPIKey:   qwenKey,
 		LLMBaseURL:  qwenBaseURL,
+		LLMModel:    qwenModel,
 
 		EmbeddingProvider: cfg.GetOr("EMBEDDING_PROVIDER", "mock"),
 		EmbeddingAPIKey:   baaiKey,
@@ -294,7 +296,11 @@ func serve() {
 		authService,
 		mcpLogService,
 	)
-	collector := service.NewCollector(service.DefaultCollectorConfig())
+	collectorConfig := service.DefaultCollectorConfig()
+	collectorConfig.UserAgent = cfg.GetOr("COLLECTOR_USER_AGENT", collectorConfig.UserAgent)
+	collector := service.NewCollector(collectorConfig)
+	// 后台「系统配置 → collector.user_agent」可覆盖启动配置并热生效
+	collector.SetUserAgentSource(db.GetSettingRepo())
 	promptService := service.NewPromptService(
 		db.GetSettingRepo(), db.GetArticleRepo(), db.GetCategoryRepo(), llmProvider)
 
