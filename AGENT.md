@@ -50,6 +50,15 @@ Reranker 精排 (BAAI) → Top 5
 补全父文档上下文 → 返回结果
 ```
 
+> **BAAI Reranker 网关契约差异（踩坑）**：所用兼容网关（`BAAI_BASE_URL` 指向
+> siliconflow `https://api.siliconflow.cn`）的 `/v1/rerank` 返回分数字段是
+> **`relevance_score`**（而非 jina/cohere 的 `score`），且**忽略请求里的
+> `top_k`、返回全部候选（已按相关性降序）**。因此
+> `internal/service/provider/reranker_baai.go` 需：① 同时解析两种字段名；
+> ② 精排后本地按分降序并截断到 `top_k`。回归测试见
+> `internal/service/provider/reranker_baai_test.go`。若切换到其它 BAAI 网关
+> 导致得分再次恒 0，优先怀疑字段名/top_k 行为。
+
 ### 3. 中文分词配置
 分词由 pg_search 内置的 jieba 分词器完成，在建索引时以类型转换声明，无需额外配置词性映射：
 

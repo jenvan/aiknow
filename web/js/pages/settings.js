@@ -168,7 +168,7 @@ export function registerSettings(Alpine) {
             this.saving = true;
             this.error = '';
             try {
-                await api.put('/settings/' + encodeURIComponent(this.editingKey), parsed);
+                await api.put('/settings/' + encodeURIComponent(this.editingKey), { value: parsed });
                 this.notice = `已保存 ${this.editingKey}`;
                 this.cancelEdit();
                 await this.load();

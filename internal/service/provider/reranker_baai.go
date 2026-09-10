@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"time"
 )
 
@@ -51,11 +52,15 @@ type rerankRequest struct {
 	TopK      int      `json:"top_k"`
 }
 
-// rerankResponse Reranker 响应
+// rerankResponse Reranker 响应。
+// 不同 BAAI 兼容网关字段名不一致：siliconflow 用 relevance_score，
+// jina/cohere 风格用 score。用指针区分“字段缺省”与“值为 0”，
+// 缺失的那一侧不会误覆盖有值的一侧。
 type rerankResponse struct {
 	Results []struct {
-		Index int     `json:"index"`
-		Score float64 `json:"score"`
+		Index          int      `json:"index"`
+		Score          *float64 `json:"score"`
+		RelevanceScore *float64 `json:"relevance_score"`
 	} `json:"results"`
 }
 
@@ -96,17 +101,35 @@ func (b *BAAIRerankerProvider) Rerank(ctx context.Context, req RerankRequest) (*
 		return nil, fmt.Errorf("decode response: %w", err)
 	}
 
-	results := make([]RerankItem, len(rerankResp.Results))
-	for i, r := range rerankResp.Results {
+	// 兼容两种分数字段：siliconflow 给 relevance_score，jina/cohere 风格给 score。
+	// 用指针区分“缺省”与“为 0”，只有一侧有值时取有值的一侧。
+	results := make([]RerankItem, 0, len(rerankResp.Results))
+	for _, r := range rerankResp.Results {
+		score := 0.0
+		switch {
+		case r.RelevanceScore != nil:
+			score = *r.RelevanceScore
+		case r.Score != nil:
+			score = *r.Score
+		}
 		doc := ""
-		if r.Index < len(req.Documents) {
+		if r.Index >= 0 && r.Index < len(req.Documents) {
 			doc = req.Documents[r.Index]
 		}
-		results[i] = RerankItem{
+		results = append(results, RerankItem{
 			Index:    r.Index,
-			Score:    r.Score,
+			Score:    score,
 			Document: doc,
-		}
+		})
+	}
+
+	// BAAI 兼容网关会忽略请求里的 top_k，返回全部候选（已按相关性降序）。
+	// 这里按得分显式排序并本地截断，保证 TopK 语义与下游 applyRerank 一致。
+	sort.SliceStable(results, func(i, j int) bool {
+		return results[i].Score > results[j].Score
+	})
+	if req.TopK > 0 && len(results) > req.TopK {
+		results = results[:req.TopK]
 	}
 
 	return &RerankResult{Results: results}, nil

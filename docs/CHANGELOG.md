@@ -1,4 +1,50 @@
 # AiKnow 变更日志
+
+## [Unreleased] - 2026-09-10
+
+### 修复：系统配置页「编辑保存」写路径失效（前端未按后端契约包 value 层）
+
+**现象**：后台系统配置页点「编辑」改任意 L2 值再「保存」，报 `配置值须为合法
+JSON`，编辑框收不起来、值未落库，L2 热生效形同虚设。
+
+**根因**：前后端契约不一致。后端 `UpdateSetting`（`internal/handler/admin/setting.go`）
+要求请求体形如 `{"value": <任意JSON>}`，只存内层 value；而前端 `save()`
+（`web/js/pages/settings.js`）发的是**裸值**（如 `2500`），被后端 `ShouldBindJSON`
+按 `{"value":...}` 结构解析失败而 400。GET / 历史 / 单项重置 / 全部重置不受影响。
+
+**修复**：`web/js/pages/settings.js` 的 `save()` 改为
+`api.put('/settings/'+key, { value: parsed })`，与后端契约对齐。
+
+- 变更：`web/js/pages/settings.js`
+- 验证：agent-browser 端到端走通「编辑 llm.max_tokens → 保存 → 出现『已保存』
+  + 行标记『已改』 + 编辑框收起」；DB `GET /settings/llm.max_tokens` 落库、
+  reset 可回落默认。
+
+### 修复：BAAI Reranker 得分恒为 0（字段名不匹配）且 top_k 未生效
+
+**现象**：混合检索（向量 + BM25 + RRF + 精排）精排结果 `score` 全为 `0.0000`，
+且返回条数超出 `top_k`。
+
+**根因**：`internal/service/provider/reranker_baai.go` 解码的是 `score` 字段
+（jina/cohere 风格），但所用 BAAI 兼容网关（siliconflow 的 `/v1/rerank`）
+返回字段是 `relevance_score` → 每次解出 0；同时该网关忽略请求里的 `top_k`，
+返回全部候选，而 provider 也未做本地截断。
+
+**修复**：
+- 响应结构体同时解析 `relevance_score` 与 `score`（指针区分缺省与为 0，取有值一侧）
+- 精排后按得分降序排序，并本地截断到 `top_k`（`sort.SliceStable`）
+- 新增回归测试 `internal/service/provider/reranker_baai_test.go`：
+  锁住 `relevance_score` / `score` 两字段兼容，及网关忽略 top_k 时的本地截断。
+
+- 变更：`internal/service/provider/reranker_baai.go`
+  （新增 `internal/service/provider/reranker_baai_test.go`）
+- 验证：真实调用 siliconflow 精排，得分变为真实相关性分（0.987/0.960/…，降序）
+  且严格截断到 `top_k`；`go test ./internal/service/...` 全绿。
+
+### 说明：agent-browser 全量后台验收
+
+用 agent-browser（真实 Chrome）走通全部 8 个后台页 + 登录/写流程，暴露上述两处缺陷。
+
 ## [v0.6.2] - 2026-09-09
 
 ### 配置层级收紧：L1 默认值完整、L2 可运行时修改且优先级最高
