@@ -53,6 +53,8 @@ var managedKeys = []string{
 	"QWEN_MODEL",
 	"BAAI_API_KEY",
 	"BAAI_BASE_URL",
+	"BAAI_EMBEDDING_MODEL",
+	"BAAI_RERANKER_MODEL",
 
 	// 网页采集
 	"COLLECTOR_USER_AGENT",
@@ -79,11 +81,15 @@ var defaultValues = map[string]string{
 
 	"QWEN_MODEL": "qwen-plus",
 
+	// BAAI 模型名默认沿用项目约定的 bge 系列；留空时 provider 内部兜底
+	"BAAI_EMBEDDING_MODEL": "BAAI/bge-large-zh-v1.5",
+	"BAAI_RERANKER_MODEL":  "BAAI/bge-reranker-v2-m3",
+
 	// 网页采集默认值（与 internal/service/collector.go DefaultCollectorConfig 一致）
 	"COLLECTOR_TIMEOUT":            "10s",
 	"COLLECTOR_MAX_REDIRECTS":      "3",
 	"COLLECTOR_MIN_CONTENT_LENGTH": "200",
-	"COLLECTOR_USER_AGENT":         "AiKnow/1.0 (Internal Knowledge Base)",
+	"COLLECTOR_USER_AGENT":         "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
 }
 
 // YAMLConfig config.yaml 的结构。
@@ -134,8 +140,10 @@ type YAMLConfig struct {
 	} `yaml:"qwen"`
 
 	BAAI struct {
-		APIKey  string `yaml:"api_key"`
-		BaseURL string `yaml:"base_url"`
+		APIKey           string `yaml:"api_key"`
+		BaseURL          string `yaml:"base_url"`
+		EmbeddingModel   string `yaml:"embedding_model"`
+		RerankerModel    string `yaml:"reranker_model"`
 	} `yaml:"baai"`
 
 	Collector struct {
@@ -169,6 +177,8 @@ func (y *YAMLConfig) toFlat() map[string]string {
 		"QWEN_MODEL":           y.Qwen.Model,
 		"BAAI_API_KEY":         y.BAAI.APIKey,
 		"BAAI_BASE_URL":        y.BAAI.BaseURL,
+		"BAAI_EMBEDDING_MODEL": y.BAAI.EmbeddingModel,
+		"BAAI_RERANKER_MODEL":  y.BAAI.RerankerModel,
 		"COLLECTOR_USER_AGENT": y.Collector.UserAgent,
 		"COLLECTOR_TIMEOUT":    y.Collector.Timeout,
 	}

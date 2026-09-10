@@ -1,109 +1,72 @@
-// 检索测试页面
-document.addEventListener('alpine:init', () => {
-    Alpine.data('searchDebug', () => ({
-        mode: 'vector',
+import { api } from '../api.js';
+
+/** 检索测试：混合检索分阶段结果、耗时明细、关键词检索对照 */
+export function registerSearch(Alpine) {
+    Alpine.data('searchPage', () => ({
+        mode: 'hybrid', // hybrid | keywords
+        running: false,
+        error: '',
+
         query: '',
-        topK: 5,
-        candidateK: 20,
-        rrfK: 60,
-        vectorWeight: 0.5,
-        bm25Weight: 0.5,
-        keywords: [],
-        newKeyword: '',
-        matchMode: 'any',
-        loading: false,
+        keywords: '',
+        params: { top_k: 10, candidate_k: 50, rrf_k: 60, vector_weight: 1, bm25_weight: 1 },
+
         result: null,
-        error: null,
+        keywordResult: null,
 
-        addKeyword() {
-            const kw = this.newKeyword.trim();
-            if (kw && !this.keywords.includes(kw)) {
-                this.keywords.push(kw);
-            }
-            this.newKeyword = '';
-        },
-
-        removeKeyword(index) {
-            this.keywords.splice(index, 1);
-        },
-
-        async search() {
-            this.loading = true;
+        async run() {
+            this.error = '';
+            this.running = true;
             this.result = null;
-            this.error = null;
-
+            this.keywordResult = null;
             try {
-                let res;
-                if (this.mode === 'vector') {
-                    res = await fetch('/api/v1/search', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            query: this.query,
-                            top_k: this.topK,
-                            candidate_k: this.candidateK,
-                            rrf_k: this.rrfK,
-                            vector_weight: this.vectorWeight,
-                            bm25_weight: this.bm25Weight
-                        })
-                    });
-                } else {
-                    res = await fetch('/api/v1/search/keywords', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            keywords: this.keywords,
-                            match_mode: this.matchMode,
-                            limit: this.topK
-                        })
-                    });
-                }
-
-                if (res.ok) {
-                    this.result = await res.json();
-                } else {
-                    const data = await res.json();
-                    this.error = data.error || '搜索失败';
-                }
-            } catch (err) {
-                this.error = err.message;
-            } finally {
-                this.loading = false;
-            }
-        },
-
-        async debugSearch() {
-            this.loading = true;
-            this.result = null;
-            this.error = null;
-
-            try {
-                const res = await fetch('/api/v1/admin/search/debug', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
+                if (this.mode === 'hybrid') {
+                    if (!this.query.trim()) throw new Error('请输入检索词');
+                    this.result = await api.post('/search/debug', {
                         query: this.query,
-                        params: {
-                            top_k: this.topK,
-                            candidate_k: this.candidateK,
-                            rrf_k: this.rrfK,
-                            vector_weight: this.vectorWeight,
-                            bm25_weight: this.bm25Weight
-                        }
-                    })
-                });
-
-                if (res.ok) {
-                    this.result = await res.json();
+                        params: this.params,
+                    });
                 } else {
-                    const data = await res.json();
-                    this.error = data.error || '调试失败';
+                    const kws = this.keywords.split(',').map((k) => k.trim()).filter(Boolean);
+                    if (!kws.length) throw new Error('请输入至少一个关键词');
+                    this.keywordResult = await api.post('/search/debug/keywords', {
+                        keywords: kws,
+                        params: {},
+                    });
                 }
-            } catch (err) {
-                this.error = err.message;
+            } catch (e) {
+                this.error = e.message;
             } finally {
-                this.loading = false;
+                this.running = false;
             }
-        }
+        },
+
+        /** 各阶段结果：DebugSearch 返回 vector_result / bm25_result / rerank_result */
+        stages() {
+            if (!this.result) return [];
+            return [
+                { key: 'vector', label: '向量检索', data: this.result.vector_result },
+                { key: 'bm25', label: 'BM25 检索', data: this.result.bm25_result },
+                { key: 'rerank', label: '精排结果', data: this.result.rerank_result },
+            ].filter((s) => s.data);
+        },
+
+        timings() {
+            const t = (this.result && this.result.rerank_result && this.result.rerank_result.timings)
+                || (this.result && this.result.vector_result && this.result.vector_result.timings);
+            if (!t) return [];
+            return [
+                { label: 'Embedding', ms: t.embedding_ms },
+                { label: '向量检索', ms: t.vector_ms },
+                { label: 'BM25', ms: t.bm25_ms },
+                { label: 'RRF 融合', ms: t.rrf_ms },
+                { label: '精排', ms: t.rerank_ms },
+                { label: '总计', ms: t.total_ms },
+            ];
+        },
+
+        score(v) {
+            return typeof v === 'number' ? v.toFixed(4) : '-';
+        },
     }));
-});
+}

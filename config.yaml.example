@@ -98,8 +98,12 @@ qwen:
 baai:
   # 对应环境变量 BAAI_API_KEY。建议改用环境变量或 .env 提供
   api_key: ""
-  # 对应环境变量 BAAI_BASE_URL
-  base_url: "https://api.deepinfra.com/v1"
+  # 对应环境变量 BAAI_BASE_URL，末尾不带 /v1（provider 内部拼路径）
+  base_url: "https://api.deepinfra.com"
+  # 对应环境变量 BAAI_EMBEDDING_MODEL，留空使用 BAAI/bge-large-zh-v1.5
+  embedding_model: ""
+  # 对应环境变量 BAAI_RERANKER_MODEL，留空使用 BAAI/bge-reranker-v2-m3
+  reranker_model: ""
 
 # 网页采集（抓取文章 URL 时的请求）
 #
@@ -116,7 +120,7 @@ collector:
   min_content_length: 200
   # 抓取网页时发送的 User-Agent，对应环境变量 COLLECTOR_USER_AGENT，默认如下。
   # 后台「系统配置 → collector.user_agent」可覆盖此值并热生效。
-  user_agent: "AiKnow/1.0 (Internal Knowledge Base)"
+  user_agent: "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
 
 # ================================================================
 # 以下配置项当前由代码固定，不通过本文件读取：
@@ -126,9 +130,6 @@ collector:
 #   HTTP 超时   Read/Write 15s / Idle 60s
 #               见 cmd/aiknow-server/main.go
 #   向量维度    1024（与 bge-large-zh-v1.5 绑定，不可改）
-#   Embedding / Reranker 模型名
-#               BAAI/bge-large-zh-v1.5、BAAI/bge-reranker-v2-m3
-#               见 internal/service/provider/
 #
 # 登录失败锁定（lockout_duration / max_failed_attempts）尚未实现，
 # 故本文件不再列出这两项，避免误以为已生效。

@@ -17,50 +17,73 @@
             <form id="loginForm" class="space-y-6">
                 <div>
                     <label class="block text-sm font-medium text-gray-700 mb-2">用户名</label>
-                    <input type="text" id="username" required
+                    <input type="text" id="username" required autocomplete="username"
                            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
                 </div>
 
                 <div>
                     <label class="block text-sm font-medium text-gray-700 mb-2">密码</label>
-                    <input type="password" id="password" required
+                    <input type="password" id="password" required autocomplete="current-password"
                            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
                 </div>
 
                 <div id="errorMsg" class="hidden text-red-600 text-sm text-center"></div>
 
-                <button type="submit"
-                        class="w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 transition-colors">
+                <button type="submit" id="submitBtn"
+                        class="w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50">
                     登录
                 </button>
             </form>
+
+            <p class="text-xs text-gray-500 text-center mt-6">
+                连续 5 次登录失败将锁定 15 分钟
+            </p>
         </div>
     </div>
 
     <script>
-        document.getElementById('loginForm').addEventListener('submit', async (e) => {
+        const form = document.getElementById('loginForm');
+        const errorMsg = document.getElementById('errorMsg');
+        const submitBtn = document.getElementById('submitBtn');
+
+        function showError(text) {
+            errorMsg.textContent = text;
+            errorMsg.classList.remove('hidden');
+        }
+
+        form.addEventListener('submit', async (e) => {
             e.preventDefault();
+            errorMsg.classList.add('hidden');
+            submitBtn.disabled = true;
+
             const username = document.getElementById('username').value;
             const password = document.getElementById('password').value;
-            const errorMsg = document.getElementById('errorMsg');
 
             try {
                 const res = await fetch('/api/v1/admin/auth/login', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ username, password })
+                    credentials: 'same-origin',
+                    body: JSON.stringify({ username, password }),
                 });
 
+                const data = await res.json().catch(() => ({}));
+
                 if (res.ok) {
+                    // CSRF Token 不在此处保存：后台页面加载时会通过
+                    // GET /admin/auth/session 重新取得，避免跨页面传递
                     window.location.href = '/ui/dashboard';
-                } else {
-                    const data = await res.json();
-                    errorMsg.textContent = data.error || '登录失败';
-                    errorMsg.classList.remove('hidden');
+                    return;
                 }
+
+                // 429 表示已触发失败锁定，需明确告知而非笼统提示"凭据无效"
+                showError(res.status === 429
+                    ? (data.error || '登录尝试过多，请稍后再试')
+                    : (data.error || '登录失败'));
             } catch (err) {
-                errorMsg.textContent = '网络连接失败';
-                errorMsg.classList.remove('hidden');
+                showError('网络连接失败');
+            } finally {
+                submitBtn.disabled = false;
             }
         });
     </script>

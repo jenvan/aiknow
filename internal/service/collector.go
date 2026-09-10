@@ -46,8 +46,10 @@ func DefaultCollectorConfig() CollectorConfig {
 		Timeout:          10 * time.Second,
 		MaxRedirects:     3,
 		MinContentLength: 200,
-		MaxContentLength: 100 * 1024,
-		UserAgent:        "AiKnow/1.0 (Internal Knowledge Base)",
+		// 默认 2MB：微信公众号文章头（广告、JS、样式）可达 1MB+，
+		// 正文通常在 1MB 之后才开始，100KB 会截断导致提取不到内容。
+		MaxContentLength: 2 * 1024 * 1024,
+		UserAgent:        "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
 	}
 }
 

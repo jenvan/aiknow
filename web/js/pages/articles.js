@@ -1,107 +1,153 @@
-// 文章列表页面
-document.addEventListener('alpine:init', () => {
-    Alpine.data('articleList', () => ({
-        articles: [],
+import { api, formatTime, statusMeta } from '../api.js';
+
+/** 文章列表：筛选、搜索、排序、分页、行内与批量操作 */
+export function registerArticles(Alpine) {
+    Alpine.data('articlesPage', () => ({
+        loading: true,
+        error: '',
+        notice: '',
+
+        items: [],
         total: 0,
+        pages: 0,
+
+        // 查询条件
         page: 1,
         pageSize: 20,
-        filters: {
-            category: '',
-            tag: '',
-            status: '',
-            search: '',
-            dateFrom: '',
-            dateTo: ''
-        },
-        sort: { field: 'created_at', order: 'desc' },
-        selectedIds: [],
-        loading: true,
+        search: '',
+        status: '',
+        sortBy: 'created_at',
+        sortOrder: 'desc',
+
+        selected: new Set(),
+        // Set 的变更不会被 Alpine 侦测到，用一个计数器强制视图刷新
+        selectionTick: 0,
 
         async init() {
-            await this.loadArticles();
-            this.loading = false;
+            await this.load();
         },
 
-        async loadArticles() {
-            const params = new URLSearchParams({
-                page: this.page,
-                page_size: this.pageSize,
-                sort_by: this.sort.field,
-                sort_order: this.sort.order,
-                ...(this.filters.search && { search: this.filters.search }),
-                ...(this.filters.status && { status: this.filters.status })
-            });
+        async load() {
+            this.loading = true;
+            this.error = '';
+            try {
+                const q = new URLSearchParams({
+                    page: this.page,
+                    page_size: this.pageSize,
+                    sort_by: this.sortBy,
+                    sort_order: this.sortOrder,
+                });
+                if (this.search) q.set('search', this.search);
+                if (this.status) q.set('status', this.status);
 
-            const res = await fetch(`/api/v1/articles?${params}`);
-            if (res.ok) {
-                const data = await res.json();
-                this.articles = data.articles || [];
+                const data = await api.get('/articles?' + q.toString());
+                this.items = data.articles || [];
                 this.total = data.total || 0;
+                this.pages = data.pages || 0;
+                this.clearSelection();
+            } catch (e) {
+                this.error = e.message;
+            } finally {
+                this.loading = false;
             }
         },
 
-        selectAll(e) {
-            this.selectedIds = e.target.checked ? this.articles.map(a => a.id) : [];
+        applyFilters() {
+            this.page = 1;
+            return this.load();
         },
 
-        async batchDelete() {
-            if (!confirm(`确定删除选中的 ${this.selectedIds.length} 篇文章？`)) return;
-
-            const res = await fetch('/api/v1/admin/articles/batch-delete', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ ids: this.selectedIds })
-            });
-
-            if (res.ok) {
-                this.selectedIds = [];
-                await this.loadArticles();
+        toggleSort(field) {
+            if (this.sortBy === field) {
+                this.sortOrder = this.sortOrder === 'desc' ? 'asc' : 'desc';
+            } else {
+                this.sortBy = field;
+                this.sortOrder = 'desc';
             }
+            return this.load();
         },
 
-        async batchReprocess() {
-            if (!confirm(`确定重新处理选中的 ${this.selectedIds.length} 篇文章？`)) return;
+        goPage(p) {
+            if (p < 1 || (this.pages && p > this.pages)) return;
+            this.page = p;
+            return this.load();
+        },
 
-            const res = await fetch('/api/v1/admin/articles/batch-reprocess', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ ids: this.selectedIds })
-            });
+        // ---- 选择 ----
+        toggle(id) {
+            if (this.selected.has(id)) this.selected.delete(id);
+            else this.selected.add(id);
+            this.selectionTick++;
+        },
+        isSelected(id) {
+            this.selectionTick; // 建立依赖
+            return this.selected.has(id);
+        },
+        toggleAll() {
+            if (this.selected.size === this.items.length) this.selected.clear();
+            else this.items.forEach((a) => this.selected.add(a.id));
+            this.selectionTick++;
+        },
+        clearSelection() {
+            this.selected.clear();
+            this.selectionTick++;
+        },
+        get selectedCount() {
+            this.selectionTick;
+            return this.selected.size;
+        },
 
-            if (res.ok) {
-                this.selectedIds = [];
-                await this.loadArticles();
+        // ---- 操作 ----
+        async remove(id, title) {
+            if (!confirm(`确认删除《${title}》？该操作为软删除，可在数据库中恢复。`)) return;
+            try {
+                await api.del('/articles/' + id);
+                this.notice = '已删除';
+                await this.load();
+            } catch (e) {
+                this.error = e.message;
             }
         },
 
         async reprocess(id) {
-            const res = await fetch(`/api/v1/admin/articles/${id}/reprocess`, { method: 'POST' });
-            if (res.ok) await this.loadArticles();
-        },
-
-        async deleteArticle(id) {
-            if (!confirm('确定删除这篇文章？')) return;
-
-            const res = await fetch(`/api/v1/admin/articles/${id}`, { method: 'DELETE' });
-            if (res.ok) await this.loadArticles();
-        },
-
-        async retryFailed(id) {
-            await this.reprocess(id);
-        },
-
-        prevPage() {
-            if (this.page > 1) {
-                this.page--;
-                this.loadArticles();
+            try {
+                await api.post(`/articles/${id}/reprocess`);
+                this.notice = '已重新排队处理';
+                await this.load();
+            } catch (e) {
+                this.error = e.message;
             }
         },
 
-        nextPage() {
-            if (this.page < Math.ceil(this.total / this.pageSize)) {
-                this.page++;
-                this.loadArticles();
+        async batchDelete() {
+            const ids = [...this.selected];
+            if (!ids.length) return;
+            if (!confirm(`确认删除选中的 ${ids.length} 篇文章？`)) return;
+            try {
+                const r = await api.post('/articles/batch-delete', ids);
+                this.notice = `已删除 ${r.deleted} 篇`;
+                await this.load();
+            } catch (e) {
+                this.error = e.message;
             }
-        }
+        },
+
+        async batchReprocess() {
+            const ids = [...this.selected];
+            if (!ids.length) return;
+            try {
+                const r = await api.post('/articles/batch-reprocess', ids);
+                const failedCount = Object.keys(r.failed || {}).length;
+                this.notice = failedCount
+                    ? `成功 ${r.reprocessed} 篇，失败 ${failedCount} 篇`
+                    : `已重新排队 ${r.reprocessed} 篇`;
+                await this.load();
+            } catch (e) {
+                this.error = e.message;
+            }
+        },
+
+        fmt: formatTime,
+        meta: statusMeta,
     }));
-});
+}

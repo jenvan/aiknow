@@ -36,8 +36,8 @@ func TestClean_MoreCases(t *testing.T) {
 		},
 		{
 			name:     "entities",
-			html:     `&lt;script&gt; &amp; &quot;quotes&quot;`,
-			expected: "script & \"quotes\"",
+			html:     `<p>&lt;script&gt; &amp; &quot;quotes&quot;</p>`,
+			expected: "<script> & \"quotes\"",
 		},
 		{
 			name:     "multiple spaces",
@@ -63,5 +63,24 @@ func TestClean_MoreCases(t *testing.T) {
 				t.Fatalf("want %q, got %q", tt.expected, result)
 			}
 		})
+	}
+}
+
+func TestClean_RemoveNoise(t *testing.T) {
+	c := NewCleaner()
+	html := `<html><body><nav>skip nav</nav><article><p>Main content</p></article><footer>skip footer</footer></body></html>`
+	result := c.Clean(html)
+	if result != "Main content" {
+		t.Fatalf("want 'Main content', got %q", result)
+	}
+}
+
+func TestClean_BlockSpacing(t *testing.T) {
+	c := NewCleaner()
+	html := `<h1>Title</h1><p>Paragraph one.</p><p>Paragraph two.</p>`
+	result := c.Clean(html)
+	expected := "Title\nParagraph one.\nParagraph two."
+	if result != expected {
+		t.Fatalf("want %q, got %q", expected, result)
 	}
 }

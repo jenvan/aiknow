@@ -13,15 +13,20 @@ import (
 // BAAIEmbeddingProvider BAAI Embedding Provider 实现
 type BAAIEmbeddingProvider struct {
 	baseURL string
+	model   string
 	apiKey  string
 	client  *http.Client
 	dim     int
 }
 
 // NewBAAIEmbeddingProvider 创建 BAAI Embedding Provider
-func NewBAAIEmbeddingProvider(baseURL, apiKey string) (*BAAIEmbeddingProvider, error) {
+func NewBAAIEmbeddingProvider(baseURL, apiKey, model string) (*BAAIEmbeddingProvider, error) {
+	if model == "" {
+		model = "BAAI/bge-large-zh-v1.5"
+	}
 	if baseURL == "" {
-		baseURL = "https://deepinfra.com/api"
+		// 默认 deepinfra，不带 /v1（provider 内部拼 /v1/embeddings）
+		baseURL = "https://api.deepinfra.com"
 	}
 	if apiKey == "" {
 		return nil, fmt.Errorf("BAAI API key is required")
@@ -30,6 +35,7 @@ func NewBAAIEmbeddingProvider(baseURL, apiKey string) (*BAAIEmbeddingProvider, e
 	return &BAAIEmbeddingProvider{
 		baseURL: baseURL,
 		apiKey:  apiKey,
+		model:   model,
 		client: &http.Client{
 			Timeout: 30 * time.Second,
 		},
@@ -57,7 +63,7 @@ type embeddingResponse struct {
 
 func (b *BAAIEmbeddingProvider) Embed(ctx context.Context, text string) (*EmbeddingResult, error) {
 	reqBody := embeddingRequest{
-		Model:        "BAAI/bge-large-zh-v1.5",
+		Model:        b.model,
 		Input:        text,
 		EncodingType: "float",
 	}
@@ -97,7 +103,7 @@ func (b *BAAIEmbeddingProvider) Embed(ctx context.Context, text string) (*Embedd
 
 	return &EmbeddingResult{
 		Embedding:  embResp.Data[0].Embedding,
-		Model:      "BAAI/bge-large-zh-v1.5",
+		Model:      b.model,
 		TokenCount: 10,
 	}, nil
 }

@@ -19,9 +19,11 @@ type L1ProviderConfig struct {
 	EmbeddingProvider string // baai | mock
 	EmbeddingBaseURL  string
 	EmbeddingAPIKey   string
+	EmbeddingModel    string
 	RerankerProvider  string // baai | mock
 	RerankerBaseURL   string
 	RerankerAPIKey    string
+	RerankerModel     string
 }
 
 // NewProviderFactory 创建 Provider 工厂
@@ -45,7 +47,7 @@ func (f *ProviderFactory) CreateLLM(ctx context.Context) (LLMProvider, error) {
 func (f *ProviderFactory) CreateEmbedding(ctx context.Context) (EmbeddingProvider, error) {
 	switch f.config.EmbeddingProvider {
 	case "baai":
-		return NewBAAIEmbeddingProvider(f.config.EmbeddingBaseURL, f.config.EmbeddingAPIKey)
+		return NewBAAIEmbeddingProvider(f.config.EmbeddingBaseURL, f.config.EmbeddingAPIKey, f.config.EmbeddingModel)
 	case "mock", "":
 		return NewMockEmbedding(1024), nil
 	default:
@@ -57,7 +59,7 @@ func (f *ProviderFactory) CreateEmbedding(ctx context.Context) (EmbeddingProvide
 func (f *ProviderFactory) CreateReranker(ctx context.Context) (RerankerProvider, error) {
 	switch f.config.RerankerProvider {
 	case "baai":
-		return NewBAAIRerankerProvider(f.config.RerankerBaseURL, f.config.RerankerAPIKey)
+		return NewBAAIRerankerProvider(f.config.RerankerBaseURL, f.config.RerankerAPIKey, f.config.RerankerModel)
 	case "mock", "":
 		return &MockReranker{}, nil
 	default:

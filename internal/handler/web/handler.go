@@ -1,33 +1,41 @@
 package web
 
 import (
-	"embed"
 	"io"
-	"io/fs"
 	"net/http"
+	"os"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jenvan/aiknow/internal/handler/mcp"
 )
 
-//go:embed web
-var webContent embed.FS
-
 // WebHandler Web UI Handler
+//
+// 文件来源优先级：
+//  1. 当前工作目录下的 web/ 目录（开发期方便改前端无需重编译）
+//  2. 无 fallback：线上部署时 web/ 目录必须存在（由构建脚本或 docker 保证）
 type WebHandler struct {
 	fs         http.FileSystem
 	mcpHandler *mcp.Server
 }
 
-// NewWebHandler 创建 Web Handler
+// NewWebHandler 创建 Web Handler。
+//
+// 优先使用当前目录下的 web/ 目录；不存在时记录警告并使用根目录 "/" 兜底（会 404）。
+// 这样开发者可以直接在仓库根编辑 web/ 目录下的文件，无需每次修改后都重新 make build。
 func NewWebHandler(mcpHandler ...*mcp.Server) *WebHandler {
-	webFS, err := fs.Sub(webContent, "web")
-	if err != nil {
-		return &WebHandler{fs: http.FS(embed.FS{})}
+	var webFS http.FileSystem
+	if info, err := os.Stat("web"); err == nil && info.IsDir() {
+		webFS = http.Dir("web")
+	} else {
+		// 兜底：尝试从工作目录的上级查找（支持在子目录下运行二进制）
+		if info, err := os.Stat("../web"); err == nil && info.IsDir() {
+			webFS = http.Dir("../web")
+		}
 	}
 
-	h := &WebHandler{fs: http.FS(webFS)}
+	h := &WebHandler{fs: webFS}
 	if len(mcpHandler) > 0 && mcpHandler[0] != nil {
 		h.mcpHandler = mcpHandler[0]
 	}
@@ -37,7 +45,9 @@ func NewWebHandler(mcpHandler ...*mcp.Server) *WebHandler {
 // RegisterRoutes 注册 Web 路由
 func (h *WebHandler) RegisterRoutes(r *gin.Engine) {
 	// 静态资源（css/js）
-	r.StaticFS("/web", h.fs)
+	if h.fs != nil {
+		r.StaticFS("/web", h.fs)
+	}
 
 	// 注册 MCP 路由（如果注入了 MCP handler）
 	if h.mcpHandler != nil {
@@ -75,13 +85,17 @@ func (h *WebHandler) RegisterRoutes(r *gin.Engine) {
 	})
 }
 
-// serveHTML 从嵌入 FS 读取 HTML 并直接写入响应。
+// serveHTML 读取 HTML 文件并直接写入响应。
 //
 // 不使用 c.FileFromFS：它会把 c.Request.URL.Path 改写成目标路径后交给
 // http.FileServer，而 net/http 的 serveFile 对任何以 "/index.html" 结尾的路径
 // 无条件 301 跳转到 "./"。于是 GET / 被重定向回 /，浏览器报
 // ERR_TOO_MANY_REDIRECTS。直接读取内容可绕开这条重定向规则。
 func (h *WebHandler) serveHTML(c *gin.Context, name string) {
+	if h.fs == nil {
+		c.Status(http.StatusNotFound)
+		return
+	}
 	f, err := h.fs.Open(name)
 	if err != nil {
 		c.Status(http.StatusNotFound)

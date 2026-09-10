@@ -1888,3 +1888,142 @@ CREATE INDEX idx_article_tags_tag_id ON article_tags (tag_id);
 - 性能测试脚本
 - 安全测试脚本
 - MCP 端到端测试
+
+## [v0.6.3] - 2026-09-10
+
+### BAAI Embedding/Reranker 模型名可配置 + 共享功能端到端验证
+
+**背景**：`.env` 已写入 `BAAI_EMBEDDING_MODEL` / `BAAI_RERANKER_MODEL`，但代码未接线，模型名硬编码在 provider 内部；同时 `BAAI_BASE_URL` 示例值为 `https://api.deepinfra.com/v1`（带 `/v1`），而 provider 内部会再拼 `/v1/embeddings`，硅基流动（SiliconFlow）等不带 `/v1` 后缀的 base_url 接入时会出现双重 `/v1` 路径导致 404。
+
+#### 新增 L1 配置项
+
+- `BAAI_EMBEDDING_MODEL`：Embedding 模型名（默认 `BAAI/bge-large-zh-v1.5`）
+- `BAAI_RERANKER_MODEL`：Reranker 模型名（默认 `BAAI/bge-reranker-v2-m3`）
+- 两者均登记到 `managedKeys` / `defaultValues` / `YAMLConfig` / `toFlat`
+
+#### Provider 改动
+
+- `embedding_baai.go` / `reranker_baai.go`：构造器增加 `model` 参数；硬编码改为读成员变量
+- 默认 base_url 由 `https://deepinfra.com/api` 改为 `https://api.deepinfra.com`（去掉尾部 `/api`，与 provider 路径拼接约定一致）
+
+#### 配置示例修复
+
+- `.env.example` / `config.yaml.example`：`BAAI_BASE_URL` 默认值去掉末尾 `/v1`（siliconflow 实测需 `/v1/embeddings` 直接拼在 base 之后）
+- 补充 `BAAI_EMBEDDING_MODEL` / `BAAI_RERANKER_MODEL` 示例行
+
+#### 共享功能端到端验证（agent-browser + curl）
+
+- 登录后台 → 创建读写 API Key → 用 Key 录入文章 / 检索 / MCP 调用 → 全链路 200
+- URL 采集流程：httpbin.org HTML 页面预览 → 入库 → AI 异步处理（LLM 摘要 + Embedding + BM25 索引）→ 检索命中，耗时 <200ms
+- 鉴权隔离：无 Key 401 / 伪造 Key 401，scope 隔离正常
+- 根因定位：此前 `EMBEDDING_PROVIDER=baai` 检索报 500（`embedding: 404`）系 `.env` 里 `BAAI_BASE_URL=https://api.siliconflow.cn/v1` 与 provider 内部拼接产生双重 `/v1`
+
+**变更**：`internal/service/provider/embedding_baai.go`、`reranker_baai.go`、`factory.go`；`internal/config/config.go`；`cmd/aiknow-server/main.go`；`.env`、`.env.example`、`config.yaml.example`
+
+**验证**：`go build ./...` / `go vet ./...` / `go test ./...` 全绿；agent-browser 真实浏览器端到端测试通过
+
+## [v0.6.3] - 2026-09-10
+
+### 修复：设置页分组显示 + URL 采集内容清洗
+
+#### 1. 设置页按功能分组展示（修复前端未渲染问题）
+
+**根因**：二进制嵌入的静态资源（`internal/handler/web/web/`）与源码目录（`web/`）长期不同步。
+`web/index.html` 已更新至模块化架构（`app.js` 使用 `type="module"` 按顺序加载 Alpine 组件），
+但嵌入的是旧的 827 行版本（无模块脚本、无 settings 分组模板），导致 `/ui/settings` 页
+显示为登录提示而非分组配置表。
+
+**修复**：将 `web/` 完整同步至 `internal/handler/web/web/`（含 index.html、js/、css/、login.html）。
+
+**效果**：设置页现按 9 个分组正确渲染：LLM / Embedding / Reranker / 混合检索 /
+文本分块 / 关键词检索 / MCP 日志 / 网页采集 / **提示词**（`prompt.analyze` 可在此直接编辑）。
+
+#### 2. URL 采集内容清洗：移除 script/nav 等噪声，保留段落结构
+
+**背景**：`pkg/htmlclean/htmlclean.go` 此前仅用正则 `<[^>]*>` 剥离所有 HTML 标签，
+对含 `<script>`、`<nav>`、`<header>` 等噪声节点的页面，输出仍混入脚本代码片段；
+且 `goquery.Text()` 不保留块元素间的换行，导致段落粘连（如 `HelloWorld`）。
+
+**方案**：引入 `goquery`（HTML 解析）+ `golang.org/x/net/html`（DOM 遍历）：
+- 语义定位正文区（`article` / `main` / `.content` 等选择器优先，退化为 `body`）
+- 移除噪声节点（`script` / `style` / `nav` / `header` / `footer` / `aside` /
+  广告类 class `.ad,.sidebar,.comment` 等）
+- 递归遍历 DOM，块级元素（`p/div/h1-h6/ul/ol/li/blockquote/pre/hr/article/section` 等）
+  前后插入换行，行内元素保持原样
+- 解码常见 HTML 实体（`&lt;` / `&gt;` / `&amp;` / `&quot;` / `&#x...;` / `&#...;`）
+- 压缩连续空白为单空格
+
+**依赖新增**：`github.com/PuerkitoBio/goquery`、`golang.org/x/net`（后者已有传递依赖，显式声明）
+
+**验证**：`httpbin.org/html`（无正文语义标签的简单 HTML）输出为纯文本段落，
+不含 `<script>` / `var x=` 等噪声；`TestClean_BlockSpacing` / `TestClean_RemoveNoise` 新增用例通过。
+
+**变更**：`pkg/htmlclean/htmlclean.go`（重写）、`pkg/htmlclean/htmlclean_test.go`（扩展）、
+`internal/handler/web/web/`（同步 web/ 目录）、`.env.example`、`config.yaml.example`、
+`internal/service/provider/embedding_baai.go`、`reranker_baai.go`、`factory.go`、
+`internal/config/config.go`、`cmd/aiknow-server/main.go`（v0.6.2 BAAI 模型可配合并入本版本）
+
+**验证**：`go test ./...` 全绿；agent-browser 端到端验证登录→设置页→采集→入库→检索→MCP 链路正常
+
+## [v0.6.4] - 2026-09-10
+
+### 修复：设置页分组显示 + URL 采集内容清洗 + 微信文章兼容
+
+#### 1. 设置页按功能分组展示（修复前端未渲染问题）
+
+**根因**：二进制嵌入的静态资源（`internal/handler/web/web/`）与源码目录（`web/`）长期不同步。
+`web/index.html` 已更新至模块化架构（`app.js` 使用 `type="module"` 按顺序加载 Alpine 组件），
+但嵌入的是旧的 827 行版本（无模块脚本、无 settings 分组模板），导致 `/ui/settings` 页
+显示为登录提示而非分组配置表。
+
+**修复**：将 `web/` 完整同步至 `internal/handler/web/web/`（含 index.html、js/、css/、login.html）。
+
+**效果**：设置页现按 9 个分组正确渲染：LLM / Embedding / Reranker / 混合检索 /
+文本分块 / 关键词检索 / MCP 日志 / 网页采集 / **提示词**（`prompt.analyze` 可在此直接编辑）。
+
+#### 2. URL 采集内容清洗：移除 script/nav 等噪声，保留段落结构
+
+**背景**：`pkg/htmlclean/htmlclean.go` 此前仅用正则 `<[^>]*>` 剥离所有 HTML 标签，
+对含 `<script>`、`<nav>`、`<header>` 等噪声节点的页面，输出仍混入脚本代码片段；
+且 `goquery.Text()` 不保留块元素间的换行，导致段落粘连（如 `HelloWorld`）。
+
+**方案**：引入 `goquery`（HTML 解析）+ `golang.org/x/net/html`（DOM 遍历）：
+- 语义定位正文区（`article`/`main`/`.content` 等选择器优先，退化为 `body`）
+- 移除噪声节点（`script`/`style`/`nav`/`header`/`footer`/`aside`/广告类 class）
+- 递归遍历 DOM，块级元素（`p/div/h1-h6/ul/ol/li/blockquote/pre/hr/article/section` 等）
+  前后插入换行，行内元素保持原样
+- 解码常见 HTML 实体（`&lt;`/`&gt;`/`&amp;`/`&quot;`/`&#x...;`/`&#...;`）
+- 压缩连续空白为单空格
+
+**依赖新增**：`github.com/PuerkitoBio/goquery`、`golang.org/x/net`（后者已有传递依赖，显式声明）
+
+**验证**：`httpbin.org/html`（无正文语义标签的简单 HTML）输出为纯文本段落，
+不含 `<script>`/`var x=` 等噪声；`TestClean_BlockSpacing`/`TestClean_RemoveNoise` 新增用例通过。
+
+#### 3. 微信文章采集兼容
+
+**背景**：微信公众号文章有反爬机制，默认 UA 会被 302 重定向拒绝；且 `js_content`
+正文区在 1MB+ 处开始，默认 `MaxContentLength=100KB` 会截断。
+
+**修复**：
+- 默认 UA 改为 iPhone Safari（`Mozilla/5.0 (iPhone; CPU iPhone OS 17_0...)`），
+  兼容微信、知乎、掘金等国内站点
+- `MaxContentLength` 从 100KB 提升至 2MB，确保能读到 `js_content` 正文区
+- htmlclean 新增 `#js_content` 选择器优先提取，适配微信公众号文章结构
+
+**端到端验证**：
+- 采集 `https://mp.weixin.qq.com/s/5VDN-T9K8Wr-DaQ15-I6CA`（Agent 自进化飞轮）
+- 预览：22,289 字符，无脚本噪声
+- 入库 → AI 处理（LLM 摘要 + Embedding 1024 维 + BM25 索引）→ 23 个分段
+- REST 检索 "Agent 自进化"：命中该文章，耗时 849ms
+- MCP `search_knowledge`：isError=false，返回相关片段
+- 关键词检索 "Anthropic Agent"：命中该文章
+
+**变更**：`pkg/htmlclean/htmlclean.go`（重写）、`pkg/htmlclean/htmlclean_test.go`（扩展）、
+`internal/service/collector.go`（MaxContentLength + UA）、
+`internal/handler/web/web/`（同步 web/ 目录）、
+`.env.example`、`config.yaml.example`、
+`internal/service/provider/embedding_baai.go`、`reranker_baai.go`、`factory.go`、
+`internal/config/config.go`、`cmd/aiknow-server/main.go`（v0.6.2 BAAI 模型可配合并入本版本）
+
+**验证**：`go test ./...` 全绿；agent-browser 端到端验证登录→设置页→采集→入库→检索→MCP 链路正常

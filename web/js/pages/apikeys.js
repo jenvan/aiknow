@@ -1,79 +1,106 @@
-// API Key 管理页面
-document.addEventListener('alpine:init', () => {
-    Alpine.data('apiKeys', () => ({
-        keys: [],
+import { api, formatTime } from '../api.js';
+
+/**
+ * API Key 管理：创建 / 启用 / 禁用 / 删除。
+ *
+ * 明文仅在创建响应中返回一次，服务端只存 SHA-256 哈希，
+ * 故创建后必须显著提示用户立即保存。
+ */
+export function registerApiKeys(Alpine) {
+    Alpine.data('apiKeysPage', () => ({
         loading: true,
-        showCreate: false,
-       createForm: {
-            description: '',
-            scope: 'readonly'
-        },
-        message: '',
-        messageId: null,
+        creating: false,
+        error: '',
+        notice: '',
+
+        keys: [],
+        form: { description: '', scope: 'readonly' },
+
+        // 新建 Key 的明文，仅本次会话内可见
+        newKey: null,
+        copied: false,
 
         async init() {
-            await this.loadKeys();
-            this.loading = false;
+            await this.load();
         },
 
-        async loadKeys() {
-            const res = await fetch('/api/v1/admin/api-keys');
-            if (res.ok) {
-                this.keys = await res.json();
+        async load() {
+            this.loading = true;
+            try {
+                const d = await api.get('/api-keys');
+                this.keys = d.keys || [];
+            } catch (e) {
+                this.error = e.message;
+            } finally {
+                this.loading = false;
             }
         },
 
-        async createKey() {
-            this.showCreate = true;
-            this.message = '';
-        },
-
-        async submitCreate(e) {
-            e.preventDefault();
-            this.saving = true;
-
-            const res = await fetch('/api/v1/admin/api-keys', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(this.createForm)
-            });
-
-            this.saving = false;
-
-            if (res.ok) {
-                const data = await res.json();
-                alert(`创建成功！请保存好以下 Key（仅显示一次）：\n\n${data.key}\n\nKey 前缀：${data.key_prefix}`);
-                this.showCreate = false;
-                this.createForm = { description: '', scope: 'readonly' };
-                await this.loadKeys();
-            } else {
-                const data = await res.json();
-                this.messageId = 'error';
-                this.message = data.error || '创建失败';
+        async create() {
+            if (!this.form.description.trim()) {
+                this.error = '请填写用途描述';
+                return;
+            }
+            this.creating = true;
+            this.error = '';
+            this.notice = '';
+            try {
+                this.newKey = await api.post('/api-keys', {
+                    description: this.form.description,
+                    scope: this.form.scope,
+                });
+                this.copied = false;
+                this.form.description = '';
+                await this.load();
+            } catch (e) {
+                this.error = e.message;
+            } finally {
+                this.creating = false;
             }
         },
 
-        async toggleKey(id, active) {
-            const action = active ? 'enable' : 'disable';
-            const res = await fetch(`/api/v1/admin/api-keys/${id}/${action}`, {
-                method: 'POST'
-            });
-
-            if (res.ok) {
-                await this.loadKeys();
+        async copyKey() {
+            if (!this.newKey) return;
+            try {
+                await navigator.clipboard.writeText(this.newKey.key);
+                this.copied = true;
+            } catch {
+                // 非 HTTPS 或权限被拒时剪贴板不可用，提示用户手工复制
+                this.error = '复制失败，请手动选中并复制';
             }
         },
 
-        async deleteKey(id) {
-            if (!confirm('确定删除此 API Key？')) return;
+        dismissNewKey() {
+            this.newKey = null;
+            this.copied = false;
+        },
 
-            const res = await fetch(`/api/v1/admin/api-keys/${id}`, {
-                method: 'DELETE'
-            });
-
-            if (res.ok) {
-                await this.loadKeys();
+        async toggle(key) {
+            const action = key.is_active ? 'disable' : 'enable';
+            try {
+                await api.post(`/api-keys/${key.id}/${action}`);
+                this.notice = key.is_active ? '已禁用' : '已启用';
+                await this.load();
+            } catch (e) {
+                this.error = e.message;
             }
-        }
+        },
+
+        async remove(key) {
+            if (!confirm(`确认删除 Key「${key.description}」？使用该 Key 的客户端将立即失效。`)) return;
+            try {
+                await api.del('/api-keys/' + key.id);
+                this.notice = '已删除';
+                await this.load();
+            } catch (e) {
+                this.error = e.message;
+            }
+        },
+
+        scopeLabel(s) {
+            return s === 'readwrite' ? '读写' : '只读';
+        },
+
+        fmt: formatTime,
     }));
-});
+}

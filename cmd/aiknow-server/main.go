@@ -199,6 +199,8 @@ func serve() {
 	qwenModel, _ := cfg.Get("QWEN_MODEL")
 	baaiKey, _ := cfg.Get("BAAI_API_KEY")
 	baaiBaseURL, _ := cfg.Get("BAAI_BASE_URL")
+	baaiEmbeddingModel, _ := cfg.Get("BAAI_EMBEDDING_MODEL")
+	baaiRerankerModel, _ := cfg.Get("BAAI_RERANKER_MODEL")
 
 	factory := provider.NewProviderFactory(provider.L1ProviderConfig{
 		LLMProvider: cfg.GetOr("LLM_PROVIDER", "mock"),
@@ -209,10 +211,12 @@ func serve() {
 		EmbeddingProvider: cfg.GetOr("EMBEDDING_PROVIDER", "mock"),
 		EmbeddingAPIKey:   baaiKey,
 		EmbeddingBaseURL:  baaiBaseURL,
+		EmbeddingModel:    baaiEmbeddingModel,
 
 		RerankerProvider: cfg.GetOr("RERANKER_PROVIDER", "mock"),
 		RerankerAPIKey:   baaiKey,
 		RerankerBaseURL:  baaiBaseURL,
+		RerankerModel:    baaiRerankerModel,
 	})
 
 	// 构造失败不能忽略：此前以 _ 丢弃错误，会导致 provider 为 nil，

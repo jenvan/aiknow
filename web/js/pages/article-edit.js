@@ -1,108 +1,115 @@
-// 文章编辑页面
-document.addEventListener('alpine:init', () => {
-    Alpine.data('articleEdit', () => ({
-        article: {},
-        chunks: [],
-        categories: [],
-        tags: [],
+import { api, formatTime, statusMeta } from '../api.js';
+
+/**
+ * 文章编辑：正文编辑、AI 结果修正、状态面板、Chunk 预览。
+ *
+ * 关键行为约定（AGENT.md）：改正文保存会把 processing_status 重置为 pending
+ * 并重新入队；仅改 AI 结果（摘要/分类/标签）不触发重新处理。
+ * 该判定在前端提示、由后端 Update + Reprocess 组合实现。
+ */
+export function registerArticleEdit(Alpine) {
+    Alpine.data('articleEditPage', () => ({
         loading: true,
         saving: false,
-        message: '',
-        messageId: null,
+        error: '',
+        notice: '',
 
-        async init(id) {
-            await Promise.all([
-                this.loadArticle(id),
-                this.loadCategories(),
-                this.loadTags()
-            ]);
-            this.loading = false;
+        article: null,
+        chunks: [],
+        chunksLoaded: false,
+
+        // 表单字段
+        form: { title: '', content: '', category_name: '', tags: '', summary: '' },
+        originalContent: '',
+
+        get id() {
+            return Alpine.store('route').param;
         },
 
-        async loadArticle(id) {
-            const res = await fetch(`/api/v1/articles/${id}`);
-            if (res.ok) this.article = await res.json();
+        get contentChanged() {
+            return this.form.content !== this.originalContent;
         },
 
-        async loadCategories() {
-            const res = await fetch('/api/v1/admin/categories');
-            if (res.ok) this.categories = await res.json();
-        },
-
-        async loadTags() {
-            const res = await fetch('/api/v1/admin/tags');
-            if (res.ok) this.tags = await res.json();
-        },
-
-        async loadChunks() {
-            const res = await fetch(`/api/v1/admin/articles/${this.article.id}/chunks`);
-            if (res.ok) {
-                const data = await res.json();
-                this.chunks = data.chunks || [];
+        async init() {
+            try {
+                const a = await api.get('/articles/' + this.id);
+                this.article = a;
+                this.originalContent = a.content || '';
+                this.form = {
+                    title: a.title || '',
+                    content: a.content || '',
+                    category_name: a.category_name || '',
+                    tags: (a.tags || []).map((t) => t.name).join(', '),
+                    summary: a.summary || '',
+                };
+            } catch (e) {
+                this.error = e.message;
+            } finally {
+                this.loading = false;
             }
         },
 
-        async save(e) {
-            e.preventDefault();
+        async loadChunks() {
+            if (this.chunksLoaded) return;
+            try {
+                const d = await api.get(`/articles/${this.id}/chunks`);
+                this.chunks = d.chunks || [];
+                this.chunksLoaded = true;
+            } catch (e) {
+                this.error = e.message;
+            }
+        },
+
+        async save() {
             this.saving = true;
-            this.message = '';
+            this.error = '';
+            this.notice = '';
+            try {
+                const tags = this.form.tags
+                    .split(',')
+                    .map((t) => t.trim())
+                    .filter(Boolean);
 
-            const reprocess = e.target.dataset.reprocess === 'true';
+                const contentChanged = this.contentChanged;
 
-            const res = await fetch(`/api/v1/articles/${this.article.id}`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    ...this.article,
-                    category_id: this.article.category_id,
-                    tags: this.article.tags?.map(t => t.name) || []
-                })
-            });
+                await api.put('/articles/' + this.id, {
+                    title: this.form.title,
+                    content: this.form.content,
+                    category_name: this.form.category_name || undefined,
+                    tags,
+                });
 
-            this.saving = false;
-
-            if (res.ok) {
-                this.messageId = 'success';
-                this.message = '保存成功';
-                await this.loadArticle(this.article.id);
-                if (reprocess) {
-                    await this.reprocess();
+                // 正文变更需重新走 AI 流水线，否则摘要与向量会与正文脱节
+                if (contentChanged) {
+                    await api.post(`/articles/${this.id}/reprocess`);
+                    this.notice = '已保存，正文有变更，已重新排队处理';
+                    this.chunksLoaded = false;
+                    this.chunks = [];
+                } else {
+                    this.notice = '已保存（未改正文，不触发重新处理）';
                 }
-            } else {
-                const data = await res.json();
-                this.messageId = 'error';
-                this.message = data.error || '保存失败';
+
+                this.originalContent = this.form.content;
+                const a = await api.get('/articles/' + this.id);
+                this.article = a;
+            } catch (e) {
+                this.error = e.message;
+            } finally {
+                this.saving = false;
             }
         },
 
         async reprocess() {
-            const res = await fetch(`/api/v1/admin/articles/${this.article.id}/reprocess`, {
-                method: 'POST'
-            });
-            if (res.ok) {
-                await this.loadArticle(this.article.id);
+            try {
+                await api.post(`/articles/${this.id}/reprocess`);
+                this.notice = '已重新排队处理';
+                this.article = await api.get('/articles/' + this.id);
+            } catch (e) {
+                this.error = e.message;
             }
         },
 
-        async deleteArticle() {
-            if (!confirm('确定删除这篇文章？')) return;
-
-            const res = await fetch(`/api/v1/admin/articles/${this.article.id}`, {
-                method: 'DELETE'
-            });
-
-            if (res.ok) {
-                window.location.href = '/ui/articles';
-            }
-        },
-
-        addTag() {
-            if (!this.article.tags) this.article.tags = [];
-            this.article.tags.push({ name: '' });
-        },
-
-        removeTag(index) {
-            this.article.tags.splice(index, 1);
-        }
+        fmt: formatTime,
+        meta: statusMeta,
     }));
-});
+}

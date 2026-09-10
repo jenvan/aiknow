@@ -1,85 +1,101 @@
-// MCP 日志页面
-document.addEventListener('alpine:init', () => {
-    Alpine.data('mcpLogs', () => ({
+import { api, formatTime } from '../api.js';
+
+/** MCP 请求日志：筛选、全文检索、trace_id 查询、查看详情 */
+export function registerMcpLogs(Alpine) {
+    Alpine.data('mcpLogsPage', () => ({
+        loading: true,
+        error: '',
+        notice: '',
+
         logs: [],
-        total: 0,
         page: 1,
         pageSize: 20,
-        filters: {
-            trace_id: '',
-            method: '',
-            tool_name: '',
-            keyword: '',
-            dateFrom: '',
-            dateTo: '',
-            status: ''
-        },
-        selectedLog: null,
-        loading: true,
+
+        filters: { trace_id: '', tool_name: '', status: '', keyword: '' },
+        detail: null,
 
         async init() {
-            await this.loadLogs();
-            this.loading = false;
+            await this.load();
         },
 
-        async loadLogs() {
-            const params = new URLSearchParams({
-                page: this.page,
-                page_size: this.pageSize,
-                ...(this.filters.trace_id && { trace_id: this.filters.trace_id }),
-                ...(this.filters.method && { method: this.filters.method }),
-                ...(this.filters.tool_name && { tool_name: this.filters.tool_name }),
-                ...(this.filters.keyword && { keyword: this.filters.keyword }),
-                ...(this.filters.dateFrom && { date_from: this.filters.dateFrom }),
-                ...(this.filters.dateTo && { date_to: this.filters.dateTo }),
-                ...(this.filters.status && { status: this.filters.status })
-            });
-
-            const res = await fetch(`/api/v1/admin/mcp/logs?${params}`);
-            if (res.ok) {
-                const data = await res.json();
-                this.logs = data.logs || [];
-                this.total = data.total || 0;
+        async load() {
+            this.loading = true;
+            this.error = '';
+            try {
+                const q = new URLSearchParams({ page: this.page, page_size: this.pageSize });
+                for (const [k, v] of Object.entries(this.filters)) {
+                    if (v) q.set(k, v);
+                }
+                const d = await api.get('/logs?' + q.toString());
+                this.logs = d.logs || [];
+            } catch (e) {
+                this.error = e.message;
+            } finally {
+                this.loading = false;
             }
         },
 
-        async viewLog(traceId) {
-            const res = await fetch(`/api/v1/admin/mcp/logs/${traceId}`);
-            if (res.ok) {
-                this.selectedLog = await res.json();
-            }
-        },
-
-        replayFromLog(log) {
-            window.location.href = `/ui/mcp-debug?trace_id=${log.trace_id}`;
-        },
-
-        prevPage() {
-            if (this.page > 1) {
-                this.page--;
-                this.loadLogs();
-            }
-        },
-
-        nextPage() {
-            if (this.page < Math.ceil(this.total / this.pageSize)) {
-                this.page++;
-                this.loadLogs();
-            }
-        },
-
-        clearFilters() {
-            this.filters = {
-                trace_id: '',
-                method: '',
-                tool_name: '',
-                keyword: '',
-                dateFrom: '',
-                dateTo: '',
-                status: ''
-            };
+        applyFilters() {
             this.page = 1;
-            this.loadLogs();
-        }
+            return this.load();
+        },
+
+        resetFilters() {
+            this.filters = { trace_id: '', tool_name: '', status: '', keyword: '' };
+            this.page = 1;
+            return this.load();
+        },
+
+        goPage(p) {
+            if (p < 1) return;
+            this.page = p;
+            return this.load();
+        },
+
+        async showDetail(traceId) {
+            if (this.detail && this.detail.trace_id === traceId) {
+                this.detail = null;
+                return;
+            }
+            try {
+                this.detail = await api.get('/logs/' + encodeURIComponent(traceId));
+            } catch (e) {
+                this.error = e.message;
+            }
+        },
+
+        async purge() {
+            const days = prompt('清理多少天前的日志？', '30');
+            if (days === null) return;
+            const n = parseInt(days, 10);
+            if (Number.isNaN(n) || n < 0) {
+                this.error = '请输入非负整数';
+                return;
+            }
+            try {
+                const r = await api.del('/logs?days=' + n);
+                this.notice = `已清理 ${r.deleted} 条日志`;
+                await this.load();
+            } catch (e) {
+                this.error = e.message;
+            }
+        },
+
+        statusCls(s) {
+            return s === 'error'
+                ? 'bg-red-100 text-red-800'
+                : 'bg-green-100 text-green-800';
+        },
+
+        pretty(v) {
+            if (v === null || v === undefined) return '-';
+            try {
+                return JSON.stringify(typeof v === 'string' ? JSON.parse(v) : v, null, 2);
+            } catch {
+                return String(v);
+            }
+        },
+
+        fmt: formatTime,
     }));
-});
+}

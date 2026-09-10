@@ -13,14 +13,19 @@ import (
 // BAAIRerankerProvider BAAI Reranker Provider 实现
 type BAAIRerankerProvider struct {
 	baseURL string
+	model   string
 	apiKey  string
 	client  *http.Client
 }
 
 // NewBAAIRerankerProvider 创建 BAAI Reranker Provider
-func NewBAAIRerankerProvider(baseURL, apiKey string) (*BAAIRerankerProvider, error) {
+func NewBAAIRerankerProvider(baseURL, apiKey, model string) (*BAAIRerankerProvider, error) {
+	if model == "" {
+		model = "BAAI/bge-reranker-v2-m3"
+	}
 	if baseURL == "" {
-		baseURL = "https://deepinfra.com/api"
+		// 默认 deepinfra，不带 /v1（provider 内部拼 /v1/rerank）
+		baseURL = "https://api.deepinfra.com"
 	}
 	if apiKey == "" {
 		return nil, fmt.Errorf("BAAI Reranker API key is required")
@@ -29,6 +34,7 @@ func NewBAAIRerankerProvider(baseURL, apiKey string) (*BAAIRerankerProvider, err
 	return &BAAIRerankerProvider{
 		baseURL: baseURL,
 		apiKey:  apiKey,
+		model:   model,
 		client: &http.Client{
 			Timeout: 30 * time.Second,
 		},
@@ -55,7 +61,7 @@ type rerankResponse struct {
 
 func (b *BAAIRerankerProvider) Rerank(ctx context.Context, req RerankRequest) (*RerankResult, error) {
 	reqBody := rerankRequest{
-		Model:     "BAAI/bge-reranker-v2-m3",
+		Model:     b.model,
 		Query:     req.Query,
 		Documents: req.Documents,
 		TopK:      req.TopK,

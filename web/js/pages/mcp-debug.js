@@ -1,168 +1,100 @@
-// MCP 调试页面
-document.addEventListener('alpine:init', () => {
-    Alpine.data('mcpDebug', () => ({
-        protocolVersion: '2025-06-18',
-        tools: [],
-        selectedTool: '',
-        toolInput: {},
-        inputMode: 'form',
-        rawJson: '{}',
+import { api } from '../api.js';
+
+/**
+ * MCP 调试：参数表单、原始请求响应、鉴权 scope 切换。
+ *
+ * 走后端代理（POST /admin/mcp/debug）而非浏览器直连 /mcp，
+ * 因此调试页无需持有 API Key。
+ */
+export function registerMcpDebug(Alpine) {
+    Alpine.data('mcpDebugPage', () => ({
+        running: false,
+        error: '',
+
+        method: 'tools/list',
+        scope: 'readonly',
+        tool: '',
+        argsText: '{}',
+
         response: null,
-        responseHeaders: {},
-        loading: false,
-        error: null,
-        useSession: true,
-        apiKey: '',
-        sseMode: false,
-        history: [],
-        maxHistory: 20,
+        durationMs: 0,
+        tools: [],
 
         async init() {
             await this.listTools();
         },
 
-        get currentTool() {
-            return this.tools.find(t => t.name === this.selectedTool);
-        },
-
         async listTools() {
             try {
-                const res = await this.makeRequest({ method: 'tools/list' });
-                if (res) {
-                    this.tools = res.result || [];
-                }
-            } catch (err) {
-                this.error = err.message;
+                const r = await api.post('/mcp/debug', { method: 'tools/list', scope: this.scope });
+                this.tools = (r.response && r.response.tools) || [];
+            } catch (e) {
+                this.error = e.message;
             }
         },
 
-        async initialize() {
-            this.loading = true;
-            this.error = null;
-            try {
-                const res = await this.makeRequest({
-                    method: 'initialize',
-                    params: {
-                        protocolVersion: this.protocolVersion,
-                        capabilities: {},
-                        clientInfo: { name: 'aiknow-debug', version: '0.1.0' }
-                    }
-                });
-                if (res) {
-                    this.response = res;
-                    this.addHistory('initialize', res);
-                }
-            } catch (err) {
-                this.error = err.message;
-            } finally {
-                this.loading = false;
-            }
-        },
-
-        async callTool() {
-            if (!this.selectedTool) {
-                this.error = '请选择工具';
-                return;
-            }
-
-            this.loading = true;
-            this.error = null;
-
-            let arguments = {};
-            if (this.inputMode === 'form') {
-                arguments = this.toolInput;
+        /** 选中工具时用其 schema 预填参数骨架，省去手写 */
+        selectTool(name) {
+            this.tool = name;
+            this.method = 'tools/call';
+            const t = this.tools.find((x) => x.name === name);
+            const props = t && t.inputSchema && t.inputSchema.properties;
+            if (props) {
+                const skeleton = {};
+                for (const k of Object.keys(props)) skeleton[k] = '';
+                this.argsText = JSON.stringify(skeleton, null, 2);
             } else {
+                this.argsText = '{}';
+            }
+        },
+
+        async run() {
+            this.error = '';
+            this.response = null;
+
+            let args = {};
+            if (this.method === 'tools/call') {
+                if (!this.tool) {
+                    this.error = '请选择要调用的工具';
+                    return;
+                }
                 try {
-                    arguments = JSON.parse(this.rawJson);
+                    args = JSON.parse(this.argsText || '{}');
                 } catch (e) {
-                    this.error = 'JSON 格式错误';
-                    this.loading = false;
+                    this.error = '参数 JSON 格式有误：' + e.message;
                     return;
                 }
             }
 
+            this.running = true;
             try {
-                const res = await this.makeRequest({
-                    method: 'tools/call',
-                    params: {
-                        name: this.selectedTool,
-                        arguments
-                    }
+                const r = await api.post('/mcp/debug', {
+                    method: this.method,
+                    tool: this.tool,
+                    arguments: args,
+                    scope: this.scope,
                 });
-                if (res) {
-                    this.response = res;
-                    this.addHistory(this.selectedTool, res);
-                }
-            } catch (err) {
-                this.error = err.message;
+                this.durationMs = r.duration_ms || 0;
+                // 后端对工具调用失败返回 200 + error 字段，便于展示详情
+                this.response = r.error ? { error: r.error } : r.response;
+                if (r.error) this.error = r.error;
+            } catch (e) {
+                this.error = e.message;
             } finally {
-                this.loading = false;
+                this.running = false;
             }
         },
 
-        async makeRequest(req) {
-            const body = JSON.stringify({
-                jsonrpc: '2.0',
-                method: req.method,
-                params: req.params || {},
-                id: 1
-            });
-
-            const headers = {
-                'Content-Type': 'application/json'
-            };
-
-            if (this.useSession) {
-                // Session auth
-            } else if (this.apiKey) {
-                headers['Authorization'] = `Bearer ${this.apiKey}`;
-            }
-
-            const res = await fetch('/api/v1/admin/mcp/invoke', {
-                method: 'POST',
-                headers,
-                body
-            });
-
-            if (!res.ok) {
-                const data = await res.json().catch(() => ({}));
-                throw new Error(data.error || `HTTP ${res.status}`);
-            }
-
-            return res.json();
+        async onScopeChange() {
+            await this.listTools();
         },
 
-        addHistory(toolName, response) {
-            this.history.unshift({
-                tool: toolName,
-                time: new Date().toLocaleTimeString(),
-                response
-            });
-            if (this.history.length > this.maxHistory) {
-                this.history.pop();
+        pretty(v) {
+            try {
+                return JSON.stringify(v, null, 2);
+            } catch {
+                return String(v);
             }
         },
-
-        replaysFromLog(traceId) {
-            // TODO: 从日志重放
-            this.error = '功能待实现';
-        },
-
-        switchInputMode(mode) {
-            this.inputMode = mode;
-            if (mode === 'json') {
-                try {
-                    this.rawJson = JSON.stringify(this.toolInput, null, 2);
-                } catch (e) {
-                    this.rawJson = '{}';
-                }
-            } else {
-                try {
-                    this.toolInput = JSON.parse(this.rawJson);
-                } catch (e) {
-                    // Keep form mode
-                }
-            }
-        }
     }));
-});
+}
