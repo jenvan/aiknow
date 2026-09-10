@@ -680,6 +680,8 @@
                                                         <span x-text="item.key"></span>
                                                         <span x-show="isModified(item)"
                                                               class="ml-2 px-1.5 py-0.5 bg-blue-100 text-blue-800 rounded text-xs">已改</span>
+                                                        <div class="mt-1 font-normal text-[11px] text-gray-500" x-show="item.hint"
+                                                             x-text="item.hint"></div>
                                                     </td>
                                                     <td class="py-2 pr-4 align-top">
                                                         <template x-if="editingKey === item.key">
