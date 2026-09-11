@@ -3,9 +3,20 @@
 ## 项目概述
 
 - **项目名称**：爱脑 (AiKnow)
+- **品牌**：AiKnow（中文「爱脑」），slogan「AI 知识库管理工具」。前端 logo 为
+  「神经元网络」图标（蓝紫渐变 `from-blue-600 to-indigo-500`），侧栏与登录页共用。
 - **定位**：企业内部知识库管理 + RAG 检索 + API/MCP 接入
 - **当前版本**：v0.6.0（W5-W6 鉴权+后台已完成）
 - **状态**：PRD 已评审完成，W1 基础框架骨架已落地
+
+## 前端约定（`web/`，Tailwind CDN + Alpine，零构建）
+- **未登录直接跳登录页**：`app.js` 的 `shell.init()` 里 `fetchSession()` 无会话时
+  `location.replace('/ui/login')`，**不**渲染「未登录」停留页（省一次点击）。
+- **布局**：左侧分组导航（概览/内容/检索&调试/系统 四组，inline-SVG 图标）+
+  顶部 header bar（当前页标题 + 用户/退出）；主区内**不重复**显示页名大标题。
+  窄屏（`lg` 以下）侧栏收进 header 汉堡抽屉。
+- **品牌文案统一**：两处 `<title>`、侧栏、登录页都用「AiKnow 爱脑 / AI 知识库管理工具」，
+  改动品牌名时这几处一起改。
 
 ## 核心技术栈
 
@@ -58,6 +69,35 @@ Reranker 精排 (BAAI) → Top 5
 > ② 精排后本地按分降序并截断到 `top_k`。回归测试见
 > `internal/service/provider/reranker_baai_test.go`。若切换到其它 BAAI 网关
 > 导致得分再次恒 0，优先怀疑字段名/top_k 行为。
+
+### 2.1 文本分块策略（structure 优先 + 滑窗兜底）
+入库时 `AIPipeline` 调 `internal/service/chunker.go` 的 `Split(content, ChunkConfig)`
+把正文切成 chunk，**唯一切分实现**（`chunkServiceImpl.SplitContent` 已委托到它）。
+切分参数是 L2 配置（后台可热改，改后对「重处理」的文章生效）：
+
+| L2 key | 含义 | 默认 |
+|---|---|---|
+| `chunk.strategy` | `structure`（默认）/ `window` | structure |
+| `chunk.size` | 单片目标大小（字符）；structure 下超过此值的段落才滑窗 | 400 |
+| `chunk.overlap` | 滑窗重叠（字符），**只在超长段落滑窗兜底时生效，段落边界不重叠** | 0 |
+| `chunk.min_size` | 过短片段合并阈值：小于此值且并入上一片不超 size 时合并 | 60 |
+
+`structure` 策略：
+1. **按「空行」与「标题行（`#`…`######`）」切段**，标题与其后正文同段（到下一个空行/标题再分）。
+2. 段 ≤ size → 整段一个 chunk；段 > size → 仅对该段滑窗兜底（size/overlap）。
+3. `min_size` 合并过短片段（如采集里 `<li>` 短列表项），避免碎段稀释向量检索。
+
+> **分隔符用「≥1 个空行」而非「2+ 换行」**：`pkg/htmlclean` 的 `walkNodes` 在每个
+> 块级元素（`<p>`/`<h2>`/`<li>`…）前后各写一个 `\n`，故**采集正文里相邻段落的边界
+> 恰好是「单个空行」**；而手工 FAQ 文件通常用「≥1 空行」隔问答。两者都命中
+> `\n\s*\n`（≥1 空行），所以统一用它，别写成只认「2+ 换行」——那样会漏掉采集内容。
+> 无空行无标题的正文会自动退化为纯滑窗，`window` 策略 = 历史定长滑窗（向后兼容）。
+
+> **采集标题提取踩坑**：`Collector` 取标题**不能只看 `<title>`**——微信
+> （mp.weixin.qq.com）等页面的 `<title>` 常常是**空的**（`<title></title>`），
+> 真实标题在 `og:title` meta 里。故 `extractTitle`（`internal/service/collector.go`）
+> 按 `og:title → twitter:title → #activity-name → 首个 <h1> → <title>` 优先级取，
+> 全部落空才回落 "Untitled"。新增/改采集渠道时，标题异常先怀疑这个优先级。
 
 ### 3. 中文分词配置
 分词由 pg_search 内置的 jieba 分词器完成，在建索引时以类型转换声明，无需额外配置词性映射：
@@ -162,6 +202,9 @@ ConfigCache.Reload 用 `map[string]interface{}` 解析，对扁平标量必然�
   模型名优先级 = 调用方显式指定 > L2 `llm.model` > L1 `QWEN_MODEL` > 内置 qwen-plus
 - `collector.user_agent`：Collector 每次抓取读 settings 表；非空则覆盖 L1
   `COLLECTOR_USER_AGENT`
+- `collector.max_content_length`：Collector 每次抓取读 settings 表；>0 则覆盖 L1
+  默认（2MB，`DefaultCollectorConfig`），0/未设回落。用于「页面被截断」时在线调大
+  采集上限，无需重启（与 user_agent 同一套 L1 基线 + L2 热覆盖机制）
 
 ### 7. API Key 存储：SHA-256 而非 bcrypt
 - API Key 是高熵随机串，无字典攻击风险
@@ -340,6 +383,7 @@ POST /api/v1/search
 | LLM retry_count / timeout_ms | 3 / 30000 | L2 | 0-5 / 5000-120000 |
 | Embedding batch_size | 10 | L2 | 1-64 |
 | 采集 User-Agent | AiKnow/1.0 (Internal Knowledge Base) | L1 + L2 覆盖 | `COLLECTOR_USER_AGENT` 设基线；后台 `collector.user_agent` 留空回落基线 |
+| 采集正文字节上限 | 2MB | L1 + L2 覆盖 | `collector.max_content_length` >0 则覆盖、0 回落；页面截断时后台调大 |
 | 采集超时 | 10s | L1 | `COLLECTOR_TIMEOUT`，重启生效 |
 | 采集重定向次数 | 3 | L1 | `COLLECTOR_MAX_REDIRECTS` |
 | 采集最小内容长度 | 200 | L1 | `COLLECTOR_MIN_CONTENT_LENGTH`（字符） |
@@ -353,7 +397,8 @@ POST /api/v1/search
 | 向量权重 / BM25 权重 | 0.5 / 0.5 | L2 | 之和须为 1 |
 | default_top_k | 5 | L2 | 须 ≤ candidate_k |
 | candidate_k | 20 | L2 | RRF 召回候选数 |
-| Chunk size / overlap | 400 / 50 | L2 | 200-800 / 0-200，overlap < size |
+| Chunk strategy | structure | L2 | `structure`（空行+标题切段、超窗滑窗兜底、min_size 合并）/ `window`（纯滑窗） |
+| Chunk size / overlap / min_size | 400 / 0 / 60 | L2 | size 200-800；structure 边界不重叠（overlap 仅超窗兜底用）；min_size 过短段合并阈值 |
 | Reranker top_k | 20 | L2 | 1-50 |
 | mcp_log retention_days | 30 | L2 | 1-365，pg_cron 清理 |
 | keyword_search 权重组 | 见 8.1 节 | L2 | 5 项权重，0-100 |

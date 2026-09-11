@@ -2,6 +2,143 @@
 
 ## [Unreleased] - 2026-09-10
 
+### 功能：文章编辑页展示采集来源网址
+
+**背景**：URL 采集入库的文章带 `source_url`，但编辑页 `/ui/articles/:id` 未展示，
+编辑者不知道正文来自哪个链接。
+
+**改动**：编辑页（`web/index.html` 的 `articleEditPage` 模板）在标题输入框上方加
+「来源网址」条（蓝色提示块），`x-show="article && article.source_url"`——仅 URL 采集的
+文章（有 `source_url`）显示，手动录入不显示。链接 `target="_blank" rel="noopener"`。
+数据链路已具备：`GET /articles/:id` 返回整篇 article（含 `source_type`/`source_url`），
+前端无需改 JS。
+
+- 变更：`web/index.html`
+
+### 功能：后台 UI 重组 + 品牌化 + 未登录直接跳转登录
+
+**背景**：后台左侧菜单 8 项平铺、视觉陈旧（深色侧栏 + 每页重复大标题）；
+品牌未统一；未登录用户打开 `/ui/*` 会停留在一个「未登录」状态页，还需多点一次「登录」。
+
+**菜单重组**（`web/js/app.js` 的 `NAV_ITEMS` → 按功能域分 4 组）：
+- 概览（仪表盘）· 内容（文章列表/录入文章）· 检索 & 调试（检索测试/MCP 调试/MCP 日志）·
+  系统（系统配置/API Key）。URL/路由不变，仅侧栏展示分组（组小标题 + 组内项 + inline-SVG 图标）。
+
+**布局与视觉**（`web/index.html`，Tailwind CDN + Alpine，零构建、不引新依赖）：
+- 新增**顶部 header bar**：左=当前页标题，右=用户头像/名 + 退出；侧栏底部用户/退出上移至此。
+- 侧栏改**白底** + 品牌蓝 accent（当前项浅蓝底 + 左侧 3px 强调条 + 蓝字图标）；各页**移除重复的
+  页内大标题**（header 已显示页名）。
+- **响应式**：桌面固定侧栏；窄屏（`lg` 以下）侧栏收进 header 的汉堡抽屉 + 遮罩。
+
+**品牌化**：
+- 品牌名 **AiKnow**，中文 **爱脑**，slogan **AI 知识库管理工具**；两处 `<title>` 同步。
+- logo 换成「神经元网络」图标（蓝紫渐变），贴「AI 知识库」语义；侧栏 + 登录页共用。
+
+**未登录直接跳转**：`web/js/app.js` 的 `shell.init()`——`fetchSession()` 无会话时
+`location.replace('/ui/login')`，不再渲染「未登录」状态页（省一次点击）。已删 index.html
+里的未登录停留模板。
+
+- 变更：`web/js/app.js`、`web/index.html`、`web/login.html`
+- 说明：纯前端改动，后端路由/各页 `pages/*.js` 逻辑与 `x-if` 页面块均未动；已用
+  agent-browser 逐页验证（8 页 + 登录 + 未登录跳转 + 窄屏）无 Alpine 渲染破损。
+
+### 修复：URL 采集标题获取（微信等 <title> 为空的页面取不到标题）
+
+**现象**：`add_article_by_url` 采集微信文章时标题取不到，回落 "Untitled"。
+
+**根因**：`Collector.extractContent`（`internal/service/collector.go`）此前只从
+`<title>` 标签取标题，而微信（mp.weixin.qq.com）等页面的 `<title>` 常为**空**，
+真实标题放在 `og:title` meta（部分站点在 twitter:title / `#activity-name`）。
+
+**修复**：新增 `extractTitle(html)`，按优先级 `og:title → twitter:title →
+#activity-name → 首个 <h1> → <title>` 取标题（用 goquery，仓库已有依赖），取到即停，
+全部落空才回落 "Untitled"。
+
+- 变更：`internal/service/collector.go`
+- 测试：`internal/service/collector_test.go` 新增 `TestExtractTitle`（覆盖微信
+  "title 空 + og:title 有值"、各优先级、全空回落）。已用真实微信页验证能取到
+  「一篇讲透Agent自进化飞轮…」标题。
+
+### 修复：系统配置中字符串型配置项（如 llm.model）无法编辑设置
+
+**现象**：后台系统配置页编辑 `llm.model` 等**字符串型**项时设不了——输入模型名后
+保存报「JSON 格式有误」。
+
+**根因**：`web/js/pages/settings.js` 的编辑框此前对所有配置项一律预填
+`JSON.stringify(value)`、保存一律 `JSON.parse`。字符串项（默认空串）预填成 `""`
+（带引号），用户直接敲 `qwen-plus` 不带引号，`JSON.parse` 失败 → 报错，表现为"设不了"。
+数字型项（max_tokens 等）不受影响，故问题只在字符串项（llm.model /
+collector.user_agent / prompt.analyze）。
+
+**修复**：按值类型区分编辑——`typeof value === 'string'` 走**裸文本**编辑（`save`
+直接取输入值，空串合法=回落默认），其余仍走 JSON。字符串项改用 `<textarea>`
+（`prompt.analyze` 多行提示词可直接编辑）。
+
+- 变更：`web/js/pages/settings.js`、`web/index.html`
+- 说明：后端 PUT 契约此前已修复（`{ value: ... }`），本次仅前端编辑体验。
+
+### 功能：采集正文字节上限后台可配（`collector.max_content_length`）+ 系统配置分组重排
+
+**背景**：URL 采集在正文过长时按上限截断（提示「已采集 N 字（内容过长已截断）」），
+但上限只来自 L1 启动配置 `DefaultCollectorConfig`（默认 2MB），后台改不了，页面被截断
+只能改代码/重启。
+
+**新增 L2 热配置 `collector.max_content_length`**：
+- 走与 `collector.user_agent` 完全一致的「L1 启动配置设基线 + 后台覆盖、每次抓取
+  热生效」模式：`Collector` 新增 `effectiveMaxContentLength`，每次 `Fetch` 读取
+  `collector.max_content_length`，>0 则覆盖、0/未设回落启动默认（2MB）。
+- 后台「系统配置 → 网页采集」新增该项，页面被截断时可在线调大，无需重启。
+- `L2Config.Collector` 加 `MaxContentLength`，`cache.go` 加 apply case（与 user_agent
+  接线一致）；前端靠遍历 `DefaultL2Config()` 自动渲染，无需新迁移（默认 0 = 用 2MB）。
+
+**系统配置分组重排**（`web/js/pages/settings.js` 的 `GROUP_ORDER`）：
+- 「提示词」提到最上面；
+- 「文本分块」移到「网页采集」下面；
+- 「MCP 日志」移到最后。
+- 新顺序：提示词 → LLM → Embedding → Reranker → 混合检索 → 关键词检索 → 网页采集
+  → 文本分块 → MCP 日志。
+
+- 变更：`internal/service/collector.go`、`internal/model/setting.go`、
+  `internal/config/cache.go`、`web/js/pages/settings.js`
+- 测试：`internal/service/collector_test.go` 新增
+  `TestCollectorEffectiveMaxContentLength`（无覆盖用启动默认 / 后台覆盖优先 / 0 回落）。
+
+### 功能：结构优先的分块策略（空行+标题切段、超窗滑窗兜底、min_size 合并）
+
+**背景**：原切分是纯字符滑窗（`chunk.size`/`chunk.overlap`），不看段落/标题/
+空行结构。对「分段问答 / FAQ / 条款」这类数据不友好——会把相邻问答缝进同一
+chunk、或把单个问答拆散，稀释向量检索、引用不干净。
+
+**新策略 `structure`（默认）**：
+- **按「空行」与「标题行（`#`…`######`）」切段**，段内保留原始换行；标题与其
+  后正文同段，直到下一个空行/标题再分。段长 ≤ `chunk.size` → 整段一片；
+  **超过 → 仅对该段滑窗兜底**（`chunk.size`/`chunk.overlap`）。
+- **段落边界不重叠**（`chunk.overlap` 默认 0，只在超长段落滑窗时生效）。
+- **`chunk.min_size`（默认 60）合并过短片段**：小于阈值的段（如采集里 `<li>`
+  短列表项）并入前一片（合计不超 size），防止碎段稀释检索。
+- 分隔符用「≥1 个空行」而非「2+ 换行」：兼容手工 FAQ（段间 ≥1 空行）与
+  URL 采集正文（`htmlclean` 每块级元素前后写 `\n`，段落边界恰好是**单个空行**）。
+
+**保留 `window` 策略**：`chunk.strategy=window` 走原纯滑窗行为，向后兼容；
+`structure` 下无空行无标题的正文自动退化为滑窗，结果与原实现一致。
+
+**收敛为唯一切分实现**：
+- 新增 `internal/service/chunker.go`（`Split(content, ChunkConfig)` + 策略常量），
+  `AIPipeline.SplitContent` 与（此前从未被调用、行为已分叉的）`chunkServiceImpl.
+  SplitContent` 均委托到 `Split`，消除双实现。
+- `ChunkConfig`{Strategy, Size, Overlap, MinSize}；内置默认 = structure/400/0/60。
+
+**后台可配（L2 热生效，无需迁移）**：`chunk.strategy` / `chunk.size` /
+`chunk.overlap` / `chunk.min_size`。系统配置页按 `DefaultL2Config()` 结构自动
+分组展示，四项出现在「文本分块」分组下；改后对**重处理**的文章生效。
+
+- 变更：`internal/service/chunker.go`（新增）、`internal/service/ai_pipeline.go`、
+  `internal/service/chunk.go`、`internal/model/setting.go`、
+  `internal/config/cache.go`、`web/js/pages/settings.js`
+- 测试：`internal/service/chunker_test.go`（FAQ 一问一答一块 / 标题同段 / 超窗滑窗
+  兜底含 50 字重叠 / min_size 合并与不合并 / 无空行退化滑窗 / window 策略 / 空正文），
+  `internal/service/ai_pipeline_test.go`（死循环回归改走 `Split`）。
+
 ### 修复：系统配置页「编辑保存」写路径失效（前端未按后端契约包 value 层）
 
 **现象**：后台系统配置页点「编辑」改任意 L2 值再「保存」，报 `配置值须为合法
