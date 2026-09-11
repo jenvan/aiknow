@@ -82,81 +82,6 @@ GET /api/v1/health
 
 ---
 
-### API Key 管理
-
-**管理后台接口**，需 Session 登录。
-
-#### 列出所有 Key
-
-```
-GET /api/v1/admin/api-keys
-```
-
-**响应示例：**
-
-```json
-{
-  "keys": [
-    {
-      "id": "550e8400-e29b-41d4-a716-446655440000",
-      "key_prefix": "ak_8f3a2b",
-      "description": "外部采集机器人",
-      "scope": "readwrite",
-      "is_active": true,
-      "last_used_at": "2026-09-10T08:30:00Z",
-      "created_at": "2026-08-01T10:00:00Z",
-      "created_by": "admin"
-    }
-  ],
-  "total": 1
-}
-```
-
-#### 创建 Key
-
-```
-POST /api/v1/admin/api-keys
-```
-
-**请求体：**
-
-| 字段 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| `description` | string | 是 | Key 用途描述，长度不限 |
-| `scope` | string | 否 | `readonly`（默认）或 `readwrite` |
-
-**响应示例（201 Created）：**
-
-```json
-{
-  "id": "550e8400-e29b-41d4-a716-446655440000",
-  "key": "ak_8f3a2b1c9d4e5f6a7b8c9d0e1f2a3b4c",
-  "key_prefix": "ak_8f3a2b",
-  "description": "外部采集机器人",
-  "scope": "readwrite",
-  "created_at": "2026-09-10T12:00:00Z"
-}
-```
-
-> ⚠️ `key` 字段**仅此一次**可见，服务端不存储明文，丢失后无法找回，需重新创建。
-
-#### 启用 / 禁用 Key
-
-```
-POST /api/v1/admin/api-keys/{id}/enable
-POST /api/v1/admin/api-keys/{id}/disable
-```
-
-禁用后该 Key 的所有请求返回 `401 invalid API key`。
-
-#### 删除 Key
-
-```
-DELETE /api/v1/admin/api-keys/{id}
-```
-
----
-
 ### 文章
 
 #### 创建文章
@@ -430,19 +355,14 @@ POST /mcp
 ## 快速开始
 
 ```bash
-# 1. 创建 readwrite API Key（在后台登录后执行）
-curl -X POST http://localhost:8080/api/v1/admin/api-keys \
-  -H "Cookie: session_id=xxx" \
-  -H "Content-Type: application/json" \
-  -d '{"description":"my-bot","scope":"readwrite"}'
 
-# 2. 采集一篇文章
+# 采集一篇文章
 curl -X POST http://localhost:8080/api/v1/articles \
   -H "Authorization: Bearer ak_XXXXXXXXXXXXXXXXXXXXXXXX" \
   -H "Content-Type: application/json" \
   -d '{"source_type":"url","source_url":"https://example.com/article"}'
 
-# 3. 搜索
+# 搜索
 curl -X POST http://localhost:8080/api/v1/search \
   -H "Authorization: Bearer ak_XXXXXXXXXXXXXXXXXXXXXXXX" \
   -H "Content-Type: application/json" \
