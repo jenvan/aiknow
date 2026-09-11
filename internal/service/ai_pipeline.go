@@ -31,11 +31,8 @@ type AIPipeline struct {
 	tagRepo           repository.TagRepository
 	// promptService 提供可在后台修改的分析提示词；为 nil 时用内置默认模板
 	promptService *PromptService
-	// configSource 可选：L2 配置来源（LLM 参数、分块大小等），nil 时用内置默认
+	// configSource 可选：L2 配置来源（分块参数、LLM 参数等），nil 时用内置默认
 	configSource L2ConfigSource
-	// chunkSize / chunkOverlap 内置默认，configSource 存在时以 L2 为准
-	chunkSize    int
-	chunkOverlap int
 }
 
 // NewAIPipeline 创建 AI 处理流水线。
@@ -59,8 +56,6 @@ func NewAIPipeline(
 		chunkRepo:         chunkRepo,
 		categoryRepo:      categoryRepo,
 		tagRepo:           tagRepo,
-		chunkSize:         400,
-		chunkOverlap:      50,
 	}
 	if len(promptService) > 0 && promptService[0] != nil {
 		p.promptService = promptService[0]
@@ -168,15 +163,9 @@ func (p *AIPipeline) Process(ctx context.Context, article *model.Article) error 
 		return fmt.Errorf("delete old chunks: %w", err)
 	}
 
-	// 分块大小从 L2 读取（后台可调），未设置时用内置默认
-	chunkSize, chunkOverlap := p.chunkSize, p.chunkOverlap
-	if l2 := p.l2Config(); l2.Chunk.Size > 0 {
-		chunkSize = l2.Chunk.Size
-		chunkOverlap = l2.Chunk.Overlap
-	}
-
+	// 分块参数从 L2 读取（策略/大小/重叠/最小长度，后台可调），未设置时用内置默认
 	// 创建新 Chunk
-	newChunks, err := p.SplitContent(ctx, article.Content, chunkSize, chunkOverlap)
+	newChunks, err := p.SplitContent(ctx, article.Content, p.chunkConfig())
 	if err != nil {
 		return fmt.Errorf("split content: %w", err)
 	}
@@ -283,54 +272,37 @@ func (p *AIPipeline) runLLM(ctx context.Context, article *model.Article) (*AIRes
 	return &aiResult, nil
 }
 
-// SplitContent 切分文本为 Chunk
-func (p *AIPipeline) SplitContent(ctx context.Context, content string, chunkSize, overlap int) ([]model.Chunk, error) {
-	runes := []rune(content)
-	totalLen := len(runes)
-
-	if totalLen == 0 {
-		return nil, fmt.Errorf("empty content")
+// chunkConfig 返回当前生效的分块参数：优先取 L2（后台可热改），未设置项用内置默认。
+//
+// L2 未显式设置时，各字段取 DefaultL2Config 的默认值；若通过设置页改了某项，
+// 仅该项覆盖，其余仍用默认。策略/最小长度同理。
+func (p *AIPipeline) chunkConfig() ChunkConfig {
+	l2 := p.l2Config().Chunk
+	cfg := ChunkConfig{
+		Strategy: l2.Strategy,
+		Size:     l2.Size,
+		Overlap:  l2.Overlap,
+		MinSize:  l2.MinSize,
 	}
-
-	if chunkSize <= 0 {
-		chunkSize = 400
+	// 允许后台把策略/大小清空回落到内置默认
+	if cfg.Strategy == "" {
+		cfg.Strategy = ChunkDefaults().Strategy
 	}
-	if overlap < 0 {
-		overlap = 0
+	if cfg.Size <= 0 {
+		d := ChunkDefaults()
+		cfg.Size = d.Size
 	}
-	if overlap >= chunkSize {
-		overlap = chunkSize - 1
+	if cfg.MinSize < 0 {
+		cfg.MinSize = ChunkDefaults().MinSize
 	}
+	return cfg
+}
 
-	var chunks []model.Chunk
-	start := 0
-
-	for start < totalLen {
-		end := start + chunkSize
-		if end > totalLen {
-			end = totalLen
-		}
-
-		chunk := string(runes[start:end])
-		chunks = append(chunks, model.Chunk{
-			Content:   chunk,
-			WordCount: end - start,
-		})
-
-		// 已切到结尾即结束。
-		//
-		// 必须在此处退出：末片不满 chunkSize 时 end 被截到 totalLen，
-		// 而 start = end - overlap 会回退到一个仍小于 totalLen 的位置，
-		// 下一轮 end 又被截回 totalLen，start 恒定不变形成死循环，
-		// chunks 无限增长直至耗尽内存（原兜底判断 start >= end 不成立，拦不住）。
-		if end == totalLen {
-			break
-		}
-
-		// overlap < chunkSize 已在上方收敛，故 start 每轮至少前进
-		// chunkSize-overlap，不会停滞
-		start = end - overlap
+// SplitContent 按 L2 分块参数把正文切分为 Chunk（结构优先 + 滑窗兜底，或纯滑窗）。
+func (p *AIPipeline) SplitContent(ctx context.Context, content string, cfg ChunkConfig) ([]model.Chunk, error) {
+	chunks, err := Split(content, cfg)
+	if err != nil {
+		return nil, err
 	}
-
 	return chunks, nil
 }

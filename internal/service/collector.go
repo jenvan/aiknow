@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/PuerkitoBio/goquery"
 	"github.com/jenvan/aiknow/internal/repository"
 	"github.com/jenvan/aiknow/pkg/htmlclean"
 	"github.com/jenvan/aiknow/pkg/ssrf"
@@ -27,7 +28,8 @@ type Collector struct {
 	ssrfCheck *ssrf.Checker
 	cleaner   *htmlclean.Cleaner
 	config    CollectorConfig
-	// settingRepo 可选：非空时每次抓取读取后台 collector.user_agent 覆盖启动配置
+	// settingRepo 可选：非空时每次抓取读取后台 collector.user_agent /
+	// collector.max_content_length 覆盖启动配置
 	settingRepo repository.SettingRepository
 }
 
@@ -83,10 +85,11 @@ func NewCollector(config CollectorConfig) *Collector {
 	}
 }
 
-// SetUserAgentSource 设置后台 User-Agent 覆盖来源（settings 表）。
+// SetUserAgentSource 设置后台可覆盖的采集配置来源（settings 表）。
 //
-// 传入后每次抓取都会读取 collector.user_agent 配置：非空则覆盖启动配置，
-// 为空（或未设置）则使用启动配置值，实现「config.yaml 设基线 + 后台可覆盖」。
+// 传入后每次抓取都会读取 collector.user_agent 与 collector.max_content_length：
+// 非空/大于 0 则覆盖启动配置，否则使用启动配置值，实现「config.yaml 设基线 +
+// 后台可覆盖」。二者共用同一 settingRepo。
 func (c *Collector) SetUserAgentSource(repo repository.SettingRepository) {
 	c.settingRepo = repo
 }
@@ -103,6 +106,21 @@ func (c *Collector) effectiveUserAgent(ctx context.Context) string {
 		}
 	}
 	return ua
+}
+
+// effectiveMaxContentLength 解析单次采集读取的 HTML 正文字节上限：
+// 后台 collector.max_content_length 覆盖优先（>0 才生效），否则用启动配置默认值。
+func (c *Collector) effectiveMaxContentLength(ctx context.Context) int {
+	limit := c.config.MaxContentLength
+	if c.settingRepo != nil {
+		if s, err := c.settingRepo.GetByKey(ctx, "collector.max_content_length"); err == nil && s != nil {
+			var override int
+			if json.Unmarshal(s.Value, &override) == nil && override > 0 {
+				limit = override
+			}
+		}
+	}
+	return limit
 }
 
 // Fetch 采集 URL 内容
@@ -133,15 +151,16 @@ func (c *Collector) Fetch(ctx context.Context, url string) (*CollectorResult, er
 		return nil, fmt.Errorf("unexpected status: %d", resp.StatusCode)
 	}
 
-	// 限制读取大小
-	body, err := io.ReadAll(io.LimitReader(resp.Body, int64(c.config.MaxContentLength)+1))
+	// 限制读取大小（上限可被后台 collector.max_content_length 覆盖）
+	maxLen := c.effectiveMaxContentLength(ctx)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, int64(maxLen)+1))
 	if err != nil {
 		return nil, fmt.Errorf("read body: %w", err)
 	}
 
-	truncated := len(body) > int(c.config.MaxContentLength)
+	truncated := len(body) > maxLen
 	if truncated {
-		body = body[:c.config.MaxContentLength]
+		body = body[:maxLen]
 	}
 
 	// 提取标题和内容
@@ -165,17 +184,47 @@ func (c *Collector) Fetch(ctx context.Context, url string) (*CollectorResult, er
 func (c *Collector) extractContent(url string, body []byte) (string, string) {
 	html := string(body)
 
-	// 提取标题（查找 <title> 标签）
-	title := "Untitled"
-	if idx := strings.Index(html, "<title>"); idx >= 0 {
-		start := idx + 7
-		if end := strings.Index(html[start:], "</title>"); end >= 0 {
-			title = strings.TrimSpace(html[start : start+end])
-		}
+	// 提取标题：og:title / twitter:title / 微信 #activity-name / <title> 依次兜底。
+	// 微信等页面的 <title> 常常为空，真实标题在 og:title 里，故优先取它。
+	title := extractTitle(html)
+	if title == "" {
+		title = "Untitled"
 	}
 
 	// 使用 htmlclean 清洗内容
 	content := c.cleaner.Clean(html)
 
 	return title, content
+}
+
+// extractTitle 按优先级从 HTML 中取标题，取到即返回（已 TrimSpace）：
+// og:title → twitter:title → #activity-name(微信) → 正文 H1 → <title>。
+func extractTitle(html string) string {
+	doc, err := goquery.NewDocumentFromReader(strings.NewReader(html))
+	if err != nil {
+		return ""
+	}
+
+	// 1) Open Graph / Twitter 卡片标题（微信、多数现代站点都在此）
+	for _, sel := range []string{
+		"meta[property='og:title']",
+		"meta[name='twitter:title']",
+	} {
+		if t := strings.TrimSpace(doc.Find(sel).First().AttrOr("content", "")); t != "" {
+			return t
+		}
+	}
+
+	// 2) 微信正文区标题 #activity-name
+	if t := strings.TrimSpace(doc.Find("#activity-name").First().Text()); t != "" {
+		return t
+	}
+
+	// 3) 首个正文 H1
+	if t := strings.TrimSpace(doc.Find("h1").First().Text()); t != "" {
+		return t
+	}
+
+	// 4) <title> 兜底
+	return strings.TrimSpace(doc.Find("title").First().Text())
 }

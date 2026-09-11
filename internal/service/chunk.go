@@ -18,51 +18,17 @@ func NewChunkService(chunkRepo repository.ChunkRepository) *chunkServiceImpl {
 	return &chunkServiceImpl{chunkRepo: chunkRepo}
 }
 
-// SplitContent 将文本切分为 Chunk
+// SplitContent 将文本切分为 Chunk。
+//
+// 实际录入/重处理走 AIPipeline.SplitContent（按 L2 策略切分）；此方法保留用于
+// 需要独立于 L2 的调用方，委托到唯一的切分实现 Split（window 策略 = 历史行为）。
 func (s *chunkServiceImpl) SplitContent(content string, chunkSize, overlap int) ([]model.Chunk, error) {
-	if chunkSize <= 0 {
-		chunkSize = 400
+	cfg := ChunkConfig{
+		Strategy: ChunkStrategyWindow,
+		Size:     chunkSize,
+		Overlap:  overlap,
 	}
-	if overlap < 0 {
-		overlap = 0
-	}
-	if overlap >= chunkSize {
-		overlap = chunkSize - 1
-	}
-
-	// 使用 rune 切片处理中文
-	runes := []rune(content)
-	totalLen := len(runes)
-
-	if totalLen == 0 {
-		return nil, fmt.Errorf("empty content")
-	}
-
-	var chunks []model.Chunk
-	start := 0
-
-	for start < totalLen {
-		end := start + chunkSize
-		if end > totalLen {
-			end = totalLen
-		}
-
-		chunk := string(runes[start:end])
-		wordCount := end - start
-
-		chunks = append(chunks, model.Chunk{
-			Content:   chunk,
-			WordCount: wordCount,
-		})
-
-		// 移动到下一个位置（考虑 overlap）
-		start = end - overlap
-		if start >= end {
-			start = end
-		}
-	}
-
-	return chunks, nil
+	return Split(content, cfg)
 }
 
 // CreateChunks 为文章创建 Chunk

@@ -121,10 +121,14 @@ func (c *ConfigCache) applySetting(cfg *model.L2Config, key string, raw []byte) 
 		cfg.Search.BM25Weight = num(raw)
 	case "search.ef_search":
 		cfg.Search.EFSearch = int(num(raw))
+	case "chunk.strategy":
+		cfg.Chunk.Strategy = str(raw)
 	case "chunk.size":
 		cfg.Chunk.Size = int(num(raw))
 	case "chunk.overlap":
 		cfg.Chunk.Overlap = int(num(raw))
+	case "chunk.min_size":
+		cfg.Chunk.MinSize = int(num(raw))
 	case "mcp_log.retention_days":
 		cfg.MCPLog.RetentionDays = int(num(raw))
 	case "keyword_search.tag_weight":
@@ -139,6 +143,8 @@ func (c *ConfigCache) applySetting(cfg *model.L2Config, key string, raw []byte) 
 		cfg.KeywordSearch.ContentWeight = num(raw)
 	case "collector.user_agent":
 		cfg.Collector.UserAgent = str(raw)
+	case "collector.max_content_length":
+		cfg.Collector.MaxContentLength = int(num(raw))
 	}
 	return nil
 }

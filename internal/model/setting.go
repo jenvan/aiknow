@@ -61,8 +61,10 @@ type L2Config struct {
 		EFSearch     int     `json:"ef_search"`
 	} `json:"search"`
 	Chunk struct {
-		Size    int `json:"size"`
-		Overlap int `json:"overlap"`
+		Strategy string `json:"strategy"`
+		Size     int    `json:"size"`
+		Overlap  int    `json:"overlap"`
+		MinSize  int    `json:"min_size"`
 	} `json:"chunk"`
 	MCPLog struct {
 		RetentionDays int `json:"retention_days"`
@@ -77,6 +79,9 @@ type L2Config struct {
 	Collector struct {
 		// UserAgent 后台覆盖值；留空表示使用启动配置（COLLECTOR_USER_AGENT）
 		UserAgent string `json:"user_agent"`
+		// MaxContentLength 后台覆盖值：单次采集读取的 HTML 正文字节上限；
+		// 0 表示使用启动配置默认值（DefaultCollectorConfig，2MB）
+		MaxContentLength int `json:"max_content_length"`
 	} `json:"collector"`
 	Prompt struct {
 		Analyze string `json:"analyze"`
@@ -128,11 +133,17 @@ func DefaultL2Config() L2Config {
 			EFSearch:     100,
 		},
 		Chunk: struct {
-			Size    int `json:"size"`
-			Overlap int `json:"overlap"`
+			Strategy string `json:"strategy"`
+			Size     int    `json:"size"`
+			Overlap  int    `json:"overlap"`
+			MinSize  int    `json:"min_size"`
 		}{
-			Size:    400,
-			Overlap: 50,
+			Strategy: "structure",
+			Size:     400,
+			// structure 策略在段落边界处不重叠（overlap 仅用于超长段落的滑窗兜底），
+			// 故默认 0；window 策略沿用 50。
+			Overlap: 0,
+			MinSize: 60,
 		},
 		MCPLog: struct {
 			RetentionDays int `json:"retention_days"`
@@ -153,9 +164,12 @@ func DefaultL2Config() L2Config {
 			ContentWeight:  1.0,
 		},
 		Collector: struct {
-			UserAgent string `json:"user_agent"`
+			UserAgent        string `json:"user_agent"`
+			MaxContentLength int    `json:"max_content_length"`
 		}{
-			UserAgent: "",
+			// 默认空：使用 L1 启动配置（COLLECTOR_USER_AGENT / 2MB）
+			UserAgent:        "",
+			MaxContentLength: 0,
 		},
 		Prompt: struct {
 			Analyze string `json:"analyze"`
