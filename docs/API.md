@@ -33,7 +33,7 @@ API Key 以 `ak_` 开头，例如 `ak_8f3a2b1c9d4e5f6a7b8c9d0e1f2a3b4c`。
 ### Session 鉴权（后台管理）
 
 后台管理接口使用 HTTP Cookie + CSRF Token 鉴权，供 Web UI 使用。
-完整接口说明见 [docs/TAD.md](./TAD.md)。
+完整接口说明见 [docs/API_ADMIN.md](./API_ADMIN.md)。
 
 ---
 

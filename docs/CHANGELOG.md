@@ -27,7 +27,7 @@
 将 API.md 中的后台管理接口（Session 鉴权部分）抽取为独立文档 API_ADMIN.md，
 覆盖：认证流程、文章 CRUD/预览/批量操作、API Key 管理、仪表盘、
 检索调试、MCP 调试代理、日志、系统配置、提示词管理等全部接口及快速上手示例。
-API.md 保留对 TAD.md 的交叉引用。
+API.md 保留对 API_ADMIN.md 的交叉引用。
 
 ## [Unreleased] - 2026-09-10
 
