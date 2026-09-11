@@ -116,6 +116,7 @@
                         <div x-show="loading" class="text-gray-500">加载中…</div>
 
                         <div x-show="!loading">
+                            <!-- 上方：四个统计卡片（不变） -->
                             <div class="grid grid-cols-4 gap-4 mb-6">
                                 <template x-for="c in cards()" :key="c.label">
                                     <div class="bg-white rounded-lg shadow p-4">
@@ -125,60 +126,62 @@
                                 </template>
                             </div>
 
-                            <div class="grid grid-cols-2 gap-4 mb-6">
-                                <div class="bg-white rounded-lg shadow p-4">
-                                    <h3 class="font-semibold text-gray-800 mb-3">处理状态分布</h3>
-                                    <div class="space-y-2">
-                                        <template x-for="s in statusList()" :key="s.key">
-                                            <div class="flex items-center justify-between">
-                                                <span class="px-2 py-0.5 rounded text-xs" :class="s.cls" x-text="s.label"></span>
-                                                <span class="font-medium" x-text="s.count"></span>
+                            <!-- 下方：左列依次「服务健康 / 任务状态 / 任务队列」，右列整块「最近录入」 -->
+                            <div class="grid grid-cols-2 gap-4 items-start">
+                                <div class="space-y-4">
+                                    <div class="bg-white rounded-lg shadow p-4">
+                                        <h3 class="font-semibold text-gray-800 mb-3">服务健康</h3>
+                                        <div class="space-y-2 text-sm">
+                                            <template x-for="row in healthRows()" :key="row.label">
+                                                <div class="flex justify-between items-center">
+                                                    <span class="text-gray-600" x-text="row.label"></span>
+                                                    <span class="px-2 py-0.5 rounded text-xs"
+                                                          :class="healthOK(row.value) ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'"
+                                                          x-text="row.value || '-'"></span>
+                                                </div>
+                                            </template>
+                                        </div>
+                                    </div>
+
+                                    <div class="bg-white rounded-lg shadow p-4">
+                                        <h3 class="font-semibold text-gray-800 mb-3">任务状态</h3>
+                                        <div class="space-y-2">
+                                            <template x-for="s in statusList()" :key="s.key">
+                                                <div class="flex items-center justify-between">
+                                                    <span class="px-2 py-0.5 rounded text-xs" :class="s.cls" x-text="s.label"></span>
+                                                    <span class="font-medium" x-text="s.count"></span>
+                                                </div>
+                                            </template>
+                                        </div>
+                                    </div>
+
+                                    <div class="bg-white rounded-lg shadow p-4">
+                                        <h3 class="font-semibold text-gray-800 mb-3">任务队列</h3>
+                                        <div class="space-y-2 text-sm">
+                                            <div class="flex justify-between">
+                                                <span class="text-gray-600">待处理深度</span>
+                                                <span class="font-medium" x-text="queue ? queue.depth : '-'"></span>
                                             </div>
-                                        </template>
-                                    </div>
-                                </div>
-
-                                <div class="bg-white rounded-lg shadow p-4">
-                                    <h3 class="font-semibold text-gray-800 mb-3">任务队列</h3>
-                                    <div class="space-y-2 text-sm">
-                                        <div class="flex justify-between">
-                                            <span class="text-gray-600">待处理深度</span>
-                                            <span class="font-medium" x-text="queue ? queue.depth : '-'"></span>
-                                        </div>
-                                        <div class="flex justify-between">
-                                            <span class="text-gray-600">死信数</span>
-                                            <span class="font-medium" :class="queue && queue.dlq_count > 0 ? 'text-red-600' : ''"
-                                                  x-text="queue ? queue.dlq_count : '-'"></span>
-                                        </div>
-                                        <div class="flex justify-between">
-                                            <span class="text-gray-600">最早消息等待</span>
-                                            <span class="font-medium" x-text="queueAge()"></span>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div class="grid grid-cols-2 gap-4">
-                                <div class="bg-white rounded-lg shadow p-4">
-                                    <h3 class="font-semibold text-gray-800 mb-3">服务健康</h3>
-                                    <div class="space-y-2 text-sm">
-                                        <template x-for="row in healthRows()" :key="row.label">
-                                            <div class="flex justify-between items-center">
-                                                <span class="text-gray-600" x-text="row.label"></span>
-                                                <span class="px-2 py-0.5 rounded text-xs"
-                                                      :class="healthOK(row.value) ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'"
-                                                      x-text="row.value || '-'"></span>
+                                            <div class="flex justify-between">
+                                                <span class="text-gray-600">死信数</span>
+                                                <span class="font-medium" :class="queue && queue.dlq_count > 0 ? 'text-red-600' : ''"
+                                                      x-text="queue ? queue.dlq_count : '-'"></span>
                                             </div>
-                                        </template>
+                                            <div class="flex justify-between">
+                                                <span class="text-gray-600">最早消息等待</span>
+                                                <span class="font-medium" x-text="queueAge()"></span>
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
 
-                                <div class="bg-white rounded-lg shadow p-4">
+                                <!-- 右列：最近录入整块，self-stretch 撑满左列三块总高 -->
+                                <div class="bg-white rounded-lg shadow p-4 self-stretch flex flex-col">
                                     <h3 class="font-semibold text-gray-800 mb-3">最近录入</h3>
                                     <div x-show="!recent.length" class="text-sm text-gray-500">暂无数据</div>
-                                    <ul class="space-y-2">
+                                    <ul class="space-y-3 flex-1">
                                         <template x-for="a in recent.slice(0, 8)" :key="a.id">
-                                            <li class="flex items-center justify-between text-sm">
+                                            <li class="flex items-center justify-between text-sm border-b border-gray-100 pb-2">
                                                 <a class="truncate mr-2 text-blue-600 hover:underline cursor-pointer"
                                                    @click.prevent="navigate('/ui/articles/' + a.id)"
                                                    x-text="a.title"></a>
@@ -811,7 +814,7 @@
                         </template>
 
                         <div class="bg-white rounded-lg shadow p-4 mb-4">
-                            <h3 class="font-semibold text-gray-800 mb-3">创建新 Key</h3>
+                            <h3 class="font-semibold text-gray-800 mb-3">创建密钥</h3>
                             <div class="flex gap-3 items-end">
                                 <div class="flex-1">
                                     <label class="block text-xs text-gray-600 mb-1">用途描述</label>
