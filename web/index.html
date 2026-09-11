@@ -4,12 +4,14 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AiKnow 爱脑 · AI 知识库管理工具</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 本地 vendor 资源（已下载到 web/js/vendor/，不依赖 CDN）：
+         Tailwind Play CDN 脚本 + Alpine.js 3.x 官方发布包。 -->
+    <script src="/web/js/vendor/tailwind.js"></script>
     <!-- app.js 必须排在 Alpine 之前：两者都是延迟执行，按文档顺序运行。
          若 Alpine 先执行，它会在 app.js 注册 alpine:init 监听器之前就
          start() 并派发该事件，导致组件全部未注册（shell is not defined）。 -->
     <script type="module" src="/web/js/app.js"></script>
-    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <script defer src="/web/js/vendor/alpine.cdn.min.js"></script>
     <link rel="stylesheet" href="/web/css/main.css">
 </head>
 <body class="bg-gray-50">

@@ -2,6 +2,16 @@
 
 ## [Unreleased] - 2026-09-11
 
+### 前端资源本地化：Tailwind 与 Alpine 去 CDN
+- 将 Tailwind Play CDN 脚本与 Alpine.js 3.x 官方发布包下载到本地
+  `web/js/vendor/`（`tailwind.js` / `alpine.cdn.min.js`），`index.html` 与
+  `login.html` 改引用本地路径，不再依赖 `cdn.tailwindcss.com` / `jsdelivr`。
+- 运行行为不变（本地仍是 Play CDN 运行时脚本）；`StaticFS("/web")` 已正确服务
+  两个文件（`text/javascript`）。已用 agent-browser 验证登录页/仪表盘渲染、
+  Alpine 组件注册正常。
+- 说明：Play CDN 脚本自带 production warning（console 提示"应改用 Tailwind CLI"），
+  属预期；如需消除可另立任务改为静态 CSS 编译。
+
 ### docs: 完善 docs/API.md，新增第三方调用说明
 
 在原有简短接口列表基础上补全为完整对外 API 文档，覆盖：
