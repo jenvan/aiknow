@@ -59,8 +59,8 @@ const NAV_GROUPS = [
         { page: 'mcp-logs',  href: '/ui/mcp-logs',        label: 'MCP 日志', icon: ICONS['mcp-logs'] },
     ]},
     { name: '系统', items: [
+        { page: 'api-keys',  href: '/ui/settings/api-keys', label: '密钥管理', icon: ICONS['api-keys'] },
         { page: 'settings',  href: '/ui/settings',        label: '系统配置', icon: ICONS.settings },
-        { page: 'api-keys',  href: '/ui/settings/api-keys', label: 'API Key', icon: ICONS['api-keys'] },
     ]},
 ];
 
