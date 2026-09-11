@@ -4,7 +4,7 @@ import { api } from '../api.js';
  * 分组展示顺序与中文名（与 CHANGELOG v0.6.2「按功能分组、不再按首字母排序」一致）。
  * 未在此列出的分组追加到末尾，保证新分组出现时不丢失。
  */
-const GROUP_ORDER = ['llm', 'embedding', 'reranker', 'search', 'chunk', 'keyword_search', 'mcp_log', 'collector', 'prompt'];
+const GROUP_ORDER = ['prompt', 'llm', 'embedding', 'reranker', 'search', 'keyword_search', 'collector', 'chunk', 'mcp_log'];
 const GROUP_LABELS = {
     llm: 'LLM',
     embedding: 'Embedding',
@@ -19,7 +19,7 @@ const GROUP_LABELS = {
 
 // 各配置项的取值范围 / 含义说明（key → 说明）；未列出的不显示。
 const FIELD_HINTS = {
-    'llm.model': '模型名，留空使用启动配置 QWEN_MODEL（优先级最高）',
+    'llm.model': 'LLM 模型名，留空使用启动配置 QWEN_MODEL；优先级：调用方显式指定 > 本项 > L1 > 内置 qwen-plus',
     'llm.temperature': '生成温度 0-2，越高越发散',
     'llm.max_tokens': '单次生成最大 token，建议 100-8000',
     'llm.retry_count': '失败重试次数 0-5',
@@ -32,8 +32,10 @@ const FIELD_HINTS = {
     'search.vector_weight': '向量权重 0-1，与 bm25_weight 之和为 1',
     'search.bm25_weight': 'BM25 权重 0-1，与 vector_weight 之和为 1',
     'search.ef_search': 'HNSW 查询 ef_search 10-500',
-    'chunk.size': 'Chunk 大小（字符），200-800',
-    'chunk.overlap': 'Chunk 重叠（字符），需 < size',
+    'chunk.strategy': '切分策略：structure 按空行+标题切段、超窗滑窗兜底（推荐）；window 纯定长滑窗（历史行为）',
+    'chunk.size': '单片目标大小（字符），200-800；structure 下超过此值的段落才滑窗',
+    'chunk.overlap': '滑窗重叠（字符），仅用于超长段落兜底，structure 边界处默认 0 不重叠，需 < size',
+    'chunk.min_size': '短片段合并阈值：小于此值且并入上一片不超 size 时合并，防列表项切碎段',
     'keyword_search.tag_weight': '标签精确匹配权重',
     'keyword_search.category_weight': '分类精确匹配权重',
     'keyword_search.title_weight': '标题命中权重',
@@ -41,6 +43,7 @@ const FIELD_HINTS = {
     'keyword_search.content_weight': '正文命中权重',
     'mcp_log.retention_days': 'MCP 日志保留天数 1-365',
     'collector.user_agent': '抓网页时的 User-Agent，留空用启动配置',
+    'collector.max_content_length': '单次采集读取的 HTML 正文字节上限，留空/0 用启动默认（2MB）；页面被截断时可调大',
     'prompt.analyze': '文章分析提示词模板，支持 {{.Title}}/{{.Content}}/{{.Categories}}，须含 json 字样',
 };
 
@@ -63,6 +66,7 @@ export function registerSettings(Alpine) {
 
         editingKey: '',
         editingText: '',
+        editingIsString: false,
         saving: false,
 
         historyKey: '',
@@ -146,7 +150,10 @@ export function registerSettings(Alpine) {
 
         edit(item) {
             this.editingKey = item.key;
-            this.editingText = JSON.stringify(item.value);
+            // 字符串型配置（llm.model / collector.user_agent / prompt.analyze 等）
+            // 按裸文本编辑，避免把 JSON 引号暴露给用户；其余（数字/对象）仍走 JSON。
+            this.editingIsString = typeof item.value === 'string';
+            this.editingText = this.editingIsString ? item.value : JSON.stringify(item.value);
             this.error = '';
             this.notice = '';
         },
@@ -154,15 +161,21 @@ export function registerSettings(Alpine) {
         cancelEdit() {
             this.editingKey = '';
             this.editingText = '';
+            this.editingIsString = false;
         },
 
         async save() {
             let parsed;
-            try {
-                parsed = JSON.parse(this.editingText);
-            } catch (e) {
-                this.error = 'JSON 格式有误：' + e.message + '（字符串需加引号，如 "abc"）';
-                return;
+            if (this.editingIsString) {
+                // 字符串项：直接取输入文本（空串合法，表示"未覆盖/回落默认"）
+                parsed = this.editingText;
+            } else {
+                try {
+                    parsed = JSON.parse(this.editingText);
+                } catch (e) {
+                    this.error = 'JSON 格式有误：' + e.message;
+                    return;
+                }
             }
 
             this.saving = true;

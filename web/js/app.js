@@ -31,16 +31,46 @@ const ROUTES = [
     { re: /^\/ui\/mcp-logs\/?$/,          page: 'mcp-logs' },
 ];
 
-const NAV_ITEMS = [
-    { page: 'dashboard',   href: '/ui/dashboard',         label: '仪表盘' },
-    { page: 'articles',    href: '/ui/articles',          label: '文章列表' },
-    { page: 'article-new', href: '/ui/articles/new',      label: '录入文章' },
-    { page: 'search',      href: '/ui/search',            label: '检索测试' },
-    { page: 'mcp-debug',   href: '/ui/mcp-debug',         label: 'MCP 调试' },
-    { page: 'mcp-logs',    href: '/ui/mcp-logs',          label: 'MCP 日志' },
-    { page: 'settings',    href: '/ui/settings',          label: '系统配置' },
-    { page: 'api-keys',    href: '/ui/settings/api-keys', label: 'API Key' },
+// 导航图标：inline-SVG 内层路径（heroicons outline 风格）。
+// stroke 用 currentColor，让 active/inactive 只靠文字色切换即可高亮。
+const ICONS = {
+    dashboard: '<rect x="3" y="3" width="7.5" height="7.5" rx="1.5"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="1.5"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="1.5"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1.5"/>',
+    articles:  '<path d="M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01"/>',
+    'article-new': '<rect x="3.5" y="3.5" width="17" height="17" rx="2"/><path d="M12 8.5v7M8.5 12h7"/>',
+    search:    '<circle cx="11" cy="11" r="7"/><path d="m20.5 20.5-4.2-4.2"/>',
+    'mcp-debug': '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3M13 15h4"/>',
+    'mcp-logs': '<path d="M7 3h7l4 4v14H7z"/><path d="M14 3v4h4M10 12h5M10 16h5"/>',
+    settings:  '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9 7 7M17 17l2.1 2.1M19.1 4.9 17 7M7 17l-2.1 2.1"/>',
+    'api-keys':'<circle cx="7.5" cy="7.5" r="3.5"/><path d="m10.2 10.2 8.8 8.8M15 15l2.2-2.2M17.5 17.5l2-2"/>',
+};
+
+// 导航按功能域分组（展示顺序即渲染顺序）。URL/路由不变，只改侧栏展示。
+const NAV_GROUPS = [
+    { name: '概览', items: [
+        { page: 'dashboard',   href: '/ui/dashboard',         label: '仪表盘',  icon: ICONS.dashboard },
+    ]},
+    { name: '内容', items: [
+        { page: 'articles',    href: '/ui/articles',          label: '文章列表', icon: ICONS.articles },
+        { page: 'article-new', href: '/ui/articles/new',      label: '录入文章', icon: ICONS['article-new'] },
+    ]},
+    { name: '检索 & 调试', items: [
+        { page: 'search',    href: '/ui/search',          label: '检索测试', icon: ICONS.search },
+        { page: 'mcp-debug', href: '/ui/mcp-debug',       label: 'MCP 调试', icon: ICONS['mcp-debug'] },
+        { page: 'mcp-logs',  href: '/ui/mcp-logs',        label: 'MCP 日志', icon: ICONS['mcp-logs'] },
+    ]},
+    { name: '系统', items: [
+        { page: 'settings',  href: '/ui/settings',        label: '系统配置', icon: ICONS.settings },
+        { page: 'api-keys',  href: '/ui/settings/api-keys', label: 'API Key', icon: ICONS['api-keys'] },
+    ]},
 ];
+
+// 平铺列表（供 resolve / pageTitle 复用）
+const NAV_ITEMS = NAV_GROUPS.flatMap((g) => g.items);
+
+// 各页标题（侧栏/header 显示；非导航页如文章编辑单独映射）
+const PAGE_TITLES = {
+    'article-edit': '文章编辑',
+};
 
 function resolve(pathname) {
     for (const r of ROUTES) {
@@ -73,7 +103,19 @@ document.addEventListener('alpine:init', () => {
         isLoggedIn: false,
         username: '',
         currentPage: '',
-        navItems: NAV_ITEMS,
+        sidebarOpen: false,          // 响应式抽屉：窄屏侧栏展开态
+        navGroups: NAV_GROUPS,
+
+        /** 当前页在导航里的标题（非导航页如文章编辑用 PAGE_TITLES 兜底） */
+        pageTitle() {
+            if (PAGE_TITLES[this.currentPage]) return PAGE_TITLES[this.currentPage];
+            const found = NAV_ITEMS.find((i) => i.page === this.currentPage);
+            return found ? found.label : '仪表盘';
+        },
+
+        /** 切换并关闭抽屉（页内链接跳转后自动收起） */
+        toggleSidebar() { this.sidebarOpen = !this.sidebarOpen; },
+        closeSidebar() { this.sidebarOpen = false; },
 
         async init() {
             const session = await fetchSession();
@@ -81,8 +123,12 @@ document.addEventListener('alpine:init', () => {
                 this.isLoggedIn = true;
                 this.username = session.username;
                 this.applyRoute();
+                this.ready = true;
+            } else {
+                // 未登录：直接跳登录页，不再停留展示「未登录」状态页（省一次点击）
+                window.location.replace('/ui/login');
+                return;
             }
-            this.ready = true;
 
             window.addEventListener('popstate', () => this.applyRoute());
         },
@@ -101,6 +147,7 @@ document.addEventListener('alpine:init', () => {
             if (window.location.pathname !== href) {
                 window.history.pushState({}, '', href);
             }
+            this.closeSidebar();
             this.applyRoute();
         },
 
