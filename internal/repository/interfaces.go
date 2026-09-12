@@ -83,8 +83,8 @@ type MCPLogRepository interface {
 
 // SearchRepository 检索仓库接口
 type SearchRepository interface {
-	VectorSearch(ctx context.Context, query []float32, topK int) ([]model.SearchChunk, error)
-	BM25Search(ctx context.Context, query string, topK int) ([]model.SearchChunk, error)
+	VectorSearch(ctx context.Context, query []float32, topK int, category string) ([]model.SearchChunk, error)
+	BM25Search(ctx context.Context, query string, topK int, category string) ([]model.SearchChunk, error)
 	KeywordSearch(ctx context.Context, keywords []string, params model.KeywordSearchParams) ([]model.KeywordSearchResult, error)
 	GetArticleByID(ctx context.Context, id string) (*model.Article, error)
 	GetCategories(ctx context.Context) ([]model.Category, error)

@@ -1,6 +1,20 @@
 # AiKnow 变更日志
 
-## [Unreleased] - 2026-09-11
+## [Unreleased] - 2026-09-12
+
+### feat: GET /api/v1/articles 支持按分类名称和标签名称过滤
+
+新增可选参数 `category`（分类名称，大小写不敏感）和 `tags`（标签名称，
+逗号分割，大小写不敏感），在 service 层通过 `categoryRepo.GetByName` /
+`tagRepo.GetByName` 转为内部 ID 后传入 repository。现有 `category_id` /
+`tag_id` 参数行为不变，两者可同时使用。
+
+### feat: /api/v1/search 支持按 category 过滤
+
+在 `POST /api/v1/search` 请求体中新增可选参数 `params.category`，
+向量检索（VectorSearch）与 BM25 检索（BM25Search）均通过 JOIN articles
+关联分类后按名称过滤，大小写不敏感。未传时行为不变。同步更新
+`DebugSearch` 与 `SearchWithConcurrent` 两个入口。
 
 ### 前端资源本地化：Tailwind 与 Alpine 去 CDN
 - 将 Tailwind Play CDN 脚本与 Alpine.js 3.x 官方发布包下载到本地

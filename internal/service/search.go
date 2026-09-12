@@ -98,7 +98,7 @@ func (s *SearchServiceImpl) Search(ctx context.Context, query string, params mod
 
 	// 2. 向量检索
 	vectorStart := time.Now()
-	vectorResults, err := s.searchRepo.VectorSearch(ctx, embResult.Embedding, params.CandidateK)
+	vectorResults, err := s.searchRepo.VectorSearch(ctx, embResult.Embedding, params.CandidateK, params.Category)
 	if err != nil {
 		return nil, fmt.Errorf("vector search: %w", err)
 	}
@@ -106,7 +106,7 @@ func (s *SearchServiceImpl) Search(ctx context.Context, query string, params mod
 
 	// 3. BM25 检索
 	bm25Start := time.Now()
-	bm25Results, err := s.searchRepo.BM25Search(ctx, query, params.CandidateK)
+	bm25Results, err := s.searchRepo.BM25Search(ctx, query, params.CandidateK, params.Category)
 	if err != nil {
 		return nil, fmt.Errorf("bm25 search: %w", err)
 	}
@@ -195,7 +195,7 @@ func (s *SearchServiceImpl) DebugSearch(ctx context.Context, query string, param
 	embeddingMs := time.Since(embStart).Milliseconds()
 
 	vectorStart := time.Now()
-	vectorResults, err := s.searchRepo.VectorSearch(ctx, embResult.Embedding, params.CandidateK)
+	vectorResults, err := s.searchRepo.VectorSearch(ctx, embResult.Embedding, params.CandidateK, params.Category)
 	if err != nil {
 		return nil, fmt.Errorf("vector search: %w", err)
 	}
@@ -203,7 +203,7 @@ func (s *SearchServiceImpl) DebugSearch(ctx context.Context, query string, param
 
 	// 2. BM25 检索
 	bm25Start := time.Now()
-	bm25Results, err := s.searchRepo.BM25Search(ctx, query, params.CandidateK)
+	bm25Results, err := s.searchRepo.BM25Search(ctx, query, params.CandidateK, params.Category)
 	if err != nil {
 		return nil, fmt.Errorf("bm25 search: %w", err)
 	}
@@ -369,11 +369,11 @@ func SearchWithConcurrent(ctx context.Context, query string, params model.Search
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		vectorResults, vectorErr = sr.VectorSearch(ctx, embResult.Embedding, params.CandidateK)
+		vectorResults, vectorErr = sr.VectorSearch(ctx, embResult.Embedding, params.CandidateK, params.Category)
 	}()
 	go func() {
 		defer wg.Done()
-		bm25Results, bm25Err = sr.BM25Search(ctx, query, params.CandidateK)
+		bm25Results, bm25Err = sr.BM25Search(ctx, query, params.CandidateK, params.Category)
 	}()
 	wg.Wait()
 

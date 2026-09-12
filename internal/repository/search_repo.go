@@ -20,25 +20,27 @@ func NewSearchRepository(db *PostgresDB) *SearchRepositoryImpl {
 }
 
 // VectorSearch 向量检索（pgvector 余弦相似度）
-func (r *SearchRepositoryImpl) VectorSearch(ctx context.Context, query []float32, topK int) ([]model.SearchChunk, error) {
+func (r *SearchRepositoryImpl) VectorSearch(ctx context.Context, query []float32, topK int, category string) ([]model.SearchChunk, error) {
 	if topK <= 0 {
 		topK = 20
 	}
-	// 使用 <=> （余弦距离），与 002_vector.sql 中 HNSW 索引的 vector_cosine_ops
-	// 保持一致；此前误用 <-> （L2 距离）导致索引失效、退化为全表扫描。
-	// 不查询 c.embedding：调用方只需要 content 与得分，
-	// 取回 1024 维向量会被原样序列化进检索响应（每条约 4KB），
-	// 既浪费带宽也把内部向量暴露给客户端
-	queryVec := pgvector.NewVector(query)
+	filter := "c.embedding IS NOT NULL AND c.deleted = false"
+	args := []interface{}{pgvector.NewVector(query), topK}
+	argIdx := 3
+	if category != "" {
+		filter += fmt.Sprintf(" AND a.category_id IN (SELECT id FROM categories WHERE lower(name) = lower($%d))", argIdx)
+		args = append(args, category)
+		argIdx++
+	}
 	rows, err := r.db.pool.Query(ctx, `
 		SELECT c.id, c.article_id, c.chunk_index, c.content,
 		       1 - (c.embedding <=> $1) AS similarity
 		FROM chunks c
-		WHERE c.embedding IS NOT NULL
-		  AND c.deleted = false
+		JOIN articles a ON a.id = c.article_id
+		WHERE `+filter+`
 		ORDER BY c.embedding <=> $1
 		LIMIT $2
-	`, queryVec, topK)
+	`, args...)
 	if err != nil {
 		return nil, fmt.Errorf("向量检索: %w", err)
 	}
@@ -66,7 +68,7 @@ func (r *SearchRepositoryImpl) VectorSearch(ctx context.Context, query []float32
 //   - ||| 为析取匹配算子，查询串按字段索引时的分词器（jieba）切分后匹配任一词元
 //   - pdb.score(<key_field>) 取 BM25 相关性分值，参数须为索引声明的 key_field
 //   - deleted 已随索引一同建立，过滤条件可下推，topK 不会因过滤而失真
-func (r *SearchRepositoryImpl) BM25Search(ctx context.Context, query string, topK int) ([]model.SearchChunk, error) {
+func (r *SearchRepositoryImpl) BM25Search(ctx context.Context, query string, topK int, category string) ([]model.SearchChunk, error) {
 	if topK <= 0 {
 		topK = 20
 	}
@@ -75,14 +77,21 @@ func (r *SearchRepositoryImpl) BM25Search(ctx context.Context, query string, top
 		return nil, nil
 	}
 
+	where := "content ||| $1 AND deleted = false"
+	args := []interface{}{query, topK}
+	argIdx := 3
+	if category != "" {
+		where += fmt.Sprintf(" AND article_id IN (SELECT id FROM articles a JOIN categories c ON c.id = a.category_id WHERE lower(c.name) = lower($%d))", argIdx)
+		args = append(args, category)
+	}
+
 	rows, err := r.db.pool.Query(ctx, `
 		SELECT id, article_id, chunk_index, content, pdb.score(id) AS score
 		FROM chunks
-		WHERE content ||| $1
-		  AND deleted = false
+		WHERE `+where+`
 		ORDER BY pdb.score(id) DESC, id ASC
 		LIMIT $2
-	`, query, topK)
+	`, args...)
 	if err != nil {
 		return nil, fmt.Errorf("BM25 检索: %w", err)
 	}

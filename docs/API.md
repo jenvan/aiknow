@@ -178,7 +178,9 @@ GET /api/v1/articles
 | `page` | int | `1` | 页码，从 1 开始 |
 | `page_size` | int | `20` | 每页条数，最大 100 |
 | `category_id` | string | — | 按分类 ID 过滤 |
+| `category` | string | — | 按分类名称过滤（大小写不敏感） |
 | `tag_id` | string (可多选) | — | 按标签 ID 过滤，可多次出现 |
+| `tags` | string | — | 按标签名称过滤，支持多个，逗号分割（大小写不敏感） |
 | `status` | string | — | `pending` / `processing` / `completed` / `failed` |
 | `search` | string | — | 按标题模糊搜索 |
 | `sort_by` | string | `created_at` | `created_at` / `updated_at` / `view_count` |
@@ -254,6 +256,7 @@ POST /api/v1/search
 | `params.vector_weight` | float | 否 | `0.5` | 向量分数权重 |
 | `params.bm25_weight` | float | 否 | `0.5` | BM25 分数权重 |
 | `params.ef_search` | int | 否 | `40` | pgvector 近似搜索精度（越大越准越慢） |
+| `params.category` | string | 否 | — | 按分类名称过滤（大小写不敏感） |
 
 **响应示例：**
 

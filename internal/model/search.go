@@ -10,6 +10,7 @@ type SearchParams struct {
 	VectorWeight float64 `json:"vector_weight"`
 	BM25Weight   float64 `json:"bm25_weight"`
 	EFSearch     int     `json:"ef_search"`
+	Category     string  `json:"category,omitempty"`
 }
 
 // SearchChunk 检索分块结果

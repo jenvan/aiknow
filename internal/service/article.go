@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/jenvan/aiknow/internal/model"
 	"github.com/jenvan/aiknow/internal/repository"
@@ -152,6 +153,27 @@ func (s *articleServiceImpl) GetByID(ctx context.Context, id string) (*model.Art
 
 // List 分页查询文章列表
 func (s *articleServiceImpl) List(ctx context.Context, query model.ArticleListQuery) (*model.ArticleListResult, error) {
+	if query.Category != "" {
+		cat, err := s.categoryRepo.GetByName(ctx, query.Category)
+		if err != nil {
+			return nil, fmt.Errorf("lookup category: %w", err)
+		}
+		query.CategoryID = &cat.ID
+	}
+	if query.Tags != "" {
+		names := strings.Split(query.Tags, ",")
+		for _, name := range names {
+			name = strings.TrimSpace(name)
+			if name == "" {
+				continue
+			}
+			tag, err := s.tagRepo.GetByName(ctx, name)
+			if err != nil {
+				continue
+			}
+			query.TagIDs = append(query.TagIDs, tag.ID)
+		}
+	}
 	return s.articleRepo.List(ctx, query)
 }
 

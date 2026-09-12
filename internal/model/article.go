@@ -45,6 +45,8 @@ type ArticleListQuery struct {
 	Page       int        `form:"page" default:"1"`
 	PageSize   int        `form:"page_size" default:"20"`
 	CategoryID *string    `form:"category_id,omitempty"`
+	Category   string     `form:"category,omitempty"`
+	Tags       string     `form:"tags,omitempty"`
 	TagIDs     []string   `form:"tag_id,omitempty"`
 	Status     *string    `form:"status,omitempty"`
 	Search     *string    `form:"search,omitempty"`
