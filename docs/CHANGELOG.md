@@ -2,6 +2,37 @@
 
 ## [Unreleased] - 2026-09-12
 
+### feat: 检索测试页「关键词检索」增加分词开关（tokenized）
+
+在后台「检索测试」页的关键词检索表单，关键词输入框右侧新增「分词」复选框，
+对应 `KeywordSearchParams.Tokenized`（默认勾选=分词）。勾选时用 jieba 分词
+（`|||`，"知识图谱"拆成"知识"/"图谱"，召回多篇）；取消勾选时用
+`to_tsquery('simple')` 整词精确匹配（仅召回含完整"知识图谱"的文章）。
+后端 `/search/debug/keywords` 路径已透传该参数，仅改前端
+（`web/js/pages/search.js` 的 `kparams` 与 `web/index.html` 表单）。
+已用 agent-browser 验证：分词模式召回 5 条、精确模式仅 1 条，与数据库基线
+（16 vs 1）一致，均无报错。
+
+### feat: MCP 检索工具补齐参数（category / tokenized / 统一 limit）
+
+对齐后台「检索测试」页能力，为两个 MCP 查询工具补充参数：
+
+- `search_knowledge` 新增 `category`（按分类名称过滤，大小写不敏感，可选），
+  透传至 `SearchParams.Category`。
+- `find_articles_by_keywords` 新增 `tokenized`（布尔，默认 true）：true 用
+  jieba 分词（`|||`，"父母"可匹配"父母牵线"，BM25 打分）；false 用
+  `to_tsquery('simple')` 整词精确匹配（"小日本"不拆分，按字段权重排序）。
+  `KeywordSearchParams.Tokenized` 用 `*bool` 三态，nil 时默认分词，
+  避免调用方漏传退化成精确模式（不影响检索测试页现有行为）。
+- 两个工具的返回数量参数统一命名为 `limit`（原 `search_knowledge` 为 `top_k`）。
+
+仓库层 `KeywordSearch` 按 `tokenized` 分支构造文本匹配 CTE，新增
+`buildSimpleTSQuery` 将关键词列表构造为 `to_tsquery('simple')` 的 OR 查询串
+（词素单引号包裹并转义，保留多字词整体）。已用 agent-browser 在 MCP 调试页
+验证：tools/list schema 正确暴露新参数；`search_knowledge` 带 category 正常
+返回；`find_articles_by_keywords` 关键词「知识图谱」分词模式召回多篇、精确
+模式仅召回含整词的 1 篇，均无报错。
+
 ### fix: 检索测试页混合搜索的分类过滤报错 column reference "id" is ambiguous
 
 `BM25Search` 的分类过滤子查询 `SELECT id FROM articles a JOIN categories c ...`

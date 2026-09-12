@@ -56,8 +56,9 @@ func (s *MCPServiceImpl) ListTools(ctx context.Context, scope string) ([]model.M
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
-					"query": map[string]interface{}{"type": "string", "description": "检索查询"},
-					"top_k": map[string]interface{}{"type": "integer", "description": "返回结果数", "default": 5},
+					"query":    map[string]interface{}{"type": "string", "description": "检索查询"},
+					"limit":    map[string]interface{}{"type": "integer", "description": "返回结果数", "default": 5},
+					"category": map[string]interface{}{"type": "string", "description": "按分类名称过滤（可选，大小写不敏感），不传则检索全部分类"},
 				},
 				"required": []string{"query"},
 			},
@@ -68,8 +69,9 @@ func (s *MCPServiceImpl) ListTools(ctx context.Context, scope string) ([]model.M
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
-					"keywords": map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}, "description": "关键词列表"},
-					"limit":    map[string]interface{}{"type": "integer", "description": "返回数量", "default": 5},
+					"keywords":  map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}, "description": "关键词列表"},
+					"limit":     map[string]interface{}{"type": "integer", "description": "返回数量", "default": 5},
+					"tokenized": map[string]interface{}{"type": "boolean", "description": "是否启用 jieba 分词匹配。true（默认）分词，\"父母\"可匹配\"父母牵线\"；false 精确整词匹配，\"小日本\"不会被拆分", "default": true},
 				},
 				"required": []string{"keywords"},
 			},
@@ -131,12 +133,14 @@ func (s *MCPServiceImpl) searchKnowledge(ctx context.Context, args map[string]in
 		return nil, fmt.Errorf("query is required")
 	}
 
-	topK := 5
-	if k, ok := args["top_k"].(float64); ok {
-		topK = int(k)
+	limit := 5
+	if l, ok := args["limit"].(float64); ok {
+		limit = int(l)
 	}
 
-	result, err := s.searchService.Search(ctx, query, model.SearchParams{TopK: topK})
+	category, _ := args["category"].(string)
+
+	result, err := s.searchService.Search(ctx, query, model.SearchParams{TopK: limit, Category: category})
 	if err != nil {
 		return nil, fmt.Errorf("search knowledge: %w", err)
 	}
@@ -175,7 +179,13 @@ func (s *MCPServiceImpl) findArticlesByKeywords(ctx context.Context, args map[st
 		limit = int(l)
 	}
 
-	result, err := s.keywordService.SearchKeywords(ctx, kwList, model.KeywordSearchParams{TopK: limit})
+	params := model.KeywordSearchParams{TopK: limit}
+	// tokenized 未传时保持 nil（默认分词），显式传入才覆盖
+	if t, ok := args["tokenized"].(bool); ok {
+		params.Tokenized = &t
+	}
+
+	result, err := s.keywordService.SearchKeywords(ctx, kwList, params)
 	if err != nil {
 		return nil, fmt.Errorf("search keywords: %w", err)
 	}

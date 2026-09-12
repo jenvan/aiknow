@@ -586,8 +586,14 @@
 
                             <!-- 关键词检索参数 -->
                             <div x-show="mode === 'keywords'" class="space-y-3">
-                                <input x-model="keywords" @keydown.enter="run()" class="w-full border rounded px-3 py-2 text-sm"
-                                       placeholder="关键词，逗号分隔">
+                                <div class="flex items-center gap-3">
+                                    <input x-model="keywords" @keydown.enter="run()" class="flex-1 border rounded px-3 py-2 text-sm"
+                                           placeholder="关键词，逗号分隔">
+                                    <label class="flex items-center gap-1.5 text-sm text-gray-600 whitespace-nowrap" title="开启：jieba 分词，“父母”可匹配“父母牵线”；关闭：整词精确匹配，“小日本”不拆分">
+                                        <input type="checkbox" x-model="kparams.tokenized" class="rounded">
+                                        分词
+                                    </label>
+                                </div>
                                 <div class="grid grid-cols-6 gap-2">
                                     <div><label class="block text-xs text-gray-600 mb-1">top_k</label>
                                         <input type="number" x-model.number="kparams.top_k" class="w-full border rounded px-2 py-1 text-sm"></div>

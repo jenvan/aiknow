@@ -231,6 +231,17 @@ ConfigCache.Reload 用 `map[string]interface{}` 解析，对扁平标量必然�
 
 工具 `description` 中写明该区别，引导大模型正确选择。
 
+**检索工具参数**（与后台「检索测试」页能力对齐，只暴露查询作用域类参数，
+不暴露 candidate_k/rrf_k/各类 weight 等算法调优旋钮——那些是给人调参的，
+LLM 无依据填写，暴露只会污染工具选择）：
+- 两个工具的返回数量统一命名为 `limit`（默认 5）。
+- `search_knowledge` 支持 `category`（分类名称，大小写不敏感，可选），透传
+  `SearchParams.Category`。
+- `find_articles_by_keywords` 支持 `tokenized`（布尔，默认 true）：true 用
+  jieba 分词（`|||`，"父母"匹配"父母牵线"）；false 用 `to_tsquery('simple')`
+  整词精确匹配（"小日本"不拆分）。`KeywordSearchParams.Tokenized` 为 `*bool`
+  三态，**nil 默认分词**——避免调用方漏传退化成精确模式，破坏现有行为。
+
 **关键词检索评分**（标签/分类权重高于正文——用户给关键词时期望「打了这个标签的文章」，而非「正文恰好提到的文章」）：
 
 | 命中位置 | 权重 |

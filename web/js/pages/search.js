@@ -10,7 +10,7 @@ export function registerSearch(Alpine) {
         query: '',
         keywords: '',
         params: { top_k: 10, candidate_k: 20, rrf_k: 60, vector_weight: 1, bm25_weight: 1, ef_search: 40, category: '' },
-        kparams: { top_k: 10, tag_weight: 3, category_weight: 2.5, title_weight: 2, summary_weight: 1.5, content_weight: 1 },
+        kparams: { top_k: 10, tag_weight: 3, category_weight: 2.5, title_weight: 2, summary_weight: 1.5, content_weight: 1, tokenized: true },
 
         result: null,
         keywordResult: null,

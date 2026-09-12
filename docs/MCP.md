@@ -18,7 +18,8 @@ Authorization: Bearer <api_key>
 
 **参数**：
 - `query` (string): 检索查询
-- `top_k` (integer, default: 5): 返回结果数
+- `limit` (integer, default: 5): 返回结果数
+- `category` (string, 可选): 按分类名称过滤（大小写不敏感），不传则检索全部分类
 
 ### find_articles_by_keywords (readonly)
 关键词检索，返回文章卡片。
@@ -26,6 +27,7 @@ Authorization: Bearer <api_key>
 **参数**：
 - `keywords` (array): 关键词列表
 - `limit` (integer, default: 5): 返回数量
+- `tokenized` (boolean, default: true): 是否启用 jieba 分词匹配。true（默认）分词，"父母"可匹配"父母牵线"；false 精确整词匹配，"小日本"不会被拆分
 
 ### get_article_detail (readonly)
 获取文章全文。

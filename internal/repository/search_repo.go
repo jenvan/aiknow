@@ -113,6 +113,18 @@ func (r *SearchRepositoryImpl) BM25Search(ctx context.Context, query string, top
 	return results, nil
 }
 
+// buildSimpleTSQuery 将关键词列表构造为 to_tsquery('simple', ...) 可解析的查询串。
+// 每个关键词用单引号包裹为独立词素（内部单引号翻倍转义），保留多字词整体、
+// 避免含空格的关键词触发 tsquery 语法错误；词素间以 | 组合，实现「命中任一」的 OR 语义，
+// 与分词模式下 ||| 空格连接的匹配行为保持一致。作为绑定参数传入，不涉及 SQL 注入。
+func buildSimpleTSQuery(keywords []string) string {
+	parts := make([]string, len(keywords))
+	for i, k := range keywords {
+		parts[i] = "'" + strings.ReplaceAll(k, "'", "''") + "'"
+	}
+	return strings.Join(parts, " | ")
+}
+
 // KeywordSearch 关键词加权检索
 //
 // 按字段权重对文章打分：标签 > 分类 > 标题 > 摘要 > 正文。
@@ -150,15 +162,22 @@ func (r *SearchRepositoryImpl) KeywordSearch(ctx context.Context, keywords []str
 		params.TopK = 10
 	}
 
-	// 关键词以空格连接供 ||| 分词匹配；同时以数组形式做标签/分类精确匹配
-	joined := strings.Join(cleaned, " ")
+	// 标签/分类始终按数组精确匹配（不分词）
 	lowered := make([]string, len(cleaned))
 	for i, k := range cleaned {
 		lowered[i] = strings.ToLower(k)
 	}
 
-	rows, err := r.db.pool.Query(ctx, `
-		WITH text_hits AS (
+	// 文本匹配分两种模式，与文章列表搜索的 tokenized 语义一致：
+	//   分词（默认）：||| 配合 jieba，"父母"可匹配"父母牵线"，用 BM25 分值打分；
+	//   精确：to_tsquery('simple') 整词匹配，"小日本"不被拆分，按字段权重排序。
+	tokenized := params.Tokenized == nil || *params.Tokenized
+	var textParam, textHitsCTE string
+	if tokenized {
+		// 关键词以空格连接供 ||| 分词匹配
+		textParam = strings.Join(cleaned, " ")
+		textHitsCTE = `
+		text_hits AS (
 			SELECT id,
 			       pdb.score(id) AS bm25_score,
 			       CASE WHEN title   ||| $1 THEN $3::float8 ELSE 0 END +
@@ -168,7 +187,26 @@ func (r *SearchRepositoryImpl) KeywordSearch(ctx context.Context, keywords []str
 			WHERE (title ||| $1 OR summary ||| $1 OR content ||| $1)
 			  AND published = true
 			LIMIT 500
-		),
+		),`
+	} else {
+		// 精确模式无 BM25 分值，bm25_score 固定为 1，排序完全由字段权重决定
+		textParam = buildSimpleTSQuery(cleaned)
+		textHitsCTE = `
+		text_hits AS (
+			SELECT id,
+			       1.0::float8 AS bm25_score,
+			       CASE WHEN title   @@ to_tsquery('simple', $1) THEN $3::float8 ELSE 0 END +
+			       CASE WHEN summary @@ to_tsquery('simple', $1) THEN $4::float8 ELSE 0 END +
+			       CASE WHEN content @@ to_tsquery('simple', $1) THEN $5::float8 ELSE 0 END AS field_weight
+			FROM articles
+			WHERE (title @@ to_tsquery('simple', $1) OR summary @@ to_tsquery('simple', $1) OR content @@ to_tsquery('simple', $1))
+			  AND published = true
+			LIMIT 500
+		),`
+	}
+
+	rows, err := r.db.pool.Query(ctx, `
+		WITH `+textHitsCTE+`
 		tag_hits AS (
 			SELECT at.article_id AS id, $6::float8 AS w
 			FROM article_tags at
@@ -196,7 +234,7 @@ func (r *SearchRepositoryImpl) KeywordSearch(ctx context.Context, keywords []str
 		WHERE a.deleted_at IS NULL
 		ORDER BY s.total DESC, a.created_at DESC
 		LIMIT $8
-	`, joined, lowered,
+	`, textParam, lowered,
 		params.TitleWeight, params.SummaryWeight, params.ContentWeight,
 		params.TagWeight, params.CategoryWeight, params.TopK)
 	if err != nil {

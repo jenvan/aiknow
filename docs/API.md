@@ -303,10 +303,11 @@ POST /api/v1/search/keywords
 | `keywords` | string[] | 是 | 关键词列表，至少 1 个 |
 | `params.top_k` | int | 否 | 返回条数，默认 `10` |
 | `params.tag_weight` | float | 否 | 标签字段权重，默认 `3.0` |
-| `params.category_weight` | float | 否 | 分类字段权重，默认 `2.0` |
-| `params.title_weight` | float | 否 | 标题字段权重，默认 `2.5` |
+| `params.category_weight` | float | 否 | 分类字段权重，默认 `2.5` |
+| `params.title_weight` | float | 否 | 标题字段权重，默认 `2.0` |
 | `params.summary_weight` | float | 否 | 摘要字段权重，默认 `1.5` |
 | `params.content_weight` | float | 否 | 正文字段权重，默认 `1.0` |
+| `params.tokenized` | bool | 否 | 是否启用 jieba 分词匹配，默认 `true`。`true` 分词，"父母"可匹配"父母牵线"；`false` 精确整词匹配，"小日本"不会被拆分 |
 
 **响应示例：**
 

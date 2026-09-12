@@ -54,6 +54,10 @@ type KeywordSearchParams struct {
 	TitleWeight    float64 `json:"title_weight"`
 	SummaryWeight  float64 `json:"summary_weight"`
 	ContentWeight  float64 `json:"content_weight"`
+	// Tokenized 是否启用 jieba 分词匹配。nil 或 true=分词（默认，||| 匹配，
+	// "父母"可匹配"父母牵线"）；false=精确整词匹配（to_tsquery('simple')，"小日本"不拆分）。
+	// 用指针区分「未指定」与「显式 false」，避免调用方漏传时退化成精确模式。
+	Tokenized *bool `json:"tokenized,omitempty"`
 }
 
 // KeywordSearchResult 关键词检索结果
