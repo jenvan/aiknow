@@ -12,7 +12,7 @@ export function registerArticles(Alpine) {
         pages: 0,
 
         // ---- 基础筛选 ----
-        search: '',   // BM25 关键词（传 search 参数）
+        searchQuery: '',   // BM25 关键词（传 search 参数）
         status: '',
 
         // ---- 高级筛选（折叠） ----
@@ -64,7 +64,7 @@ export function registerArticles(Alpine) {
         },
 
         clearFilters() {
-            this.search = '';
+            this.searchQuery = '';
             this.status = '';
             this.selectedCategory = '';
             this.selectedTags = [];
@@ -86,7 +86,7 @@ export function registerArticles(Alpine) {
                     sort_by: this.sortBy,
                     sort_order: this.sortOrder,
                 });
-                if (this.search.trim()) q.set('search', this.search.trim());
+                if (this.searchQuery.trim()) q.set('search', this.searchQuery.trim());
                 if (this.status) q.set('status', this.status);
                 if (this.selectedCategory) q.set('category_id', this.selectedCategory);
                 this.selectedTags.forEach(t => q.append('tag_id', t.id));
