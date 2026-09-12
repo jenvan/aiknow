@@ -63,6 +63,22 @@ type ArticleListResult struct {
 	Articles []Article `json:"articles"`
 }
 
+// ArticleSearchRequest 全文检索请求参数
+type ArticleSearchRequest struct {
+	Query      string `json:"query" validate:"required,min=1"`
+	Page       int    `json:"page"`
+	PageSize   int    `json:"page_size"`
+	CategoryID *string `json:"category_id,omitempty"`
+	Category   string  `json:"category,omitempty"`
+	Tags       string  `json:"tags,omitempty"`
+	TagIDs     []string `json:"tag_ids,omitempty"`
+	Status     *string `json:"status,omitempty"`
+	SortBy     string  `json:"sort_by"`
+	SortOrder  string  `json:"sort_order"`
+	DateFrom   *string `json:"date_from,omitempty"`
+	DateTo     *string `json:"date_to,omitempty"`
+}
+
 // ArticleStatus 文章状态查询
 type ArticleStatus struct {
 	ID               string     `json:"id"`

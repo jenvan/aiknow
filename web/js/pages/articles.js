@@ -1,6 +1,6 @@
 import { api, formatTime, statusMeta } from '../api.js';
 
-/** 文章列表：筛选、搜索、排序、分页、行内与批量操作 */
+/** 文章列表：BM25 全文检索 + 高级筛选（分类/标签/日期/排序） */
 export function registerArticles(Alpine) {
     Alpine.data('articlesPage', () => ({
         loading: true,
@@ -11,36 +11,92 @@ export function registerArticles(Alpine) {
         total: 0,
         pages: 0,
 
-        // 查询条件
-        page: 1,
-        pageSize: 20,
-        search: '',
+        // ---- 基础筛选 ----
+        searchQuery: '',   // BM25 关键词
         status: '',
+
+        // ---- 高级筛选（折叠） ----
+        showAdvanced: false,
+        categories: [],
+        tags: [],
+        selectedCategory: '',
+        selectedTags: [],   // [{id, name}]
+        dateFrom: '',
+        dateTo: '',
         sortBy: 'created_at',
         sortOrder: 'desc',
 
+        // ---- 分页 ----
+        page: 1,
+        pageSize: 20,
+
+        // ---- 批量选择 ----
         selected: new Set(),
-        // Set 的变更不会被 Alpine 侦测到，用一个计数器强制视图刷新
         selectionTick: 0,
 
         async init() {
+            await this.loadMeta();
             await this.load();
+        },
+
+        async loadMeta() {
+            try {
+                const [cats, tags] = await Promise.all([
+                    api.get('/categories'),
+                    api.get('/tags'),
+                ]);
+                this.categories = cats || [];
+                this.tags = tags || [];
+            } catch (e) {
+                console.error('加载分类/标签失败', e);
+            }
+        },
+
+        addTag(name) {
+            const found = this.tags.find(t => t.name === name);
+            if (found && !this.selectedTags.find(t => t.id === found.id)) {
+                this.selectedTags.push({ id: found.id, name: found.name });
+            }
+        },
+
+        removeTag(tag) {
+            this.selectedTags = this.selectedTags.filter(t => t.id !== tag.id);
+        },
+
+        clearFilters() {
+            this.searchQuery = '';
+            this.status = '';
+            this.selectedCategory = '';
+            this.selectedTags = [];
+            this.dateFrom = '';
+            this.dateTo = '';
+            this.sortBy = 'created_at';
+            this.sortOrder = 'desc';
+            this.page = 1;
+            return this.load();
         },
 
         async load() {
             this.loading = true;
             this.error = '';
             try {
-                const q = new URLSearchParams({
+                const body = {
                     page: this.page,
                     page_size: this.pageSize,
                     sort_by: this.sortBy,
                     sort_order: this.sortOrder,
-                });
-                if (this.search) q.set('search', this.search);
-                if (this.status) q.set('status', this.status);
+                };
+                if (this.searchQuery.trim()) body.query = this.searchQuery.trim();
+                if (this.status) body.status = this.status;
+                if (this.selectedCategory) {
+                    const cat = this.categories.find(c => c.id === this.selectedCategory);
+                    if (cat) body.category_id = cat.id;
+                }
+                body.tag_ids = this.selectedTags.map(t => t.id);
+                if (this.dateFrom) body.date_from = this.dateFrom;
+                if (this.dateTo) body.date_to = this.dateTo;
 
-                const data = await api.get('/articles?' + q.toString());
+                const data = await api.post('/articles/search', body);
                 this.items = data.articles || [];
                 this.total = data.total || 0;
                 this.pages = data.pages || 0;
@@ -52,7 +108,7 @@ export function registerArticles(Alpine) {
             }
         },
 
-        applyFilters() {
+        async applyFilters() {
             this.page = 1;
             return this.load();
         },
@@ -80,12 +136,12 @@ export function registerArticles(Alpine) {
             this.selectionTick++;
         },
         isSelected(id) {
-            this.selectionTick; // 建立依赖
+            this.selectionTick;
             return this.selected.has(id);
         },
         toggleAll() {
             if (this.selected.size === this.items.length) this.selected.clear();
-            else this.items.forEach((a) => this.selected.add(a.id));
+            else this.items.forEach(a => this.selected.add(a.id));
             this.selectionTick++;
         },
         clearSelection() {

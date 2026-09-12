@@ -94,6 +94,23 @@ func (h *ArticleHandler) List(c *gin.Context) {
 	c.JSON(http.StatusOK, result)
 }
 
+// Search BM25 全文检索文章列表
+func (h *ArticleHandler) Search(c *gin.Context) {
+	var req model.ArticleSearchRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	result, err := h.articleService.Search(c.Request.Context(), req)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, result)
+}
+
 // Get 获取文章详情
 func (h *ArticleHandler) Get(c *gin.Context) {
 	id := c.Param("id")

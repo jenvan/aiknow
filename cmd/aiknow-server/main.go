@@ -371,6 +371,7 @@ func serve() {
 	{
 		adminArticle := admin.NewArticleHandler(articleService, chunkService, collector)
 		adminGroup.GET("/articles", adminArticle.List)
+		adminGroup.POST("/articles/search", adminArticle.Search)
 		adminGroup.POST("/articles", adminArticle.Create)
 		adminGroup.POST("/articles/preview", adminArticle.Preview)
 		// 静态段须先于 :id 注册，否则 batch-delete 会被当作文章 ID
@@ -381,6 +382,22 @@ func serve() {
 		adminGroup.DELETE("/articles/:id", adminArticle.Delete)
 		adminGroup.GET("/articles/:id/chunks", adminArticle.GetChunks)
 		adminGroup.POST("/articles/:id/reprocess", adminArticle.Reprocess)
+		adminGroup.GET("/categories", func(c *gin.Context) {
+			cats, err := db.GetCategoryRepo().ListAll(c.Request.Context())
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				return
+			}
+			c.JSON(http.StatusOK, cats)
+		})
+		adminGroup.GET("/tags", func(c *gin.Context) {
+			tags, err := db.GetTagRepo().ListAll(c.Request.Context())
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				return
+			}
+			c.JSON(http.StatusOK, tags)
+		})
 
 		apiKeyHandler := admin.NewAPIKeyHandler(authService)
 		adminGroup.GET("/api-keys", apiKeyHandler.List)

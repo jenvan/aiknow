@@ -177,6 +177,32 @@ func (s *articleServiceImpl) List(ctx context.Context, query model.ArticleListQu
 	return s.articleRepo.List(ctx, query)
 }
 
+// Search BM25 全文检索，支持所有过滤条件
+func (s *articleServiceImpl) Search(ctx context.Context, req model.ArticleSearchRequest) (*model.ArticleListResult, error) {
+	if req.Category != "" {
+		cat, err := s.categoryRepo.GetByName(ctx, req.Category)
+		if err != nil {
+			return nil, fmt.Errorf("lookup category: %w", err)
+		}
+		req.CategoryID = &cat.ID
+	}
+	if req.Tags != "" {
+		names := strings.Split(req.Tags, ",")
+		for _, name := range names {
+			name = strings.TrimSpace(name)
+			if name == "" {
+				continue
+			}
+			tag, err := s.tagRepo.GetByName(ctx, name)
+			if err != nil {
+				continue
+			}
+			req.TagIDs = append(req.TagIDs, tag.ID)
+		}
+	}
+	return s.articleRepo.Search(ctx, req)
+}
+
 // Update 更新文章
 func (s *articleServiceImpl) Update(ctx context.Context, id string, input model.ArticleInput) (*model.Article, error) {
 	article, err := s.GetByID(ctx, id)
