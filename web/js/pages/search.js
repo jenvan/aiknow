@@ -9,7 +9,8 @@ export function registerSearch(Alpine) {
 
         query: '',
         keywords: '',
-        params: { top_k: 10, candidate_k: 20, rrf_k: 60, vector_weight: 1, bm25_weight: 1 },
+        params: { top_k: 10, candidate_k: 20, rrf_k: 60, vector_weight: 1, bm25_weight: 1, ef_search: 40, category: '' },
+        kparams: { top_k: 10, tag_weight: 3, category_weight: 2.5, title_weight: 2, summary_weight: 1.5, content_weight: 1 },
 
         result: null,
         keywordResult: null,
@@ -22,16 +23,15 @@ export function registerSearch(Alpine) {
             try {
                 if (this.mode === 'hybrid') {
                     if (!this.query.trim()) throw new Error('请输入检索词');
-                    this.result = await api.post('/search/debug', {
-                        query: this.query,
-                        params: this.params,
-                    });
+                    const body = { query: this.query, params: this.params };
+                    if (body.params.category === '') delete body.params.category;
+                    this.result = await api.post('/search/debug', body);
                 } else {
                     const kws = this.keywords.split(',').map((k) => k.trim()).filter(Boolean);
                     if (!kws.length) throw new Error('请输入至少一个关键词');
                     this.keywordResult = await api.post('/search/debug/keywords', {
                         keywords: kws,
-                        params: {},
+                        params: this.kparams,
                     });
                 }
             } catch (e) {

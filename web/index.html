@@ -490,26 +490,50 @@
                                         :class="mode === 'keywords' ? 'bg-blue-600 text-white' : 'border'">关键词检索</button>
                             </div>
 
+                            <!-- 混合检索参数 -->
                             <div x-show="mode === 'hybrid'" class="space-y-3">
                                 <input x-model="query" @keydown.enter="run()" class="w-full border rounded px-3 py-2 text-sm"
                                        placeholder="输入检索词">
-                                <div class="grid grid-cols-5 gap-2">
+                                <div class="grid grid-cols-6 gap-2">
                                     <div><label class="block text-xs text-gray-600 mb-1">top_k</label>
                                         <input type="number" x-model.number="params.top_k" class="w-full border rounded px-2 py-1 text-sm"></div>
                                     <div><label class="block text-xs text-gray-600 mb-1">candidate_k</label>
                                         <input type="number" x-model.number="params.candidate_k" class="w-full border rounded px-2 py-1 text-sm"></div>
                                     <div><label class="block text-xs text-gray-600 mb-1">rrf_k</label>
                                         <input type="number" x-model.number="params.rrf_k" class="w-full border rounded px-2 py-1 text-sm"></div>
+                                    <div><label class="block text-xs text-gray-600 mb-1">ef_search</label>
+                                        <input type="number" x-model.number="params.ef_search" class="w-full border rounded px-2 py-1 text-sm"></div>
                                     <div><label class="block text-xs text-gray-600 mb-1">向量权重</label>
                                         <input type="number" step="0.1" x-model.number="params.vector_weight" class="w-full border rounded px-2 py-1 text-sm"></div>
                                     <div><label class="block text-xs text-gray-600 mb-1">BM25 权重</label>
                                         <input type="number" step="0.1" x-model.number="params.bm25_weight" class="w-full border rounded px-2 py-1 text-sm"></div>
                                 </div>
+                                <div class="grid grid-cols-2 gap-2">
+                                    <div>
+                                        <label class="block text-xs text-gray-600 mb-1">分类过滤</label>
+                                        <input x-model="params.category" class="w-full border rounded px-2 py-1 text-sm" placeholder="按分类名称过滤（可选）">
+                                    </div>
+                                </div>
                             </div>
 
-                            <div x-show="mode === 'keywords'">
+                            <!-- 关键词检索参数 -->
+                            <div x-show="mode === 'keywords'" class="space-y-3">
                                 <input x-model="keywords" @keydown.enter="run()" class="w-full border rounded px-3 py-2 text-sm"
                                        placeholder="关键词，逗号分隔">
+                                <div class="grid grid-cols-6 gap-2">
+                                    <div><label class="block text-xs text-gray-600 mb-1">top_k</label>
+                                        <input type="number" x-model.number="kparams.top_k" class="w-full border rounded px-2 py-1 text-sm"></div>
+                                    <div><label class="block text-xs text-gray-600 mb-1">标签权重</label>
+                                        <input type="number" step="0.1" x-model.number="kparams.tag_weight" class="w-full border rounded px-2 py-1 text-sm"></div>
+                                    <div><label class="block text-xs text-gray-600 mb-1">分类权重</label>
+                                        <input type="number" step="0.1" x-model.number="kparams.category_weight" class="w-full border rounded px-2 py-1 text-sm"></div>
+                                    <div><label class="block text-xs text-gray-600 mb-1">标题权重</label>
+                                        <input type="number" step="0.1" x-model.number="kparams.title_weight" class="w-full border rounded px-2 py-1 text-sm"></div>
+                                    <div><label class="block text-xs text-gray-600 mb-1">摘要权重</label>
+                                        <input type="number" step="0.1" x-model.number="kparams.summary_weight" class="w-full border rounded px-2 py-1 text-sm"></div>
+                                    <div><label class="block text-xs text-gray-600 mb-1">正文权重</label>
+                                        <input type="number" step="0.1" x-model.number="kparams.content_weight" class="w-full border rounded px-2 py-1 text-sm"></div>
+                                </div>
                             </div>
 
                             <button @click="run()" :disabled="running"
@@ -517,6 +541,7 @@
                                     x-text="running ? '检索中…' : '执行检索'"></button>
                         </div>
 
+                        <!-- 混合检索结果 -->
                         <template x-if="result">
                             <div>
                                 <div class="bg-white rounded-lg shadow p-4 mb-4">
@@ -529,12 +554,13 @@
                                     </div>
                                 </div>
 
-                                <template x-for="stage in stages()" :key="stage.key">
-                                    <div class="bg-white rounded-lg shadow p-4 mb-4">
-                                        <h3 class="font-semibold text-gray-800 mb-3" x-text="stage.label"></h3>
-                                        <div x-show="!stage.data.results || !stage.data.results.length" class="text-sm text-gray-500">无结果</div>
+                                <div class="grid grid-cols-2 gap-4 mb-4">
+                                    <!-- 向量检索 -->
+                                    <div class="bg-white rounded-lg shadow p-4" x-show="result.vector_result">
+                                        <h3 class="font-semibold text-gray-800 mb-3">向量检索</h3>
+                                        <div x-show="!result.vector_result.results?.length" class="text-sm text-gray-500">无结果</div>
                                         <ul class="space-y-2">
-                                            <template x-for="(r, i) in (stage.data.results || [])" :key="stage.key + '-' + r.id">
+                                            <template x-for="(r, i) in (result.vector_result.results || [])" :key="r.id">
                                                 <li class="border rounded p-2 text-sm">
                                                     <div class="flex justify-between text-xs text-gray-500 mb-1">
                                                         <span>#<span x-text="i + 1"></span> · chunk <span x-text="r.chunk_index"></span></span>
@@ -545,12 +571,46 @@
                                             </template>
                                         </ul>
                                     </div>
-                                </template>
+                                    <!-- BM25 检索 -->
+                                    <div class="bg-white rounded-lg shadow p-4" x-show="result.bm25_result">
+                                        <h3 class="font-semibold text-gray-800 mb-3">BM25 检索</h3>
+                                        <div x-show="!result.bm25_result.results?.length" class="text-sm text-gray-500">无结果</div>
+                                        <ul class="space-y-2">
+                                            <template x-for="(r, i) in (result.bm25_result.results || [])" :key="r.id">
+                                                <li class="border rounded p-2 text-sm">
+                                                    <div class="flex justify-between text-xs text-gray-500 mb-1">
+                                                        <span>#<span x-text="i + 1"></span> · chunk <span x-text="r.chunk_index"></span></span>
+                                                        <span>score <span x-text="score(r.score)"></span></span>
+                                                    </div>
+                                                    <div class="text-gray-800" x-text="r.content"></div>
+                                                </li>
+                                            </template>
+                                        </ul>
+                                    </div>
+                                </div>
+
+                                <!-- 精排结果（全宽，紧接上方） -->
+                                <div class="bg-white rounded-lg shadow p-4 mb-4" x-show="result.rerank_result">
+                                    <h3 class="font-semibold text-gray-800 mb-3">精排结果</h3>
+                                    <div x-show="!result.rerank_result.results?.length" class="text-sm text-gray-500">无结果</div>
+                                    <ul class="space-y-2">
+                                        <template x-for="(r, i) in (result.rerank_result.results || [])" :key="r.id">
+                                            <li class="border rounded p-2 text-sm">
+                                                <div class="flex justify-between text-xs text-gray-500 mb-1">
+                                                    <span>#<span x-text="i + 1"></span> · chunk <span x-text="r.chunk_index"></span></span>
+                                                    <span>score <span x-text="score(r.score)"></span></span>
+                                                </div>
+                                                <div class="text-gray-800" x-text="r.content"></div>
+                                            </li>
+                                        </template>
+                                    </ul>
+                                </div>
                             </div>
                         </template>
 
+                        <!-- 关键词检索结果 -->
                         <template x-if="keywordResult">
-                            <div class="bg-white rounded-lg shadow p-4">
+                            <div class="bg-white rounded-lg shadow p-4 mb-4">
                                 <h3 class="font-semibold text-gray-800 mb-3">
                                     关键词检索结果（<span x-text="keywordResult.total"></span> 条，
                                     <span x-text="keywordResult.query_time_ms"></span> ms）
