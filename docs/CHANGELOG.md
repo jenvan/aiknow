@@ -2,6 +2,29 @@
 
 ## [Unreleased] - 2026-09-12
 
+### feat: POST /api/v1/admin/articles/search BM25 全文检索
+
+新增 `POST /api/v1/admin/articles/search` 端点，用 ParadeDB `articles_search_idx`
+对 title / summary / content 三字段做 BM25 全文检索（jieba 中文分词），替代
+原来 `GET /articles` 的 ILIKE 标题前缀匹配。
+
+支持筛选条件与 List 保持一致：`category_id` / `status` / `tag_ids` / `date_from`
+/ `date_to`，排序支持 `created_at` / `updated_at` / `view_count`。
+
+分页参数：`page` / `page_size`（最大 100）。返回结构同 `ArticleListResult`。
+
+新增 `GET /api/v1/admin/categories` 和 `GET /api/v1/admin/tags` 供前端下拉加载。
+
+后端实现：
+- `ArticleRepository` 新增 `Search` 方法，批量加载标签避免 N+1
+- `ArticleService.Search` 将 name → ID 解析（复用 `GetByName`）
+- `ArticleHandler.Search` 绑定 JSON 请求体
+
+前端改动（`web/index.html` / `web/js/pages/articles.js`）：
+- 检索框改为全文检索，覆盖标题/摘要/正文
+- 「高级筛选」折叠面板：分类下拉、标签多选（chip 显示）、日期范围、多字段排序
+- 表格新增「标签」列
+
 ### feat: GET /api/v1/articles 支持按分类名称和标签名称过滤
 
 新增可选参数 `category`（分类名称，大小写不敏感）和 `tags`（标签名称，
