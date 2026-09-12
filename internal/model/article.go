@@ -55,8 +55,6 @@ type ArticleListQuery struct {
 	SortOrder  string     `form:"sort_order" default:"desc"`
 	DateFrom   string     `form:"date_from,omitempty"` // yyyy-mm-dd
 	DateTo     string     `form:"date_to,omitempty"`   // yyyy-mm-dd
-	// AdditionalTokens：由 List 服务层填充，供 Repository 做 AND 二次过滤
-	AdditionalTokens []string
 }
 
 // ArticleListResult 文章列表结果

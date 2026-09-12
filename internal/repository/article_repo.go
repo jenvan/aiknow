@@ -138,24 +138,22 @@ func (r *ArticleRepositoryImpl) List(ctx context.Context, query model.ArticleLis
 	}
 
 	if query.Search != nil && *query.Search != "" {
-		// 逗号分隔多个关键词，每个词独立匹配（AND 语义）：
-		// - 含中文的关键词用 ILIKE 精确匹配，避免 jieba 拆分
-		// - 纯英文关键词用 |||，利用 jieba 分词召回
 		parts := strings.Split(*query.Search, ",")
 		for _, p := range parts {
 			if t := strings.TrimSpace(p); t != "" {
-				if hasChinese(t) {
-					// 中文：ILIKE 精确匹配，避免分词
+				if query.Tokenized {
+					// 分词模式（默认）：||| 配合 jieba，父母能匹配到"父母牵线"
 					conditions = append(conditions,
-						fmt.Sprintf("(a.title ILIKE $%d OR a.summary ILIKE $%d OR a.content ILIKE $%d)", argIdx, argIdx, argIdx))
-					args = append(args, "%"+t+"%")
-				} else {
-					// 英文：||| 分词匹配
-					conditions = append(conditions,
-						fmt.Sprintf("(a.title ||| $%d OR a.summary ||| $%d OR a.content ||| $%d)", argIdx, argIdx, argIdx))
+						fmt.Sprintf("((a.title ||| $%d) OR (a.summary ||| $%d) OR (a.content ||| $%d))", argIdx, argIdx, argIdx))
 					args = append(args, t)
+					argIdx++
+				} else {
+					// 精确模式：to_tsquery('simple') 将关键词作为整体，不再分词
+					// 小日本不会拆成"小"+"日本"
+					tsq := fmt.Sprintf("to_tsquery('simple', '%s')", strings.ReplaceAll(t, "'", "''"))
+					conditions = append(conditions,
+						fmt.Sprintf("((a.title @@ %s) OR (a.summary @@ %s) OR (a.content @@ %s))", tsq, tsq, tsq))
 				}
-				argIdx++
 			}
 		}
 	}
@@ -514,14 +512,4 @@ func (r *ArticleRepositoryImpl) getTagsByArticleIDs(ctx context.Context, article
 		m[articleID] = append(m[articleID], tag)
 	}
 	return m, nil
-}
-
-// hasChinese 检查字符串是否包含中文字符
-func hasChinese(s string) bool {
-	for _, r := range s {
-		if r >= '一' && r <= '鿿' {
-			return true
-		}
-	}
-	return false
 }
