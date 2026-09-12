@@ -138,10 +138,16 @@ func (r *ArticleRepositoryImpl) List(ctx context.Context, query model.ArticleLis
 	}
 
 	if query.Search != nil && *query.Search != "" {
-		conditions = append(conditions,
-			fmt.Sprintf("(a.title ||| $%d OR a.summary ||| $%d OR a.content ||| $%d)", argIdx, argIdx, argIdx))
-		args = append(args, *query.Search)
-		argIdx++
+		// 逗号分隔多个关键词，每个词用 @@ + to_tsquery('simple') 进行精确匹配，
+		// 避免 jieba 把中文词组再拆分。使用 simple 配置可跳过分词，将整个词当作一个 token。
+		parts := strings.Split(*query.Search, ",")
+		for _, p := range parts {
+			if t := strings.TrimSpace(p); t != "" {
+				tsq := fmt.Sprintf("to_tsquery('simple', '%s')", strings.ReplaceAll(t, "'", "''"))
+				conditions = append(conditions,
+					fmt.Sprintf("((a.title @@ %s) OR (a.summary @@ %s) OR (a.content @@ %s))", tsq, tsq, tsq))
+			}
+		}
 	}
 
 	if query.DateFrom != "" {
