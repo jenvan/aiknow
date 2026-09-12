@@ -2,6 +2,12 @@
 
 ## [Unreleased] - 2026-09-12
 
+### fix: 检索测试页混合搜索的分类过滤报错 column reference "id" is ambiguous
+
+`BM25Search` 的分类过滤子查询 `SELECT id FROM articles a JOIN categories c ...`
+中 `articles` 与 `categories` 均含 `id` 列，导致 `id` 引用歧义
+（SQLSTATE 42702）。改为显式 `SELECT a.id`。
+
 ### feat: 文章列表接入 BM25 全文检索 + 高级筛选面板
 
 **后端**：`GET /api/v1/admin/articles` 的 `search` 参数由 `ILIKE title`

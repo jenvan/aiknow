@@ -81,7 +81,7 @@ func (r *SearchRepositoryImpl) BM25Search(ctx context.Context, query string, top
 	args := []interface{}{query, topK}
 	argIdx := 3
 	if category != "" {
-		where += fmt.Sprintf(" AND article_id IN (SELECT id FROM articles a JOIN categories c ON c.id = a.category_id WHERE lower(c.name) = lower($%d))", argIdx)
+		where += fmt.Sprintf(" AND article_id IN (SELECT a.id FROM articles a JOIN categories c ON c.id = a.category_id WHERE lower(c.name) = lower($%d))", argIdx)
 		args = append(args, category)
 	}
 
