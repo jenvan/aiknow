@@ -52,8 +52,8 @@ type ArticleListQuery struct {
 	Search     *string    `form:"search,omitempty"`
 	SortBy     string     `form:"sort_by" default:"created_at"`
 	SortOrder  string     `form:"sort_order" default:"desc"`
-	DateFrom   *time.Time `form:"date_from,omitempty"`
-	DateTo     *time.Time `form:"date_to,omitempty"`
+	DateFrom   string     `form:"date_from,omitempty"` // yyyy-mm-dd
+	DateTo     string     `form:"date_to,omitempty"`   // yyyy-mm-dd
 }
 
 // ArticleListResult 文章列表结果

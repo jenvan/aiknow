@@ -144,15 +144,15 @@ func (r *ArticleRepositoryImpl) List(ctx context.Context, query model.ArticleLis
 		argIdx++
 	}
 
-	if query.DateFrom != nil {
-		conditions = append(conditions, fmt.Sprintf("a.created_at >= $%d", argIdx))
-		args = append(args, *query.DateFrom)
+	if query.DateFrom != "" {
+		conditions = append(conditions, fmt.Sprintf("a.created_at >= $%d::date", argIdx))
+		args = append(args, query.DateFrom)
 		argIdx++
 	}
 
-	if query.DateTo != nil {
-		conditions = append(conditions, fmt.Sprintf("a.created_at <= $%d", argIdx))
-		args = append(args, *query.DateTo)
+	if query.DateTo != "" {
+		conditions = append(conditions, fmt.Sprintf("a.created_at <= $%d::date", argIdx))
+		args = append(args, query.DateTo)
 		argIdx++
 	}
 

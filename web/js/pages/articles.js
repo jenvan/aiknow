@@ -18,9 +18,8 @@ export function registerArticles(Alpine) {
         // ---- 高级筛选（折叠） ----
         showAdvanced: false,
         categories: [],
-        tags: [],
         selectedCategory: '',
-        selectedTags: [],   // [{id, name}]
+        tagsInput: '',   // 逗号分隔的标签名称，后端用 TagIDs 过滤
         dateFrom: '',
         dateTo: '',
         sortBy: 'created_at',
@@ -41,33 +40,18 @@ export function registerArticles(Alpine) {
 
         async loadMeta() {
             try {
-                const [cats, tags] = await Promise.all([
-                    api.get('/categories'),
-                    api.get('/tags'),
-                ]);
+                const cats = await api.get('/categories');
                 this.categories = cats || [];
-                this.tags = tags || [];
             } catch (e) {
-                console.error('加载分类/标签失败', e);
+                console.error('加载分类失败', e);
             }
-        },
-
-        addTag(name) {
-            const found = this.tags.find(t => t.name === name);
-            if (found && !this.selectedTags.find(t => t.id === found.id)) {
-                this.selectedTags.push({ id: found.id, name: found.name });
-            }
-        },
-
-        removeTag(tag) {
-            this.selectedTags = this.selectedTags.filter(t => t.id !== tag.id);
         },
 
         clearFilters() {
             this.searchQuery = '';
             this.status = '';
             this.selectedCategory = '';
-            this.selectedTags = [];
+            this.tagsInput = '';
             this.dateFrom = '';
             this.dateTo = '';
             this.sortBy = 'created_at';
@@ -89,7 +73,7 @@ export function registerArticles(Alpine) {
                 if (this.searchQuery.trim()) q.set('search', this.searchQuery.trim());
                 if (this.status) q.set('status', this.status);
                 if (this.selectedCategory) q.set('category_id', this.selectedCategory);
-                this.selectedTags.forEach(t => q.append('tag_id', t.id));
+                if (this.tagsInput.trim()) q.set('tags', this.tagsInput.trim());
                 if (this.dateFrom) q.set('date_from', this.dateFrom);
                 if (this.dateTo) q.set('date_to', this.dateTo);
 
