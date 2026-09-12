@@ -223,8 +223,14 @@
                         <div class="bg-white rounded-lg shadow p-4 mb-4 flex flex-wrap gap-3 items-end">
                             <div class="flex-1 min-w-[200px]">
                                 <label class="block text-xs text-gray-600 mb-1">全文检索</label>
-                                <input x-model="searchQuery" @keydown.enter="applyFilters()"
-                                       class="w-full border rounded px-3 py-1.5 text-sm" placeholder="标题 / 摘要 / 正文关键词">
+                                <div class="flex gap-2">
+                                    <input x-model="searchQuery" @keydown.enter="applyFilters()"
+                                           class="flex-1 border rounded px-3 py-1.5 text-sm" placeholder="标题 / 摘要 / 正文关键词">
+                                    <label class="flex items-center gap-1 text-xs text-gray-600 cursor-pointer whitespace-nowrap">
+                                        <input type="checkbox" x-model="tokenized" @change="applyFilters()" class="rounded">
+                                        分词
+                                    </label>
+                                </div>
                             </div>
                             <div>
                                 <label class="block text-xs text-gray-600 mb-1">状态</label>

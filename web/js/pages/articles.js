@@ -13,6 +13,7 @@ export function registerArticles(Alpine) {
 
         // ---- 基础筛选 ----
         searchQuery: '',   // BM25 关键词（传 search 参数）
+        tokenized: true,   // 是否启用 jieba 分词（默认开启）
         status: '',
 
         // ---- 高级筛选（折叠） ----
@@ -49,6 +50,7 @@ export function registerArticles(Alpine) {
 
         clearFilters() {
             this.searchQuery = '';
+            this.tokenized = true;
             this.status = '';
             this.selectedCategory = '';
             this.tagsInput = '';
@@ -70,7 +72,10 @@ export function registerArticles(Alpine) {
                     sort_by: this.sortBy,
                     sort_order: this.sortOrder,
                 });
-                if (this.searchQuery.trim()) q.set('search', this.searchQuery.trim());
+                if (this.searchQuery.trim()) {
+                    q.set('search', this.searchQuery.trim());
+                    q.set('tokenized', this.tokenized ? '1' : '0');
+                }
                 if (this.status) q.set('status', this.status);
                 if (this.selectedCategory) q.set('category_id', this.selectedCategory);
                 if (this.tagsInput.trim()) q.set('tags', this.tagsInput.trim());

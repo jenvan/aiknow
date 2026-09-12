@@ -50,10 +50,13 @@ type ArticleListQuery struct {
 	TagIDs     []string   `form:"tag_id,omitempty"`
 	Status     *string    `form:"status,omitempty"`
 	Search     *string    `form:"search,omitempty"`
+	Tokenized  bool       `form:"tokenized" default:"true"` // 是否启用 jieba 分词（默认开启）
 	SortBy     string     `form:"sort_by" default:"created_at"`
 	SortOrder  string     `form:"sort_order" default:"desc"`
 	DateFrom   string     `form:"date_from,omitempty"` // yyyy-mm-dd
 	DateTo     string     `form:"date_to,omitempty"`   // yyyy-mm-dd
+	// AdditionalTokens：由 List 服务层填充，供 Repository 做 AND 二次过滤
+	AdditionalTokens []string
 }
 
 // ArticleListResult 文章列表结果
