@@ -20,7 +20,10 @@ export function registerArticles(Alpine) {
         showAdvanced: false,
         categories: [],
         selectedCategory: '',
-        tagsInput: '',   // 逗号分隔的标签名称，后端用 TagIDs 过滤
+        allTags: [],          // 所有可选标签（从 API 加载）
+        selectedTags: [],     // 已选标签 [{id, name}]
+        tagSearch: '',        // 标签输入框文字（用于过滤下拉）
+        tagDropdownOpen: false,
         dateFrom: '',
         dateTo: '',
         sortBy: 'created_at',
@@ -46,6 +49,35 @@ export function registerArticles(Alpine) {
             } catch (e) {
                 console.error('加载分类失败', e);
             }
+            try {
+                const tags = await api.get('/tags');
+                this.allTags = tags || [];
+            } catch (e) {
+                console.error('加载标签失败', e);
+            }
+        },
+
+        // 标签下拉：过滤掉已选的，按输入文字模糊匹配
+        get filteredTags() {
+            const q = this.tagSearch.trim().toLowerCase();
+            return this.allTags.filter(t =>
+                !this.selectedTags.some(s => s.id === t.id) &&
+                (!q || t.name.toLowerCase().includes(q))
+            );
+        },
+
+        addTag(tag) {
+            if (!this.selectedTags.some(t => t.id === tag.id)) {
+                this.selectedTags.push(tag);
+            }
+            this.tagSearch = '';
+            this.tagDropdownOpen = false;
+            this.applyFilters();
+        },
+
+        removeTag(tag) {
+            this.selectedTags = this.selectedTags.filter(t => t.id !== tag.id);
+            this.applyFilters();
         },
 
         clearFilters() {
@@ -53,7 +85,8 @@ export function registerArticles(Alpine) {
             this.tokenized = true;
             this.status = '';
             this.selectedCategory = '';
-            this.tagsInput = '';
+            this.selectedTags = [];
+            this.tagSearch = '';
             this.dateFrom = '';
             this.dateTo = '';
             this.sortBy = 'created_at';
@@ -78,7 +111,7 @@ export function registerArticles(Alpine) {
                 }
                 if (this.status) q.set('status', this.status);
                 if (this.selectedCategory) q.set('category_id', this.selectedCategory);
-                if (this.tagsInput.trim()) q.set('tags', this.tagsInput.trim());
+                if (this.selectedTags.length) q.set('tags', this.selectedTags.map(t => t.name).join(','));
                 if (this.dateFrom) q.set('date_from', this.dateFrom);
                 if (this.dateTo) q.set('date_to', this.dateTo);
 
