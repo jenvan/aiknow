@@ -30,7 +30,6 @@ type ArticleService interface {
 	Create(ctx context.Context, input model.ArticleInput) (*model.Article, error)
 	GetByID(ctx context.Context, id string) (*model.Article, error)
 	List(ctx context.Context, query model.ArticleListQuery) (*model.ArticleListResult, error)
-	Search(ctx context.Context, req model.ArticleSearchRequest) (*model.ArticleListResult, error)
 	Update(ctx context.Context, id string, input model.ArticleInput) (*model.Article, error)
 	SoftDelete(ctx context.Context, id string) error
 	Restore(ctx context.Context, id string) error

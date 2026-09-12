@@ -12,7 +12,7 @@ export function registerArticles(Alpine) {
         pages: 0,
 
         // ---- 基础筛选 ----
-        searchQuery: '',   // BM25 关键词
+        search: '',   // BM25 关键词（传 search 参数）
         status: '',
 
         // ---- 高级筛选（折叠） ----
@@ -64,7 +64,7 @@ export function registerArticles(Alpine) {
         },
 
         clearFilters() {
-            this.searchQuery = '';
+            this.search = '';
             this.status = '';
             this.selectedCategory = '';
             this.selectedTags = [];
@@ -80,23 +80,20 @@ export function registerArticles(Alpine) {
             this.loading = true;
             this.error = '';
             try {
-                const body = {
+                const q = new URLSearchParams({
                     page: this.page,
                     page_size: this.pageSize,
                     sort_by: this.sortBy,
                     sort_order: this.sortOrder,
-                };
-                if (this.searchQuery.trim()) body.query = this.searchQuery.trim();
-                if (this.status) body.status = this.status;
-                if (this.selectedCategory) {
-                    const cat = this.categories.find(c => c.id === this.selectedCategory);
-                    if (cat) body.category_id = cat.id;
-                }
-                body.tag_ids = this.selectedTags.map(t => t.id);
-                if (this.dateFrom) body.date_from = this.dateFrom;
-                if (this.dateTo) body.date_to = this.dateTo;
+                });
+                if (this.search.trim()) q.set('search', this.search.trim());
+                if (this.status) q.set('status', this.status);
+                if (this.selectedCategory) q.set('category_id', this.selectedCategory);
+                this.selectedTags.forEach(t => q.append('tag_id', t.id));
+                if (this.dateFrom) q.set('date_from', this.dateFrom);
+                if (this.dateTo) q.set('date_to', this.dateTo);
 
-                const data = await api.post('/articles/search', body);
+                const data = await api.get('/articles?' + q.toString());
                 this.items = data.articles || [];
                 this.total = data.total || 0;
                 this.pages = data.pages || 0;

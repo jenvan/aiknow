@@ -138,8 +138,9 @@ func (r *ArticleRepositoryImpl) List(ctx context.Context, query model.ArticleLis
 	}
 
 	if query.Search != nil && *query.Search != "" {
-		conditions = append(conditions, fmt.Sprintf("a.title ILIKE $%d", argIdx))
-		args = append(args, "%"+*query.Search+"%")
+		conditions = append(conditions,
+			fmt.Sprintf("(a.title ||| $%d OR a.summary ||| $%d OR a.content ||| $%d)", argIdx, argIdx, argIdx))
+		args = append(args, *query.Search)
 		argIdx++
 	}
 
@@ -464,150 +465,6 @@ func (r *ArticleRepositoryImpl) IncrementViewCount(ctx context.Context, id strin
 	_, err := r.db.pool.Exec(ctx,
 		"UPDATE articles SET view_count = view_count + 1 WHERE id = $1", id)
 	return err
-}
-
-// Search BM25 全文检索（title/summary/content），支持分页与 category/status/tag 过滤。
-// 使用 articles_search_idx，jieba 中文分词；category_id、processing_status 走索引过滤，
-// tag_id 因未建在索引中，改用 JOIN 子查询精确匹配。
-func (r *ArticleRepositoryImpl) Search(ctx context.Context, req model.ArticleSearchRequest) (*model.ArticleListResult, error) {
-	if req.Page < 1 {
-		req.Page = 1
-	}
-	if req.PageSize < 1 || req.PageSize > 100 {
-		req.PageSize = 20
-	}
-	if req.SortBy == "" {
-		req.SortBy = "created_at"
-	}
-	if req.SortOrder == "" {
-		req.SortOrder = "desc"
-	}
-
-	offset := (req.Page - 1) * req.PageSize
-
-	// 构建额外 WHERE 条件（BM25 主条件由 ||| 负责）
-	extraConditions := []string{}
-	args := []interface{}{}
-	argIdx := 3 // $1=query $2=topK 已预留
-
-	if req.CategoryID != nil && *req.CategoryID != "" {
-		extraConditions = append(extraConditions, fmt.Sprintf("a.category_id = $%d", argIdx))
-		args = append(args, *req.CategoryID)
-		argIdx++
-	}
-	if req.Status != nil && *req.Status != "" {
-		extraConditions = append(extraConditions, fmt.Sprintf("a.processing_status = $%d", argIdx))
-		args = append(args, *req.Status)
-		argIdx++
-	}
-	if len(req.TagIDs) > 0 {
-		tags := make([]string, len(req.TagIDs))
-		copy(tags, req.TagIDs)
-		placeholders := make([]string, len(tags))
-		for i, id := range tags {
-			placeholders[i] = fmt.Sprintf("$%d", argIdx)
-			args = append(args, id)
-			argIdx++
-		}
-		extraConditions = append(extraConditions,
-			fmt.Sprintf("a.id IN (SELECT article_id FROM article_tags WHERE tag_id IN (%s))", strings.Join(placeholders, ",")))
-	}
-
-	var whereExtra string
-	if len(extraConditions) > 0 {
-		whereExtra = " AND " + strings.Join(extraConditions, " AND ")
-	}
-
-	// 排序字段白名单
-	sortFields := map[string]string{
-		"created_at": "a.created_at",
-		"updated_at": "a.updated_at",
-		"title":      "a.title",
-		"view_count": "a.view_count",
-	}
-	sortCol := sortFields[req.SortBy]
-	if sortCol == "" {
-		sortCol = "a.created_at"
-	}
-	sortDir := "DESC"
-	if req.SortOrder == "asc" {
-		sortDir = "ASC"
-	}
-
-	// 计数查询
-	var total int
-	countArgs := append([]interface{}{req.Query, 500}, args...)
-	err := r.db.pool.QueryRow(ctx,
-		fmt.Sprintf(`
-			SELECT COUNT(*) FROM articles a
-			WHERE (title ||| $1 OR summary ||| $1 OR content ||| $1)
-			  AND a.deleted_at IS NULL
-			  %s
-		`, whereExtra), countArgs...).Scan(&total)
-	if err != nil {
-		return nil, fmt.Errorf("search count: %w", err)
-	}
-
-	pages := (total + req.PageSize - 1) / req.PageSize
-
-	// 分页查询，JOIN 分类表取名称
-	rows, err := r.db.pool.Query(ctx, fmt.Sprintf(`
-		SELECT a.id, a.title, a.content, a.source_type, a.source_url,
-		       a.processing_status, a.summary, a.category_id, a.published,
-		       a.view_count, a.embedding_model, a.embedding_dim, a.indexed_at,
-		       a.deleted_at, a.retry_count, a.last_error,
-		       a.created_at, a.updated_at, c.name AS category_name
-		FROM articles a
-		LEFT JOIN categories c ON c.id = a.category_id
-		WHERE (title ||| $1 OR summary ||| $1 OR content ||| $1)
-		  AND a.deleted_at IS NULL
-		  %s
-		ORDER BY %s %s
-		LIMIT $%d OFFSET $%d
-	`, whereExtra, sortCol, sortDir, argIdx, argIdx+1),
-		append(args, req.PageSize, offset)...,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("search articles: %w", err)
-	}
-	defer rows.Close()
-
-	var articles []model.Article
-	for rows.Next() {
-		var a model.Article
-		if err := rows.Scan(
-			&a.ID, &a.Title, &a.Content, &a.SourceType, &a.SourceURL,
-			&a.ProcessingStatus, &a.Summary, &a.CategoryID, &a.Published,
-			&a.ViewCount, &a.EmbeddingModel, &a.EmbeddingDim, &a.IndexedAt,
-			&a.DeletedAt, &a.RetryCount, &a.LastError,
-			&a.CreatedAt, &a.UpdatedAt, &a.CategoryName,
-		); err != nil {
-			return nil, fmt.Errorf("scan article: %w", err)
-		}
-		articles = append(articles, a)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate search results: %w", err)
-	}
-
-	// 批量加载标签
-	ids := make([]string, len(articles))
-	for i, a := range articles {
-		ids[i] = a.ID
-	}
-	tagMap, err := r.getTagsByArticleIDs(ctx, ids)
-	if err != nil {
-		return nil, fmt.Errorf("load search article tags: %w", err)
-	}
-	for i := range articles {
-		articles[i].Tags = tagMap[articles[i].ID]
-	}
-
-	return &model.ArticleListResult{
-		Total:    total,
-		Pages:    pages,
-		Articles: articles,
-	}, nil
 }
 
 // getTagsByArticleIDs 批量查询多个文章的标签

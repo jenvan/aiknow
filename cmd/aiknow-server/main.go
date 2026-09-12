@@ -371,7 +371,6 @@ func serve() {
 	{
 		adminArticle := admin.NewArticleHandler(articleService, chunkService, collector)
 		adminGroup.GET("/articles", adminArticle.List)
-		adminGroup.POST("/articles/search", adminArticle.Search)
 		adminGroup.POST("/articles", adminArticle.Create)
 		adminGroup.POST("/articles/preview", adminArticle.Preview)
 		// 静态段须先于 :id 注册，否则 batch-delete 会被当作文章 ID

@@ -216,11 +216,6 @@
                 <!-- ============ 文章列表 ============ -->
                 <template x-if="currentPage === 'articles'">
                     <div x-data="articlesPage" class="p-6">
-                        <div class="flex justify-end mb-6">
-                            <a href="/ui/articles/new" @click.prevent="navigate('/ui/articles/new')"
-                               class="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-700 cursor-pointer">录入文章</a>
-                        </div>
-
                         <div x-show="error" class="mb-4 p-3 bg-red-50 border border-red-200 rounded text-sm text-red-700" x-text="error"></div>
                         <div x-show="notice" class="mb-4 p-3 bg-green-50 border border-green-200 rounded text-sm text-green-700" x-text="notice"></div>
 
@@ -326,6 +321,12 @@
                                         <th class="p-3 text-left w-40 cursor-pointer" @click="toggleSort('created_at')">
                                             创建时间 <span x-show="sortBy === 'created_at'" x-text="sortOrder === 'desc' ? '↓' : '↑'"></span>
                                         </th>
+                                        <th class="p-3 text-left w-40 cursor-pointer" @click="toggleSort('updated_at')">
+                                            更新日期 <span x-show="sortBy === 'updated_at'" x-text="sortOrder === 'desc' ? '↓' : '↑'"></span>
+                                        </th>
+                                        <th class="p-3 text-left w-24 cursor-pointer" @click="toggleSort('view_count')">
+                                            阅读量 <span x-show="sortBy === 'view_count'" x-text="sortOrder === 'desc' ? '↓' : '↑'"></span>
+                                        </th>
                                         <th class="p-3 text-right w-40">操作</th>
                                     </tr>
                                 </thead>
@@ -349,6 +350,8 @@
                                                 <span x-show="!a.tags?.length" class="text-gray-400 text-xs">—</span>
                                             </td>
                                             <td class="p-3 text-gray-600" x-text="fmt(a.created_at)"></td>
+                                            <td class="p-3 text-gray-600" x-text="fmt(a.updated_at)"></td>
+                                            <td class="p-3 text-gray-600 text-right" x-text="a.view_count || 0"></td>
                                             <td class="p-3 text-right space-x-2">
                                                 <button @click="reprocess(a.id)" class="text-gray-600 hover:text-gray-900">重处理</button>
                                                 <button @click="remove(a.id, a.title)" class="text-red-600 hover:text-red-800">删除</button>
@@ -356,13 +359,20 @@
                                         </tr>
                                     </template>
                                     <tr x-show="!items.length">
-                                        <td colspan="7" class="p-6 text-center text-gray-500">暂无文章</td>
+                                        <td colspan="8" class="p-6 text-center text-gray-500">暂无文章</td>
                                     </tr>
                                 </tbody>
                             </table>
 
                             <div class="flex items-center justify-between p-3 border-t text-sm">
-                                <span class="text-gray-600">共 <span x-text="total"></span> 条</span>
+                                <span class="text-gray-600">
+                                    <template x-if="total > 0">
+                                        <span>第 <span x-text="((page - 1) * pageSize + 1)"></span>-<span x-text="Math.min(page * pageSize, total)"></span> 条，共 <span x-text="total"></span> 条</span>
+                                    </template>
+                                    <template x-if="total === 0">
+                                        <span>共 <span x-text="total"></span> 条</span>
+                                    </template>
+                                </span>
                                 <div class="space-x-2">
                                     <button @click="goPage(page - 1)" :disabled="page <= 1"
                                             class="px-3 py-1 border rounded disabled:opacity-40">上一页</button>
