@@ -37,6 +37,9 @@ type AIPipeline struct {
 	collector URLCollector
 	// screenshotStore 可选：截图归档存储（COS）。为 nil 或未配置时跳过上传。
 	screenshotStore ScreenshotStore
+	// imageArchiver 可选：正文外链图片归档（下载到对象存储并替换链接）。
+	// 公众号图片有防盗链，不归档的话后台预览全是坏图。
+	imageArchiver *ImageArchiver
 }
 
 // URLCollector 采集器抽象：URL 文章重采集所需的最小能力。
@@ -58,6 +61,11 @@ type ScreenshotStore interface {
 // SetCollector 注入 URL 采集器：URL 文章处理时重采集正文与截图。
 func (p *AIPipeline) SetCollector(c URLCollector) {
 	p.collector = c
+}
+
+// SetImageArchiver 注入正文图片归档器。
+func (p *AIPipeline) SetImageArchiver(a *ImageArchiver) {
+	p.imageArchiver = a
 }
 
 // SetScreenshotStore 注入截图归档存储。
@@ -131,6 +139,10 @@ func (p *AIPipeline) Process(ctx context.Context, article *model.Article) error 
 	// 0. URL 文章重采集：渲染拿最新正文（Markdown）+ 全页截图，截图上传归档。
 	//    渲染/截图失败不阻断处理（降级为已有正文），仅记日志。
 	p.recollectIfURL(ctx, article)
+
+	// 0.1 正文图片归档：把外链图（公众号图床有防盗链）下载进对象存储并替换链接。
+	//     放在重采集之后，因为重采集会用最新正文覆盖 Content。
+	p.archiveImages(ctx, article)
 
 	// 1. 更新状态为 processing
 	article.ProcessingStatus = "processing"
@@ -283,6 +295,19 @@ func (p *AIPipeline) recollectIfURL(ctx context.Context, article *model.Article)
 		return
 	}
 	article.ScreenshotURL = &url
+}
+
+// archiveImages 归档正文里的外链图片；失败只记日志，不影响处理。
+func (p *AIPipeline) archiveImages(ctx context.Context, article *model.Article) {
+	if p.imageArchiver == nil || article.Content == "" {
+		return
+	}
+	updated, err := p.imageArchiver.Archive(ctx, article.ID, article.Content)
+	if err != nil {
+		fmt.Printf("警告: 文章 %s 图片归档失败，保留原链接: %v\n", article.ID, err)
+		return
+	}
+	article.Content = updated
 }
 
 // runLLM 调用 LLM 生成 AI 结果

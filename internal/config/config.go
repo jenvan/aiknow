@@ -61,6 +61,8 @@ var managedKeys = []string{
 	"COLLECTOR_TIMEOUT",
 	"COLLECTOR_MAX_REDIRECTS",
 	"COLLECTOR_MIN_CONTENT_LENGTH",
+	// 正文图片归档：下载外链图片进 COS 并替换链接（需 COS 配置完整）
+	"COLLECTOR_ARCHIVE_IMAGES",
 
 	// 无头浏览器渲染（采集 SPA 页面的 fallback）
 	"COLLECTOR_BROWSER_ENABLED",
@@ -108,6 +110,7 @@ var defaultValues = map[string]string{
 	"COLLECTOR_TIMEOUT":            "10s",
 	"COLLECTOR_MAX_REDIRECTS":      "3",
 	"COLLECTOR_MIN_CONTENT_LENGTH": "200",
+	"COLLECTOR_ARCHIVE_IMAGES":     "true",
 	"COLLECTOR_USER_AGENT":         "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
 
 	// 微信 Bot：默认关闭；开启后由 serve 启动长轮询。

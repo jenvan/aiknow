@@ -2,6 +2,21 @@
 
 ## [Unreleased] - 2026-11-04
 
+### feat(collector): 正文图片归档（下载外链图进 COS 并替换链接）
+
+公众号图片（`mmbiz.qpic.cn`）有**防盗链**：只认 `Referer: https://mp.weixin.qq.com/`，
+换到别的域名引用就是 403/占位图，所以后台预览里图片全是坏的；源站删文后更是永久失效。
+
+- 新增 `service.ImageArchiver`：解析 Markdown 里的 `![](url)` → 带 Referer/UA
+  下载（逐张过 SSRF 校验）→ 上传 COS（`articles/{id}/img-NN.ext`）→ 替换正文链接。
+- 去重（同图多处引用只下一次）、上限 60 张/单张 10MB；**单张失败保留原链接**，
+  绝不因图片问题让整篇处理失败；非 `image/*` 响应（占位页/防盗链页）视为失败。
+- 在 `AIPipeline` 重采集之后执行，对所有文章生效（手动录入的 Markdown 同样受益）。
+- L1 开关 `COLLECTOR_ARCHIVE_IMAGES`（默认 true，需 COS 配置完整才真正启用）。
+- 实测：一篇公众号文章 11 张图全部归档 0 失败，正文残留 mmbiz 0 处；
+  预览页 12 张图全部加载、0 坏图；COS 返回 `200 image/webp`。
+
+
 ### perf(ingest): 录入改「快速采集」，bot 秒回回执
 
 用户发链接后原本要等 25-30 秒才收到「已收录」——因为服务端同步跑了一遍渲染 + 截图，

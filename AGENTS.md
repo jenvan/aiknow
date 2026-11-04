@@ -328,6 +328,12 @@ v1 单管理员，凭据来自 `ADMIN_USERNAME` + `ADMIN_PASSWORD_HASH`，无用
   `articles.screenshot_url`（migration 011）。采集/截图失败不阻断处理，仅记日志。
   取「处理时为准」而非「录入时为准」：录入 Preview 仅作预览，最终以处理时数据为准。
 
+- **正文图片归档**（`COLLECTOR_ARCHIVE_IMAGES`，默认开）：`service.ImageArchiver`
+  把 Markdown 里的外链图片带 `Referer: https://mp.weixin.qq.com/` 下载后传 COS，
+  再把正文里的链接换成 COS URL。**公众号图床有防盗链**，不归档的话后台预览全是坏图、
+  源站删文后永久失效。逐张过 SSRF、去重、上限 60 张/10MB；单张失败保留原链接，
+  不影响整篇处理。在 `AIPipeline` 重采集之后执行（重采集会用最新正文覆盖 Content）。
+
 **SSRF 防护**：提交浏览器的 URL 在 `Collector.Fetch` 内先过 `pkg/ssrf`
 （拦内网段/云元数据/非白名单端口）。注意：浏览器内页面 JS 仍会自发子请求，
 Go 层拦不住——必须靠「browserless 部署在访问不到敏感内网的网段（DMZ）」
@@ -502,6 +508,7 @@ POST /api/v1/search
 | 微信 Bot 开关 | false | L1 | `WEIXIN_BOT_ENABLED`，开启后 `serve` 启动长轮询；关闭不影响主链路 |
 | 微信 Bot 白名单 | 空=仅扫码者 | L1 | `WEIXIN_BOT_ALLOW_FROM` 非空时覆盖库中 `allow_from` |
 | 微信 Bot 服务端 | 官方域名 | L1 | `WEIXIN_BOT_BASE_URL`，空则 `ilinkai.weixin.qq.com` |
+| 正文图片归档 | true | L1 | `COLLECTOR_ARCHIVE_IMAGES`，需 COS 完整配置；外链图下载进 COS 并替换正文链接 |
 | COS 截图归档 | 全空=关闭 | L1 | `COS_SECRET_ID/KEY`、`COS_BUCKET`、`COS_REGION`、`COS_ENDPOINT`、`COS_PATH_PREFIX` |
 | 向量维度 | 1024 | 固定 | bge-large-zh-v1.5，与表结构绑定，不可配置 |
 | HNSW m | 16 | 建表参数 | 每层连接数 |

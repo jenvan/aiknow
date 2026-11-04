@@ -541,6 +541,12 @@ func serve() {
 	// URL 文章处理时重采集（渲染 + 截图），截图上传 COS 归档
 	pipeline.SetCollector(collector)
 	pipeline.SetScreenshotStore(cosClient)
+	// 正文图片归档：公众号图床有防盗链，不归档的话后台预览全是坏图。
+	// 依赖 COS（未配置时 Archive 内部直接透传）。
+	if cfg.GetBool("COLLECTOR_ARCHIVE_IMAGES", true) && cosClient.Enabled() {
+		pipeline.SetImageArchiver(service.NewImageArchiver(cosClient, collectorConfig.UserAgent))
+		fmt.Println("正文图片归档已启用（下载至 COS 并替换链接）")
+	}
 
 	worker := service.NewWorker(db, pipeline, queue, service.DefaultWorkerConfig())
 	go func() {
