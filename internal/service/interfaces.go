@@ -28,6 +28,8 @@ type ChunkService interface {
 // ArticleService 文章服务接口
 type ArticleService interface {
 	Create(ctx context.Context, input model.ArticleInput) (*model.Article, error)
+	// CreateFromURL 采集 URL 并入库（微信 bot / 浏览器扩展 / 快捷指令共用）
+	CreateFromURL(ctx context.Context, url string) (*model.Article, error)
 	GetByID(ctx context.Context, id string) (*model.Article, error)
 	List(ctx context.Context, query model.ArticleListQuery) (*model.ArticleListResult, error)
 	Update(ctx context.Context, id string, input model.ArticleInput) (*model.Article, error)

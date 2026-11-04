@@ -10,6 +10,7 @@ import (
 
 	"github.com/jenvan/aiknow/internal/model"
 	"github.com/jenvan/aiknow/internal/repository"
+	"github.com/jenvan/aiknow/pkg/urlx"
 )
 
 // ErrDuplicateArticle 已存在相同 URL 或相同内容的文章。
@@ -17,6 +18,12 @@ import (
 // 属正常业务结果而非故障，Handler 应映射为 409 Conflict；
 // 此前用无类型 fmt.Errorf，调用方无从区分，一律落到 500。
 var ErrDuplicateArticle = errors.New("duplicate article")
+
+// ErrCollectorNotConfigured 未注入采集器（服务装配遗漏）。
+var ErrCollectorNotConfigured = errors.New("collector not configured")
+
+// ErrEmptyURL URL 为空。
+var ErrEmptyURL = errors.New("url is required")
 
 // JobEnqueuer 投递 AI 处理任务。由 pkg/pgqueue.Queue 实现。
 type JobEnqueuer interface {
@@ -30,6 +37,9 @@ type articleServiceImpl struct {
 	categoryRepo repository.CategoryRepository
 	tagRepo      repository.TagRepository
 	enqueuer     JobEnqueuer
+	// collector 可选：注入后支持「给一个 URL 直接采集入库」。
+	// 微信 bot、浏览器扩展、快捷指令都走这一条，避免各自实现一遍采集。
+	collector URLCollector
 }
 
 // NewArticleService 创建文章服务。
@@ -65,6 +75,51 @@ func (s *articleServiceImpl) enqueueProcessing(ctx context.Context, articleID st
 	}
 	_, err := s.enqueuer.Send(ctx, map[string]string{"article_id": articleID}, 0)
 	return err
+}
+
+// SetCollector 注入采集器，开启「URL 直接入库」能力。
+//
+// 采集器在 serve() 里晚于 ArticleService 创建（它依赖 L1 采集配置），故用注入
+// 而非构造函数参数；与 AIPipeline.SetCollector 同一模式。
+func (s *articleServiceImpl) SetCollector(c URLCollector) { s.collector = c }
+
+// CreateFromURL 采集 URL 并入库（微信 bot / 浏览器扩展 / 快捷指令的共同入口）。
+//
+// 与 MCP add_article_by_url 共用同一实现：归一 URL → 采集正文 → Create
+// （Create 内部负责 URL/内容去重与入队）。
+func (s *articleServiceImpl) CreateFromURL(ctx context.Context, rawURL string) (*model.Article, error) {
+	if s.collector == nil {
+		return nil, ErrCollectorNotConfigured
+	}
+	target := urlx.Normalize(rawURL)
+	if target == "" {
+		return nil, ErrEmptyURL
+	}
+
+	res, err := s.collector.Fetch(ctx, target)
+	if err != nil {
+		return nil, fmt.Errorf("collect %s: %w", target, err)
+	}
+
+	// 优先 Markdown：分块器认 # 标题与空行，切分质量更好（与后台录入一致）
+	content := res.Markdown
+	if strings.TrimSpace(content) == "" {
+		content = res.Content
+	}
+	if strings.TrimSpace(content) == "" {
+		return nil, fmt.Errorf("采集正文为空: %s", target)
+	}
+	title := strings.TrimSpace(res.Title)
+	if title == "" {
+		title = "Untitled"
+	}
+
+	return s.Create(ctx, model.ArticleInput{
+		Title:      title,
+		Content:    content,
+		SourceType: "url",
+		SourceURL:  &target,
+	})
 }
 
 // Create 创建文章（手动录入）

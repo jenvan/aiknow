@@ -2,6 +2,26 @@
 
 ## [Unreleased] - 2026-11-04
 
+### feat: 手机看公众号文章 → 文件传输助手 → 自动入库（浏览器扩展）
+
+公众号文章卡片**不能转发给 ClawBot**（微信转发列表里没有它），但能转发给
+「文件传输助手」。新增 Chrome/Edge 扩展（`extensions/aiknow-clipper`）监听
+`filehelper.weixin.qq.com` 网页版，把新增卡片的 `href` 抽出来入库；同一扩展还支持
+任意网页右键剪藏。实测：卡片 DOM 里带真实 `href` 与标题，方案可行。
+
+- 新增 `POST /api/v1/articles/from-url`：只给 URL 就完成采集入库。把原先散在
+  MCP 工具里的采集逻辑下沉到 `ArticleService.CreateFromURL`（`SetCollector` 注入），
+  REST / MCP / bot / 扩展共用同一条采集链路。
+- 新增 `pkg/urlx.Normalize`：剔除 `mpshare`/`srcid`/`sharer_shareinfo`/`scene`/`utm_*`
+  与 `#rd`；公众号按 `__biz+mid+idx+sn` 重排。**同一篇转发两次不再重复入库**
+  （此前 bot 的本地实现漏了这几个参数）。bot 与 API 现在共用这一份实现。
+- 修复 MCP `add_article_by_url` 一直是空壳（返回「URL 采集功能待实现」），
+  现真正采集入库；去重命中仍返回 `isError: false`。
+- 扩展的两条安全约定：只发链接不发 DOM（页面 `img src` 含 `skey` 会话凭据）、
+  只自动收 `mp.weixin.qq.com`（避免把文件/杂链接塞进知识库）。
+- 文档：新增 `docs/INGEST.md`（录入渠道总览）；`docs/API.md` 补 from-url。
+
+
 ### feat: 微信 Bot 入口（iLink / ClawBot）
 
 微信里发链接即采集、发关键词即检索。走腾讯 2026 年开放的个人号官方 Bot 接口

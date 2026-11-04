@@ -238,19 +238,6 @@ func TestExtractURLs(t *testing.T) {
 	}
 }
 
-func TestNormalizeURLStripsTracking(t *testing.T) {
-	cases := map[string]string{
-		"https://mp.weixin.qq.com/s/abc#rd":                     "https://mp.weixin.qq.com/s/abc",
-		"https://mp.weixin.qq.com/s/abc?scene=21&from=timeline": "https://mp.weixin.qq.com/s/abc",
-		"https://mp.weixin.qq.com/s/abc?mid=1&scene=2":          "https://mp.weixin.qq.com/s/abc?mid=1",
-	}
-	for in, want := range cases {
-		if got := normalizeURL(in); got != want {
-			t.Errorf("normalizeURL(%q) = %q, want %q", in, got, want)
-		}
-	}
-}
-
 func TestSplitKeywords(t *testing.T) {
 	got := splitKeywords("父母牵线 匹配、准确率,推荐")
 	want := []string{"父母牵线", "匹配", "准确率", "推荐"}

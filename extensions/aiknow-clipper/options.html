@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <title>AiKnow 剪藏 · 设置</title>
+  <style>
+    :root { color-scheme: light; }
+    body {
+      font: 14px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif;
+      max-width: 560px; margin: 32px auto; padding: 0 16px; color: #111827;
+    }
+    h1 { font-size: 18px; margin: 0 0 4px; }
+    p.hint { color: #6b7280; font-size: 13px; margin: 0 0 20px; }
+    label { display: block; font-weight: 600; margin: 16px 0 6px; }
+    input {
+      width: 100%; box-sizing: border-box; padding: 8px 10px;
+      border: 1px solid #d1d5db; border-radius: 6px; font: inherit;
+    }
+    .row { display: flex; gap: 8px; align-items: center; margin-top: 20px; }
+    button {
+      padding: 8px 16px; border-radius: 6px; border: 1px solid transparent;
+      background: #2563eb; color: #fff; font: inherit; cursor: pointer;
+    }
+    button.secondary { background: #fff; color: #374151; border-color: #d1d5db; }
+    #status { font-size: 13px; }
+    #status.ok { color: #15803d; }
+    #status.err { color: #b91c1c; }
+    code { background: #f3f4f6; padding: 1px 5px; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <h1>AiKnow 剪藏</h1>
+  <p class="hint">
+    手机微信转发公众号文章给「文件传输助手」→ 网页版会自动入库；<br />
+    任意网页可右键「存入 AiKnow 知识库」，或点工具栏图标。
+  </p>
+
+  <label for="server">AiKnow 地址</label>
+  <input id="server" placeholder="http://127.0.0.1:8080" />
+  <p class="hint">不要带结尾斜杠。手机与电脑需能访问同一个地址（外网需反代）。</p>
+
+  <label for="apiKey">API Key（scope=readwrite）</label>
+  <input id="apiKey" placeholder="aik_..." />
+  <p class="hint">
+    在 AiKnow 后台「密钥管理」创建，权限选**读写**。Key 只存本机浏览器，不会上传。
+  </p>
+
+  <div class="row">
+    <button id="save">保存</button>
+    <button id="test" class="secondary">测试连接</button>
+    <span id="status"></span>
+  </div>
+
+  <script src="options.js"></script>
+</body>
+</html>

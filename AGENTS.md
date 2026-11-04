@@ -363,6 +363,10 @@ Go 层拦不住——必须靠「browserless 部署在访问不到敏感内网�
   多副本部署需拆成独立进程或加选主。
 - 意图语义与 MCP 三个工具对齐（采集 / 关键词卡片 / 语义片段），channel 层
   只做「消息 → 意图 → 现有 service」，不得另写一套检索或采集。
+- **采集入口统一走 `ArticleService.CreateFromURL`**（bot / REST `from-url` /
+  MCP `add_article_by_url` / 浏览器扩展共用），URL 归一统一走 `pkg/urlx.Normalize`。
+  新增渠道时不要再实现一份采集或归一逻辑——公众号分享链路的参数（`mpshare`、
+  `srcid`、`sharer_shareinfo`）每次分享都不同，漏一个就会重复入库。
 
 ```bash
 aiknow-server weixin login    # 打印二维码链接，扫码后凭据落库
@@ -796,8 +800,10 @@ aiknow/
 │   ├── webfetch/           # browserless 渲染客户端（HTML + 全页截图）
 │   ├── cos/                # 腾讯云 COS 上传（截图归档）
 │   ├── pgqueue/            # 任务队列（表 + FOR UPDATE SKIP LOCKED，含租约/重试/死信）
-│   └── ilink/              # 微信 iLink Bot 协议客户端（扫码/长轮询/发消息）
+│   ├── ilink/              # 微信 iLink Bot 协议客户端（扫码/长轮询/发消息）
+│   └── urlx/               # URL 归一（去分享态参数，公众号按 __biz+mid+idx+sn 重排）
 ├── deploy/browserless/     # browserless 独立部署（compose + README）
+├── extensions/aiknow-clipper/  # Chrome/Edge 扩展：文件传输助手监听 + 任意网页剪藏
 ├── web/js/pages/           # 前端按页面拆分
 ├── migrations/             # 数据库迁移（顶层镜像；embed 实际读 internal/repository/migrations）
 ├── .env.example            # .env 本身在 .gitignore 中
@@ -824,6 +830,7 @@ aiknow/
 - 后台管理 API：`docs/API_ADMIN.md`
 - browserless 部署：`deploy/browserless/README.md`
 - 微信 Bot 入口：`docs/WEIXIN_BOT.md`
+- 录入渠道总览（含文件传输助手扩展、快捷指令）：`docs/INGEST.md`
 - ParadeDB / pg_search：https://github.com/paradedb/paradedb
 - pgvector：https://github.com/pgvector/pgvector
 - MCP 规范：https://modelcontextprotocol.io/specification/2025-06-18

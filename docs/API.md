@@ -167,6 +167,33 @@ POST /api/v1/articles
 {"error": "article already exists with this source url"}
 ```
 
+#### URL 直接入库（只给链接）
+
+```
+POST /api/v1/articles/from-url
+```
+
+需要 `readwrite` scope。**服务端代为采集**：归一 URL → 抓正文（渲染优先）→ 去重 → 入库 → 入队。
+浏览器扩展、iOS 快捷指令、脚本都用这个端点，无需自己实现采集。
+
+```json
+{ "url": "https://mp.weixin.qq.com/s?__biz=...&mid=...&idx=1&sn=...#rd" }
+```
+
+| 状态码 | 含义 |
+|---|---|
+| `201` | 已入库，返回完整文章对象（`processing_status=pending`，AI 处理异步进行） |
+| `409` | 该文章已存在（URL 归一后命中，或正文哈希相同） |
+| `400` | `url` 缺失 |
+| `502` | 采集失败（目标站点不可达/反爬/SSRF 拦截） |
+| `503` | 服务端未注入采集器 |
+
+**URL 归一**（`pkg/urlx`）：剔除 `mpshare` / `srcid` / `sharer_shareinfo` / `scene` / `utm_*`
+等跟踪参数与 `#rd` 片段；公众号文章按 `__biz + mid + idx + sn`（+ `chksm`）重排，
+因此**同一篇文章转发两次不会重复入库**。
+
+> 延迟提示：渲染开启时单篇可达 10-30 秒（含全页截图归档），扩展侧会显示「入库中…」。
+
 #### 查询文章列表
 
 ```

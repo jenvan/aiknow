@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/google/uuid"
@@ -38,7 +39,7 @@ func NewMCPService(
 // Initialize 处理 MCP initialize 请求
 func (s *MCPServiceImpl) Initialize(ctx context.Context, req model.MCPInitializeRequest) (*model.MCPInitializeResponse, error) {
 	return &model.MCPInitializeResponse{
-		Protocol: "2025-06-18",
+		Protocol:     "2025-06-18",
 		Capabilities: model.MCPServerCap{},
 		ServerInfo: model.MCPServerInfo{
 			Name:    "aiknow-server",
@@ -237,10 +238,25 @@ func (s *MCPServiceImpl) addArticleByURL(ctx context.Context, args map[string]in
 		return nil, fmt.Errorf("url is required")
 	}
 
-	// TODO: 实现 URL 采集和入库
+	article, err := s.articleService.CreateFromURL(ctx, url)
+	if err != nil {
+		// 去重命中必须返回 isError: false —— 返回 true 会让大模型以为失败而重试，
+		// 重试必然再次撞去重，形成死循环
+		if errors.Is(err, ErrDuplicateArticle) {
+			return &model.MCPTOOLResult{
+				Content: []model.MCPContentItem{
+					{Type: "text", Text: "该文章已存在，未重复入库"},
+				},
+				IsError: false,
+			}, nil
+		}
+		return nil, err
+	}
+
 	return &model.MCPTOOLResult{
 		Content: []model.MCPContentItem{
-			{Type: "text", Text: "URL 采集功能待实现"},
+			{Type: "text", Text: fmt.Sprintf("已采集入库：%s（处理状态 %s）", article.Title, article.ProcessingStatus)},
+			{Type: "text", Text: "article_id: " + article.ID},
 		},
 		IsError: false,
 	}, nil

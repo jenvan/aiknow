@@ -355,6 +355,9 @@ func serve() {
 	collectorConfig.BrowserTimeout = cfg.GetDuration("COLLECTOR_BROWSER_TIMEOUT", collectorConfig.BrowserTimeout)
 
 	collector := service.NewCollector(collectorConfig)
+	// 让「给 URL 就入库」成为服务层能力：微信 bot、浏览器扩展、快捷指令、
+	// MCP add_article_by_url 全部复用同一条采集链路
+	articleService.SetCollector(collector)
 	// 后台「系统配置 → collector.user_agent」可覆盖启动配置并热生效
 	collector.SetUserAgentSource(db.GetSettingRepo())
 
@@ -503,6 +506,8 @@ func serve() {
 		apiGroup.GET("/articles", api.RequireScope(service.ScopeReadOnly), articleHandler.List)
 		apiGroup.GET("/articles/:id", api.RequireScope(service.ScopeReadOnly), articleHandler.GetByID)
 		apiGroup.POST("/articles", api.RequireScope(service.ScopeReadWrite), articleHandler.Create)
+		// 只给 URL 的录入入口：浏览器扩展 / 快捷指令 / 脚本
+		apiGroup.POST("/articles/from-url", api.RequireScope(service.ScopeReadWrite), articleHandler.CreateFromURL)
 		apiGroup.DELETE("/articles/:id", api.RequireScope(service.ScopeReadWrite), articleHandler.SoftDelete)
 
 		searchHandler := api.NewSearchHandler(searchService)

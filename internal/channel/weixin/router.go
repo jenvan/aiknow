@@ -4,13 +4,13 @@ import (
 	"context"
 	"errors"
 	"log/slog"
-	"net/url"
 	"regexp"
 	"strings"
 	"unicode/utf8"
 
 	"github.com/jenvan/aiknow/internal/model"
 	"github.com/jenvan/aiknow/pkg/ilink"
+	"github.com/jenvan/aiknow/pkg/urlx"
 )
 
 // ErrDuplicate 文章已存在（URL 或正文哈希命中）。
@@ -134,7 +134,9 @@ func (r *Router) handleCommand(ctx context.Context, text string, emit Emit) {
 }
 
 func (r *Router) collect(ctx context.Context, msg *ilink.Message, rawURL string, emit Emit) {
-	target := normalizeURL(rawURL)
+	// 归一（去 #rd、去 mpshare/srcid 等每次分享都变的参数）后入库：
+	// 去重是 source_url 精确比较，不归一就会同一篇入库多次
+	target := urlx.Normalize(rawURL)
 	emit(formatCollecting(target))
 
 	doc, err := r.collector.Fetch(ctx, target)
@@ -250,25 +252,6 @@ func extractURLs(text string) []string {
 		}
 	}
 	return out
-}
-
-// normalizeURL 规范化链接后再入库，减少「同一篇文章被当成两篇」。
-//
-// 公众号文章常带 #rd 之类的 fragment，以及 scene/from 这类跟踪参数：
-// 当前去重是 source_url 精确比较（service/article.go），带这些尾巴就会重复。
-func normalizeURL(raw string) string {
-	u, err := url.Parse(raw)
-	if err != nil {
-		return raw
-	}
-	u.Fragment = ""
-	u.RawFragment = ""
-	q := u.Query()
-	for _, k := range []string{"scene", "from", "isappinstalled", "clicktime", "enterid", "ascene", "devicetype", "version", "nettype", "lang", "exportkey", "pass_ticket", "wx_header"} {
-		q.Del(k)
-	}
-	u.RawQuery = q.Encode()
-	return u.String()
 }
 
 // splitKeywords 把用户输入切成关键词：空格/逗号/顿号都算分隔。
