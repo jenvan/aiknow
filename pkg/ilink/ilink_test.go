@@ -185,3 +185,81 @@ func TestStartLoginAndWait(t *testing.T) {
 		t.Errorf("token = %+v", tok)
 	}
 }
+
+func TestECBRoundTrip(t *testing.T) {
+	key := []byte("0123456789abcdef") // 16 字节
+	for _, plain := range [][]byte{
+		[]byte("x"),
+		[]byte("a message long enough to span multiple blocks for sure"),
+		make([]byte, 100),
+	} {
+		enc, err := encryptECB(key, plain)
+		if err != nil {
+			t.Fatalf("encrypt: %v", err)
+		}
+		if len(enc)%16 != 0 {
+			t.Fatalf("ciphertext not block aligned: %d", len(enc))
+		}
+		dec, err := decryptECB(key, enc)
+		if err != nil {
+			t.Fatalf("decrypt: %v", err)
+		}
+		if string(dec) != string(plain) {
+			t.Fatalf("roundtrip mismatch")
+		}
+	}
+}
+
+// 发送图片的完整链路（getuploadurl → CDN → sendmessage）用 httptest 模拟。
+func TestSendImageFlow(t *testing.T) {
+	var gotUpload bool
+	var uploaded int
+	var sentItem map[string]any
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/ilink/bot/getuploadurl":
+			body, _ := io.ReadAll(r.Body)
+			var m map[string]any
+			_ = json.Unmarshal(body, &m)
+			// aeskey 必须是 32 位 hex（用错编码 CDN 会 500）
+			if k, _ := m["aeskey"].(string); len(k) != 32 {
+				t.Errorf("aeskey 应为 32 位 hex，实际 %q", k)
+			}
+			io.WriteString(w, `{"ret":0,"upload_param":"UP_TOKEN","upload_full_url":""}`)
+		case r.URL.Path == "/c2c/upload":
+			gotUpload = true
+			b, _ := io.ReadAll(r.Body)
+			uploaded = len(b)
+			w.Header().Set("x-encrypted-param", "DL_TOKEN")
+			w.WriteHeader(http.StatusOK)
+		case r.URL.Path == "/ilink/bot/sendmessage":
+			body, _ := io.ReadAll(r.Body)
+			var m map[string]any
+			_ = json.Unmarshal(body, &m)
+			sentItem = m["msg"].(map[string]any)
+			io.WriteString(w, `{"ret":0,"message_id":42}`)
+		default:
+			t.Errorf("unexpected path %s", r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	c := NewClient(Token{BotToken: "tk", BaseURL: srv.URL})
+	c.cdnBase = srv.URL + "/c2c"
+	if err := c.SendImage(context.Background(), "u@im.wechat", "ctx", []byte("fake-png-bytes")); err != nil {
+		t.Fatalf("SendImage: %v", err)
+	}
+	if !gotUpload || uploaded == 0 {
+		t.Fatal("CDN 上传未发生")
+	}
+	items := sentItem["item_list"].([]any)
+	item := items[0].(map[string]any)
+	if item["type"] != float64(2) {
+		t.Errorf("item type = %v, want 2(image)", item["type"])
+	}
+	media := item["image_item"].(map[string]any)["media"].(map[string]any)
+	if media["encrypt_query_param"] != "DL_TOKEN" {
+		t.Errorf("encrypt_query_param = %v, want 服务端返回的 DL_TOKEN", media["encrypt_query_param"])
+	}
+}

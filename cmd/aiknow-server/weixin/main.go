@@ -35,6 +35,8 @@ func Main(args []string) {
 		status()
 	case "logout":
 		logout(args[1:])
+	case "send-image":
+		sendImage(args[1:])
 	default:
 		fmt.Printf("未知的 weixin 子命令: %s\n\n", args[0])
 		printUsage()
@@ -47,11 +49,13 @@ func printUsage() {
   aiknow-server weixin login [--allow-from "a@im.wechat,b@im.wechat"]
   aiknow-server weixin status
   aiknow-server weixin logout [--yes]
+  aiknow-server weixin send-image <图片路径>
 
 说明:
   login    扫码登录微信 iLink Bot（等价于把「微信 ClawBot」插件授权给 AiKnow）
   status   查看当前账号、白名单、长轮询游标与最近活跃时间
   logout   删除本地保存的 bot 凭据
+  send-image  往最近一次会话窗口发一张图片（用库里保存的 bot 凭据与 context_token）
 
 提示:
   - 扫码入口：手机微信 → 我 → 设置 → 关于微信，确认版本 8.0.70+，
@@ -230,6 +234,59 @@ func logout(args []string) {
 		os.Exit(1)
 	}
 	fmt.Println("已删除本地凭据。")
+}
+
+// sendImage 往最近一次会话发一张图片。
+//
+// 用途：把某个需要「长按识别二维码」的图（如文件传输助手网页版登录码）直接发到
+// 微信里，省去"用另一个设备拍屏幕"。
+//
+// context_token 用的是库里最后一次 inbound 消息的——微信侧可能已过期，
+// 失败时会明确报错，不会静默成功。
+func sendImage(args []string) {
+	fs := flag.NewFlagSet("weixin send-image", flag.ExitOnError)
+	_ = fs.Parse(args)
+	if fs.NArg() < 1 {
+		fmt.Println("用法: aiknow-server weixin send-image <图片路径>")
+		os.Exit(1)
+	}
+	path := fs.Arg(0)
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		fmt.Printf("读取图片失败: %v\n", err)
+		os.Exit(1)
+	}
+
+	ctx := context.Background()
+	db, _, closeDB, err := openDB(ctx)
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+	defer closeDB()
+
+	acc, err := db.GetWeixinRepo().Get(ctx)
+	if err != nil || acc == nil {
+		fmt.Println("尚未登录 bot，先执行 aiknow-server weixin login")
+		os.Exit(1)
+	}
+	if acc.LastContextToken == "" {
+		fmt.Println("没有可用的 context_token：请先在微信里给 bot 发一条消息")
+		os.Exit(1)
+	}
+
+	client := ilink.NewClient(ilink.Token{
+		BotToken: acc.BotToken,
+		BotID:    acc.BotID,
+		UserID:   acc.OwnerUserID,
+		BaseURL:  acc.BaseURL,
+	})
+	if err := client.SendImage(ctx, acc.OwnerUserID, acc.LastContextToken, data); err != nil {
+		fmt.Printf("发送失败: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("已发送 %d 字节图片给 %s\n", len(data), acc.OwnerUserID)
 }
 
 func firstNonEmpty(vals ...string) string {

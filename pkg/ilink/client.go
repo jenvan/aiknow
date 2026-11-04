@@ -44,10 +44,12 @@ func (e *APIError) Error() string {
 
 // Client 是 iLink Bot 客户端，可并发使用。
 type Client struct {
-	token  Token
-	base   string
-	http   *http.Client
-	logger *slog.Logger
+	token Token
+	base  string
+	// cdnBase 媒体 CDN 基座，测试可替换
+	cdnBase string
+	http    *http.Client
+	logger  *slog.Logger
 }
 
 // Option 用于定制 Client。
@@ -75,8 +77,9 @@ func NewClient(tok Token, opts ...Option) *Client {
 		base = tok.BaseURL
 	}
 	c := &Client{
-		token: tok,
-		base:  base,
+		token:   tok,
+		base:    base,
+		cdnBase: cdnBaseURL,
 		// 长轮询服务端 hold 35s，超时必须大于它，否则每轮都误判超时
 		http:   &http.Client{Timeout: 50 * time.Second},
 		logger: slog.Default(),
