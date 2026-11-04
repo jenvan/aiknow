@@ -169,7 +169,7 @@ func TestFetchHTML_RenderFirst(t *testing.T) {
 		cfg.BrowserEndpoint = bw.URL
 		c := NewCollector(cfg)
 
-		html, shot, rendered, _, err := c.fetchHTML(context.Background(), target.URL)
+		html, shot, rendered, _, err := c.fetchHTML(context.Background(), target.URL, true)
 		if err != nil {
 			t.Fatalf("fetchHTML: %v", err)
 		}
@@ -195,7 +195,7 @@ func TestFetchHTML_RenderFirst(t *testing.T) {
 		cfg.BrowserEndpoint = bw.URL
 		c := NewCollector(cfg)
 
-		html, shot, rendered, _, err := c.fetchHTML(context.Background(), target.URL)
+		html, shot, rendered, _, err := c.fetchHTML(context.Background(), target.URL, true)
 		if err != nil {
 			t.Fatalf("fetchHTML: %v", err)
 		}
@@ -212,7 +212,7 @@ func TestFetchHTML_RenderFirst(t *testing.T) {
 
 	t.Run("渲染层关闭直接 http", func(t *testing.T) {
 		c := NewCollector(DefaultCollectorConfig())
-		html, shot, rendered, _, err := c.fetchHTML(context.Background(), target.URL)
+		html, shot, rendered, _, err := c.fetchHTML(context.Background(), target.URL, true)
 		if err != nil {
 			t.Fatalf("fetchHTML: %v", err)
 		}
@@ -240,7 +240,7 @@ func TestFetchHTML_RenderFirst(t *testing.T) {
 		cfg.BrowserEndpoint = bw.URL
 		c := NewCollector(cfg)
 
-		_, _, _, _, err := c.fetchHTML(context.Background(), bad.URL)
+		_, _, _, _, err := c.fetchHTML(context.Background(), bad.URL, true)
 		if err == nil {
 			t.Error("渲染与 http 都失败时应返回错误")
 		}
@@ -249,7 +249,7 @@ func TestFetchHTML_RenderFirst(t *testing.T) {
 	t.Run("http 截断标志透传", func(t *testing.T) {
 		c := NewCollector(DefaultCollectorConfig())
 		c.config.MaxContentLength = 8 // 远小于目标页正文
-		_, _, _, truncated, err := c.fetchHTML(context.Background(), target.URL)
+		_, _, _, truncated, err := c.fetchHTML(context.Background(), target.URL, true)
 		if err != nil {
 			t.Fatalf("fetchHTML: %v", err)
 		}

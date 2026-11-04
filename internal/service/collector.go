@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -158,6 +159,10 @@ func (c *Collector) effectiveMaxContentLength(ctx context.Context) int {
 	return limit
 }
 
+// errContentTooShort 提取到的正文过短（多为 SPA 空壳或反爬页），
+// FetchLight 据此决定是否回退渲染。
+var errContentTooShort = errors.New("content too short")
+
 // Fetch 采集 URL 内容。
 //
 // 流程（渲染优先）：
@@ -170,6 +175,32 @@ func (c *Collector) effectiveMaxContentLength(ctx context.Context) int {
 // 输出的 Content 为纯文本，Markdown 为保留结构的版本（二者同源）；
 // 截图为 PNG 字节，随结果返回供上层上传归档。
 func (c *Collector) Fetch(ctx context.Context, url string) (*CollectorResult, error) {
+	return c.fetch(ctx, url, true)
+}
+
+// FetchLight 只走轻量 http（不渲染、不截图），正文过短时才回退渲染。
+//
+// 用于「录入/剪藏」路径：正文质量不是关键——URL 文章入库后，worker 处理时会
+// 重新采集（渲染 + 截图归档）；但响应速度很关键，公众号 http 抓取 1-3 秒，
+// 渲染要约 30 秒。回退只在「正文太短」（典型 SPA 空壳）时发生，其它错误
+// （404 / SSRF / 超时）直接返回，避免把失败也拖成 30 秒。
+func (c *Collector) FetchLight(ctx context.Context, url string) (*CollectorResult, error) {
+	res, err := c.fetch(ctx, url, false)
+	if err == nil {
+		return res, nil
+	}
+	if !errors.Is(err, errContentTooShort) || !c.renderUsable() {
+		return nil, err
+	}
+	fmt.Printf("提示: %s 的 http 正文过短，回退渲染\n", url)
+	return c.fetch(ctx, url, true)
+}
+
+func (c *Collector) renderUsable() bool {
+	return c.config.RenderEnabled && c.renderer != nil && c.renderer.Enabled()
+}
+
+func (c *Collector) fetch(ctx context.Context, url string, allowRender bool) (*CollectorResult, error) {
 	// SSRF 检查（渲染与 http 两条路都在其后再发起请求）
 	ssrfResult, err := c.ssrfCheck.CheckURL(url)
 	if err != nil {
@@ -179,7 +210,7 @@ func (c *Collector) Fetch(ctx context.Context, url string) (*CollectorResult, er
 		return nil, fmt.Errorf("ssrf blocked: %s", ssrfResult.Reason)
 	}
 
-	html, screenshot, rendered, truncated, fetchErr := c.fetchHTML(ctx, url)
+	html, screenshot, rendered, truncated, fetchErr := c.fetchHTML(ctx, url, allowRender)
 	if fetchErr != nil {
 		return nil, fmt.Errorf("fetch url: %w", fetchErr)
 	}
@@ -202,7 +233,7 @@ func (c *Collector) Fetch(ctx context.Context, url string) (*CollectorResult, er
 
 	// 检查最小内容长度
 	if len([]rune(extracted.Text)) < c.config.MinContentLength {
-		return nil, fmt.Errorf("content too short: %d characters", len([]rune(extracted.Text)))
+		return nil, fmt.Errorf("%w: %d characters", errContentTooShort, len([]rune(extracted.Text)))
 	}
 
 	return collectorResult, nil
@@ -215,8 +246,8 @@ func (c *Collector) Fetch(ctx context.Context, url string) (*CollectorResult, er
 // 截图（screenshot 为 nil）、rendered 为 false。
 //
 // 返回 (html, screenshotPNG, rendered, truncated, err)。
-func (c *Collector) fetchHTML(ctx context.Context, url string) (string, []byte, bool, bool, error) {
-	if c.config.RenderEnabled && c.renderer.Enabled() {
+func (c *Collector) fetchHTML(ctx context.Context, url string, allowRender bool) (string, []byte, bool, bool, error) {
+	if allowRender && c.config.RenderEnabled && c.renderer.Enabled() {
 		// 带上采集 UA：微信等反爬站点会按 UA 判定爬虫，缺了会返回验证页
 		if rr, err := c.renderer.RenderAndScreenshot(ctx, url, c.effectiveUserAgent(ctx)); err == nil && rr.HTML != "" {
 			return rr.HTML, rr.Screenshot, true, false, nil

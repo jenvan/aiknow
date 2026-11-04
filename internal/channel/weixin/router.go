@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"regexp"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/jenvan/aiknow/internal/model"
@@ -66,20 +67,66 @@ type Router struct {
 	// onQueued 在文章采集入库后调用，用于登记「处理完成后回推微信」。
 	// 可为 nil（未启用主动推送时）。
 	onQueued func(articleID, userID, contextToken string)
+
+	// runner 决定采集任务在哪儿跑（默认异步）
+	runner Runner
+}
+
+// Runner 决定「采集任务」在哪儿执行。
+//
+// 默认异步（goroutine + 信号量）：单篇采集要几秒到几十秒，占着长轮询的 handler
+// 会让后续消息全部排队。测试注入同步实现，便于断言回包。
+type Runner interface {
+	Submit(fn func())
+}
+
+type syncRunner struct{}
+
+func (syncRunner) Submit(fn func()) { fn() }
+
+// SyncRunner 同步执行（测试用）。
+func SyncRunner() Runner { return syncRunner{} }
+
+type asyncRunner struct{ sem chan struct{} }
+
+func (a *asyncRunner) Submit(fn func()) {
+	a.sem <- struct{}{}
+	go func() {
+		defer func() { <-a.sem }()
+		fn()
+	}()
+}
+
+// RouterOption 定制 Router。
+type RouterOption func(*Router)
+
+// WithRunner 替换采集任务的执行方式（测试注入同步 Runner）。
+func WithRunner(r Runner) RouterOption {
+	return func(rt *Router) {
+		if r != nil {
+			rt.runner = r
+		}
+	}
 }
 
 // NewRouter 构造路由。
-func NewRouter(articles ArticleStore, keywords KeywordSearcher, semantic Searcher, collector Collector, logger *slog.Logger) *Router {
+func NewRouter(articles ArticleStore, keywords KeywordSearcher, semantic Searcher, collector Collector, logger *slog.Logger, opts ...RouterOption) *Router {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Router{
+	r := &Router{
 		articles:  articles,
 		keywords:  keywords,
 		semantic:  semantic,
 		collector: collector,
 		logger:    logger,
+		// 并发上限 2：采集要打渲染/外网，放太多会互相拖慢
+		runner: &asyncRunner{sem: make(chan struct{}, 2)},
 	}
+	for _, o := range opts {
+		o(r)
+	}
+	return r
 }
 
 // SetOnQueued 注册「已入队」回调，由 Bot 在启动时接到 Pusher 上。
@@ -137,7 +184,21 @@ func (r *Router) collect(ctx context.Context, msg *ilink.Message, rawURL string,
 	// 归一（去 #rd、去 mpshare/srcid 等每次分享都变的参数）后入库：
 	// 去重是 source_url 精确比较，不归一就会同一篇入库多次
 	target := urlx.Normalize(rawURL)
+
+	// 先回执，再干活：采集要打网络（渲染时几十秒），用户不该盯着一个转圈等。
+	// 完成后再回第二条（已收录/已存在/失败），这样「发完就走」是成立的。
 	emit(formatCollecting(target))
+
+	r.runner.Submit(func() {
+		// 与请求 ctx 解耦但保留值；加超时兜底，避免异常时永远挂着
+		runCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Minute)
+		defer cancel()
+		r.collectAndReport(runCtx, msg, target, emit)
+	})
+}
+
+// collectAndReport 真正执行采集并回包（在 runner 里跑）。
+func (r *Router) collectAndReport(ctx context.Context, msg *ilink.Message, target string, emit Emit) {
 
 	doc, err := r.collector.Fetch(ctx, target)
 	if err != nil {

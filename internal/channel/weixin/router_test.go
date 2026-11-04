@@ -3,7 +3,9 @@ package weixin
 import (
 	"context"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/jenvan/aiknow/internal/model"
 	"github.com/jenvan/aiknow/pkg/ilink"
@@ -73,7 +75,8 @@ func (f fakeCollector) Fetch(context.Context, string) (*CollectedDoc, error) {
 }
 
 func newRouter(a ArticleStore, k KeywordSearcher, s Searcher, c Collector) *Router {
-	return NewRouter(a, k, s, c, nil)
+	// 同步 Runner：测试里要断言「回执 + 结果」两条都在调用返回时就产生
+	return NewRouter(a, k, s, c, nil, WithRunner(SyncRunner()))
 }
 
 func collectReplies(r *Router, msg *ilink.Message) []string {
@@ -282,5 +285,45 @@ func TestBotAllowsOnlyOwnerByDefault(t *testing.T) {
 	}
 	if acc.Allows("") {
 		t.Error("empty user id must be rejected")
+	}
+}
+
+// 异步 Runner 下：调用返回时只应有「正在采集」回执，结果在后台补发。
+func TestHandleURLAsyncSendsAckFirst(t *testing.T) {
+	arts := &fakeArticles{}
+	done := make(chan struct{})
+	r := NewRouter(arts, fakeKeywords{}, &fakeSemantic{},
+		fakeCollector{doc: &CollectedDoc{Title: "异步文章", Markdown: "# 正文"}},
+		nil) // 默认异步 Runner
+
+	var mu sync.Mutex
+	var replies []string
+	r.Handle(context.Background(), textMsg("https://mp.weixin.qq.com/s/async"), func(text string) {
+		mu.Lock()
+		replies = append(replies, text)
+		n := len(replies)
+		mu.Unlock()
+		if n == 2 {
+			close(done)
+		}
+	})
+
+	// 立刻应只有回执
+	mu.Lock()
+	first := len(replies)
+	mu.Unlock()
+	if first != 1 || !strings.Contains(replies[0], "正在采集") {
+		t.Fatalf("first replies = %v, want 仅回执", replies)
+	}
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("后台采集未在 2s 内完成")
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if !strings.Contains(replies[1], "已收录") {
+		t.Errorf("second reply = %q", replies[1])
 	}
 }

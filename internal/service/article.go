@@ -77,6 +77,12 @@ func (s *articleServiceImpl) enqueueProcessing(ctx context.Context, articleID st
 	return err
 }
 
+// lightCollector 可选能力：只走 http 的快速采集（*Collector 实现）。
+// 抽成独立的窄接口，避免给 URLCollector 加方法而破坏测试里现有的假实现。
+type lightCollector interface {
+	FetchLight(ctx context.Context, url string) (*CollectorResult, error)
+}
+
 // SetCollector 注入采集器，开启「URL 直接入库」能力。
 //
 // 采集器在 serve() 里晚于 ArticleService 创建（它依赖 L1 采集配置），故用注入
@@ -103,7 +109,17 @@ func (s *articleServiceImpl) CreateFromURL(ctx context.Context, rawURL string) (
 		return nil, fmt.Errorf("%w: same URL, existing article %s", ErrDuplicateArticle, existing.ID)
 	}
 
-	res, err := s.collector.Fetch(ctx, target)
+	// 优先走「快速采集」：不渲染、不截图（worker 处理时会重采集 + 截图），
+	// 公众号 http 抓取 1-3 秒 vs 渲染约 30 秒。SPA 空壳时它会自动回退渲染。
+	var (
+		res *CollectorResult
+		err error
+	)
+	if lc, ok := s.collector.(lightCollector); ok {
+		res, err = lc.FetchLight(ctx, target)
+	} else {
+		res, err = s.collector.Fetch(ctx, target)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("collect %s: %w", target, err)
 	}
