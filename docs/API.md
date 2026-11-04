@@ -133,6 +133,9 @@ POST /api/v1/articles
 | `category_id` | string | 否 | — | 分类 ID，与 `category_name` 二选一，优先 ID |
 | `tags` | string[] | 否 | — | 标签列表，不存在时自动创建 |
 
+> `screenshot_url` 是**响应字段**（不可提交）：URL 采集的文章在异步处理时会重新
+> 采集并顺带截取全页图归档到 COS，成功后写回该字段；仅渲染成功且配置了 COS 时非空。
+
 **响应示例（201 Created）：**
 
 ```json
@@ -142,6 +145,7 @@ POST /api/v1/articles
   "content": "...",
   "source_type": "url",
   "source_url": "https://example.com/article",
+  "screenshot_url": "https://cos.example.com/aiknow/screenshots/2026/09/7c9a3b2e.png",
   "processing_status": "pending",
   "summary": null,
   "category_id": "cat-001",
@@ -200,6 +204,7 @@ GET /api/v1/articles
       "title": "Go 并发模式：Worker Pools",
       "source_type": "url",
       "source_url": "https://example.com/article",
+      "screenshot_url": "https://cos.example.com/aiknow/screenshots/2026/09/7c9a3b2e.png",
       "processing_status": "completed",
       "summary": "Worker Pool 是 Go 并发编程中最常用的模式之一...",
       "category_id": "cat-001",
@@ -320,6 +325,7 @@ POST /api/v1/search/keywords
       "title": "Go 并发模式：Worker Pools",
       "source_type": "url",
       "source_url": "https://example.com/article",
+      "screenshot_url": "https://cos.example.com/aiknow/screenshots/2026/09/7c9a3b2e.png",
       "processing_status": "completed",
       "summary": "Worker Pool 是 Go 并发编程中最常用的模式之一...",
       "category_id": "cat-001",

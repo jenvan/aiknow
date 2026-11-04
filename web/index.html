@@ -5,8 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AiKnow 爱脑 · AI 知识库管理工具</title>
     <!-- 本地 vendor 资源（已下载到 web/js/vendor/，不依赖 CDN）：
-         Tailwind Play CDN 脚本 + Alpine.js 3.x 官方发布包。 -->
+         Tailwind Play CDN 脚本 + Alpine.js 3.x 官方发布包。
+         marked（Markdown→HTML）+ DOMPurify（清洗，防 XSS）用于文章预览页。 -->
     <script src="/web/js/vendor/tailwind.js"></script>
+    <script src="/web/js/vendor/marked.min.js"></script>
+    <script src="/web/js/vendor/purify.min.js"></script>
     <!-- app.js 必须排在 Alpine 之前：两者都是延迟执行，按文档顺序运行。
          若 Alpine 先执行，它会在 app.js 注册 alpine:init 监听器之前就
          start() 并派发该事件，导致组件全部未注册（shell is not defined）。 -->
@@ -185,7 +188,7 @@
                                         <template x-for="a in recent.slice(0, 8)" :key="a.id">
                                             <li class="flex items-center justify-between text-sm border-b border-gray-100 pb-2">
                                                 <a class="truncate mr-2 text-blue-600 hover:underline cursor-pointer"
-                                                   @click.prevent="navigate('/ui/articles/' + a.id)"
+                                                   @click.prevent="navigate('/ui/articles/' + a.id + '/preview')"
                                                    x-text="a.title"></a>
                                                 <span class="px-2 py-0.5 rounded text-xs shrink-0"
                                                       :class="meta(a.processing_status).cls"
@@ -353,7 +356,7 @@
                                             <td class="p-3"><input type="checkbox" :checked="isSelected(a.id)" @change="toggle(a.id)"></td>
                                             <td class="p-3">
                                                 <a class="text-blue-600 hover:underline cursor-pointer"
-                                                   @click.prevent="navigate('/ui/articles/' + a.id)" x-text="a.title"></a>
+                                                   @click.prevent="navigate('/ui/articles/' + a.id + '/preview')" x-text="a.title"></a>
                                                 <span class="text-gray-400 text-xs ml-1" x-text="'[' + (a.category_name || '') + ']'"></span>
                                                 <div class="mt-0.5">
                                                     <template x-for="tag in (a.tags || [])" :key="tag.id">
@@ -371,6 +374,8 @@
                                             <td class="p-3 text-gray-600 text-right" x-text="a.view_count || 0"></td>
                                             <td class="p-3 text-right space-x-2">
                                                 <button @click="reprocess(a.id)" class="text-gray-600 hover:text-gray-900">重处理</button>
+                                                <a class="text-blue-600 hover:text-blue-800 cursor-pointer"
+                                                   @click.prevent="navigate('/ui/articles/' + a.id)">编辑</a>
                                                 <button @click="remove(a.id, a.title)" class="text-red-600 hover:text-red-800">删除</button>
                                             </td>
                                         </tr>
@@ -402,81 +407,215 @@
                     </div>
                 </template>
 
+                <!-- ============ 文章预览 ============ -->
+                <template x-if="currentPage === 'article-preview'">
+                    <div x-data="articlePreviewPage" class="p-6">
+                        <div class="flex justify-between items-center mb-6">
+                            <a href="/ui/articles" @click.prevent="navigate('/ui/articles')"
+                               class="text-sm text-gray-600 hover:text-gray-900 cursor-pointer">← 返回列表</a>
+                            <a :href="'/ui/articles/' + id" @click.prevent="navigate('/ui/articles/' + id)"
+                               class="inline-flex items-center gap-1 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded text-sm cursor-pointer shadow-sm">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path d="M16.5 3.5 20.5 7.5 8 20H4v-4z"/><path d="m14.5 5.5 4 4"/></svg>
+                                编辑
+                            </a>
+                        </div>
+
+                        <div x-show="error" class="mb-4 p-3 bg-red-50 border border-red-200 rounded text-sm text-red-700" x-text="error"></div>
+                        <div x-show="loading" class="text-gray-500">加载中…</div>
+
+                        <!-- x-if 而非 x-show：article 为 null 时不实例化子节点，
+                             避免加载完成前 article.xxx 表达式报错 -->
+                        <template x-if="!loading && article">
+                        <div class="grid grid-cols-3 gap-6">
+                            <!-- 正文 -->
+                            <article class="col-span-2 bg-white rounded-lg shadow p-6">
+                                <h1 class="text-2xl font-bold text-gray-900 mb-2" x-text="article.title"></h1>
+                                <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-500 mb-4 pb-4 border-b">
+                                    <span class="px-2 py-0.5 rounded" :class="meta(article.processing_status).cls"
+                                          x-text="meta(article.processing_status).label"></span>
+                                    <span x-show="article.category_name" x-text="'分类：' + article.category_name"></span>
+                                    <span x-text="'创建：' + fmt(article.created_at)"></span>
+                                    <span x-text="'浏览：' + (article.view_count || 0)"></span>
+                                </div>
+                                <div class="flex flex-wrap gap-1 mb-4" x-show="article.tags?.length">
+                                    <template x-for="tag in (article.tags || [])" :key="tag.id">
+                                        <span class="inline-block px-2 py-0.5 bg-gray-100 rounded text-xs text-gray-600" x-text="tag.name"></span>
+                                    </template>
+                                </div>
+                                <!-- 渲染后的 Markdown（已 DOMPurify 清洗） -->
+                                <div class="markdown-body text-gray-800 leading-relaxed" x-html="renderedHTML"></div>
+                            </article>
+
+                            <!-- 侧栏：信息 + 截图 -->
+                            <aside class="space-y-4">
+                                <div class="bg-white rounded-lg shadow p-4">
+                                    <h3 class="font-semibold text-gray-800 mb-3">文章信息</h3>
+                                    <div class="space-y-2 text-sm">
+                                        <div class="flex justify-between"><span class="text-gray-600">来源类型</span>
+                                            <span x-text="article.source_type === 'url' ? 'URL 采集' : '手动录入'"></span></div>
+                                        <div class="flex justify-between"><span class="text-gray-600">更新</span>
+                                            <span x-text="fmt(article.updated_at)"></span></div>
+                                        <div class="flex justify-between"><span class="text-gray-600">索引时间</span>
+                                            <span x-text="fmt(article.indexed_at)"></span></div>
+                                    </div>
+                                    <template x-if="article.source_url">
+                                        <div class="mt-3 pt-3 border-t">
+                                            <div class="text-xs text-gray-500 mb-1">来源网址</div>
+                                            <a :href="article.source_url" target="_blank" rel="noopener"
+                                               class="text-xs text-blue-600 hover:underline break-all" x-text="article.source_url"></a>
+                                        </div>
+                                    </template>
+                                </div>
+
+                                <div class="bg-white rounded-lg shadow p-4">
+                                    <h3 class="font-semibold text-gray-800 mb-3">AI 摘要</h3>
+                                    <p class="text-sm text-gray-700" x-text="article.summary || '尚未生成'"></p>
+                                </div>
+
+                                <div class="bg-white rounded-lg shadow p-4">
+                                    <h3 class="font-semibold text-gray-800 mb-3">网页截图</h3>
+                                    <template x-if="article.screenshot_url">
+                                        <img :src="article.screenshot_url" alt="网页截图"
+                                             class="w-full rounded border cursor-zoom-in"
+                                             @click="screenshotOpen = true">
+                                    </template>
+                                    <p x-show="!article.screenshot_url" class="text-sm text-gray-500">
+                                        暂无截图（仅 URL 采集且渲染成功时有）
+                                    </p>
+                                </div>
+                            </aside>
+                        </div>
+                        </template>
+
+                        <!-- 截图灯箱 -->
+                        <!--
+                            全页截图常是超长图（如 800×38000，高宽比极大）。若用
+                            max-h-full 塞进一屏，会按高度缩到几像素宽、成为一条细线。
+                            故改为按宽度铺满 + 垂直滚动查看；点击空白处关闭。
+                        -->
+                        <template x-if="screenshotOpen && article?.screenshot_url">
+                            <div class="fixed inset-0 z-50 bg-black/85 overflow-y-auto cursor-zoom-out"
+                                 @click="screenshotOpen = false">
+                                <div class="min-h-full flex justify-center p-4">
+                                    <img :src="article.screenshot_url" alt="网页截图"
+                                         class="h-auto self-start rounded shadow-2xl"
+                                         style="max-width: min(96vw, 900px);">
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+                </template>
+
                 <!-- ============ 文章编辑 ============ -->
                 <template x-if="currentPage === 'article-edit'">
                     <div x-data="articleEditPage" class="p-6">
-                        <div class="flex justify-end mb-6">
+                        <div class="flex justify-between items-center mb-6">
                             <a href="/ui/articles" @click.prevent="navigate('/ui/articles')"
                                class="text-sm text-gray-600 hover:text-gray-900 cursor-pointer">← 返回列表</a>
+                            <a :href="'/ui/articles/' + id + '/preview'" @click.prevent="navigate('/ui/articles/' + id + '/preview')"
+                               class="inline-flex items-center gap-1 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded text-sm cursor-pointer shadow-sm">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z"/><circle cx="12" cy="12" r="3"/></svg>
+                                文章预览
+                            </a>
                         </div>
 
                         <div x-show="error" class="mb-4 p-3 bg-red-50 border border-red-200 rounded text-sm text-red-700" x-text="error"></div>
                         <div x-show="notice" class="mb-4 p-3 bg-green-50 border border-green-200 rounded text-sm text-green-700" x-text="notice"></div>
                         <div x-show="loading" class="text-gray-500">加载中…</div>
 
-                        <div x-show="!loading && article" class="grid grid-cols-3 gap-6">
-                            <div class="col-span-2 space-y-4">
-                                <div class="bg-white rounded-lg shadow p-4 space-y-3">
-                                    <!-- 采集来源：仅 URL 采集的文章有 source_url，手动录入不显示 -->
-                                    <div x-show="article && article.source_url"
-                                         class="mb-3 flex items-center gap-2 text-sm bg-blue-50 border border-blue-100 rounded-lg px-3 py-2">
-                                        <span class="text-gray-500 shrink-0">来源网址</span>
-                                        <a :href="article.source_url" target="_blank" rel="noopener"
-                                           class="text-blue-600 hover:underline break-all min-w-0"
-                                           x-text="article.source_url"></a>
-                                    </div>
-                                    <div>
+                        <!-- x-if 而非 x-show：article 为 null 时不实例化子节点，
+                             避免加载完成前 article.xxx 表达式报错 -->
+                        <template x-if="!loading && article">
+                        <div class="space-y-4">
+                            <!-- 顶部：来源 + 标题 + 分类/标签 + 操作 -->
+                            <div class="bg-white rounded-lg shadow p-4 space-y-3">
+                                <!-- 采集来源：仅 URL 采集的文章有 source_url，手动录入不显示 -->
+                                <div x-show="article && article.source_url"
+                                     class="flex items-center gap-2 text-sm bg-blue-50 border border-blue-100 rounded-lg px-3 py-2">
+                                    <span class="text-gray-500 shrink-0">来源网址</span>
+                                    <a :href="article.source_url" target="_blank" rel="noopener"
+                                       class="text-blue-600 hover:underline break-all min-w-0"
+                                       x-text="article.source_url"></a>
+                                </div>
+                                <div class="flex flex-wrap items-end gap-3">
+                                    <div class="flex-1 min-w-[240px]">
                                         <label class="block text-xs text-gray-600 mb-1">标题</label>
                                         <input x-model="form.title" class="w-full border rounded px-3 py-2 text-sm">
                                     </div>
-                                    <div>
-                                        <label class="block text-xs text-gray-600 mb-1">
-                                            正文
-                                            <span x-show="contentChanged" class="text-orange-600">（已修改，保存后将重新处理）</span>
-                                        </label>
-                                        <textarea x-model="form.content" rows="16"
-                                                  class="w-full border rounded px-3 py-2 text-sm font-mono"></textarea>
+                                    <div class="w-48">
+                                        <label class="block text-xs text-gray-600 mb-1">分类</label>
+                                        <input x-model="form.category_name" class="w-full border rounded px-3 py-2 text-sm">
                                     </div>
-                                    <div class="grid grid-cols-2 gap-3">
-                                        <div>
-                                            <label class="block text-xs text-gray-600 mb-1">分类</label>
-                                            <input x-model="form.category_name" class="w-full border rounded px-3 py-2 text-sm">
-                                        </div>
-                                        <div>
-                                            <label class="block text-xs text-gray-600 mb-1">标签（逗号分隔）</label>
-                                            <input x-model="form.tags" class="w-full border rounded px-3 py-2 text-sm">
-                                        </div>
+                                    <div class="flex-1 min-w-[200px]">
+                                        <label class="block text-xs text-gray-600 mb-1">标签（逗号分隔）</label>
+                                        <input x-model="form.tags" class="w-full border rounded px-3 py-2 text-sm">
                                     </div>
-                                    <div class="flex gap-2">
+                                    <div class="flex gap-2 shrink-0">
                                         <button @click="save()" :disabled="saving"
                                                 class="bg-blue-600 text-white px-4 py-2 rounded text-sm disabled:opacity-50"
                                                 x-text="saving ? '保存中…' : '保存'"></button>
                                         <button @click="reprocess()" class="border px-4 py-2 rounded text-sm">重新处理</button>
                                     </div>
                                 </div>
+                            </div>
 
-                                <div class="bg-white rounded-lg shadow p-4">
-                                    <div class="flex items-center justify-between mb-3">
-                                        <h3 class="font-semibold text-gray-800">Chunk 预览</h3>
-                                        <button @click="loadChunks()" class="text-sm text-blue-600">加载</button>
+                            <!-- 正文：Markdown 分屏编辑器，占满宽度 -->
+                            <div class="bg-white rounded-lg shadow p-4">
+                                <div class="flex items-center justify-between mb-2">
+                                    <label class="text-xs text-gray-600">
+                                        正文
+                                        <span x-show="contentChanged" class="text-orange-600">（已修改，保存后将重新处理）</span>
+                                        <span class="text-gray-400">· Markdown 语法，右侧实时预览</span>
+                                    </label>
+                                    <span class="text-xs text-gray-400"><span x-text="(form.content || '').length"></span> 字</span>
+                                </div>
+                                <!-- 左右分屏：左编辑 Markdown，右实时预览（复用 marked + DOMPurify） -->
+                                <div class="grid grid-cols-2 gap-3">
+                                    <textarea x-model="form.content" rows="28"
+                                              class="w-full border rounded px-3 py-2 text-sm font-mono leading-relaxed resize-y"
+                                              style="min-height: 42rem;"></textarea>
+                                    <div class="border rounded px-4 py-3 overflow-y-auto bg-gray-50"
+                                         style="height: 42rem;">
+                                        <div class="markdown-body text-sm text-gray-800" x-html="previewHTML"></div>
                                     </div>
-                                    <div x-show="!chunks.length" class="text-sm text-gray-500">点击「加载」查看切分结果</div>
-                                    <ul class="space-y-2">
+                                </div>
+                            </div>
+
+                            <!-- Chunk 预览：可展开/折叠 -->
+                            <div class="bg-white rounded-lg shadow">
+                                <button @click="toggleChunks()"
+                                        class="w-full flex items-center justify-between p-4 text-left">
+                                    <h3 class="font-semibold text-gray-800">
+                                        Chunk 预览
+                                        <span x-show="chunksLoaded" class="text-gray-400 text-sm font-normal ml-1"
+                                              x-text="'（' + chunks.length + ' 个）'"></span>
+                                    </h3>
+                                    <span class="text-sm text-blue-600 flex items-center gap-1">
+                                        <span x-text="chunksOpen ? '收起' : '展开'"></span>
+                                        <svg class="w-4 h-4 transition-transform" :class="chunksOpen ? 'rotate-180' : ''"
+                                             fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>
+                                    </span>
+                                </button>
+                                <div x-show="chunksOpen" x-cloak class="px-4 pb-4">
+                                    <div x-show="chunksLoading" class="text-sm text-gray-500">加载中…</div>
+                                    <div x-show="!chunksLoading && !chunks.length" class="text-sm text-gray-500">暂无 Chunk（文章可能尚未处理完成）</div>
+                                    <ul class="space-y-2 max-h-[32rem] overflow-y-auto">
                                         <template x-for="ch in chunks" :key="ch.id">
                                             <li class="border rounded p-2 text-xs">
                                                 <div class="text-gray-500 mb-1">#<span x-text="ch.chunk_index"></span>
                                                     · <span x-text="ch.word_count"></span> 字</div>
-                                                <div class="text-gray-800" x-text="ch.content"></div>
+                                                <div class="text-gray-800 whitespace-pre-wrap" x-text="ch.content"></div>
                                             </li>
                                         </template>
                                     </ul>
                                 </div>
                             </div>
 
-                            <div class="space-y-4">
-                                <div class="bg-white rounded-lg shadow p-4">
+                            <!-- 状态 + AI 摘要（并排，紧凑） -->
+                            <div class="grid grid-cols-3 gap-4">
+                                <div class="bg-white rounded-lg shadow p-4 col-span-2">
                                     <h3 class="font-semibold text-gray-800 mb-3">状态</h3>
-                                    <div class="space-y-2 text-sm">
+                                    <div class="grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
                                         <div class="flex justify-between">
                                             <span class="text-gray-600">处理状态</span>
                                             <span class="px-2 py-0.5 rounded text-xs" :class="meta(article.processing_status).cls"
@@ -498,13 +637,13 @@
                                              x-text="article.last_error"></div>
                                     </template>
                                 </div>
-
                                 <div class="bg-white rounded-lg shadow p-4">
                                     <h3 class="font-semibold text-gray-800 mb-2">AI 摘要</h3>
                                     <p class="text-sm text-gray-700" x-text="article.summary || '尚未生成'"></p>
                                 </div>
                             </div>
                         </div>
+                        </template>
                     </div>
                 </template>
 

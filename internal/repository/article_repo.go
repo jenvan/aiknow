@@ -36,12 +36,12 @@ func (r *ArticleRepositoryImpl) Create(ctx context.Context, article *model.Artic
 	// 插入文章
 	_, err := r.db.pool.Exec(ctx, `
 		INSERT INTO articles (
-			id, title, content, source_type, source_url, 
+			id, title, content, source_type, source_url, screenshot_url,
 			processing_status, published, view_count,
 			deleted_at, created_at, updated_at, content_hash
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 	`, article.ID, article.Title, article.Content, article.SourceType,
-		article.SourceURL, "pending", article.Published, 0,
+		article.SourceURL, article.ScreenshotURL, "pending", article.Published, 0,
 		article.DeletedAt, article.CreatedAt, article.UpdatedAt, contentHash)
 
 	if err != nil {
@@ -56,8 +56,8 @@ func (r *ArticleRepositoryImpl) GetByID(ctx context.Context, id string) (*model.
 	article := &model.Article{}
 
 	err := r.db.pool.QueryRow(ctx, `
-		SELECT 
-			a.id, a.title, a.content, a.source_type, a.source_url,
+		SELECT
+			a.id, a.title, a.content, a.source_type, a.source_url, a.screenshot_url,
 			a.processing_status, a.summary, a.category_id, a.published,
 			a.view_count, a.embedding_model, a.embedding_dim, a.indexed_at,
 			a.deleted_at, a.retry_count, a.last_error,
@@ -66,7 +66,7 @@ func (r *ArticleRepositoryImpl) GetByID(ctx context.Context, id string) (*model.
 		WHERE a.id = $1 AND a.deleted_at IS NULL
 	`, id).Scan(
 		&article.ID, &article.Title, &article.Content, &article.SourceType,
-		&article.SourceURL, &article.ProcessingStatus, &article.Summary,
+		&article.SourceURL, &article.ScreenshotURL, &article.ProcessingStatus, &article.Summary,
 		&article.CategoryID, &article.Published, &article.ViewCount,
 		&article.EmbeddingModel, &article.EmbeddingDim, &article.IndexedAt,
 		&article.DeletedAt, &article.RetryCount, &article.LastError,
@@ -199,8 +199,8 @@ func (r *ArticleRepositoryImpl) List(ctx context.Context, query model.ArticleLis
 
 	// 查询列表
 	rows, err := r.db.pool.Query(ctx, fmt.Sprintf(`
-		SELECT 
-			a.id, a.title, a.content, a.source_type, a.source_url,
+		SELECT
+			a.id, a.title, a.content, a.source_type, a.source_url, a.screenshot_url,
 			a.processing_status, a.summary, a.category_id, a.published,
 			a.view_count, a.embedding_model, a.embedding_dim, a.indexed_at,
 			a.deleted_at, a.retry_count, a.last_error,
@@ -223,7 +223,7 @@ func (r *ArticleRepositoryImpl) List(ctx context.Context, query model.ArticleLis
 		var article model.Article
 		err := rows.Scan(
 			&article.ID, &article.Title, &article.Content, &article.SourceType,
-			&article.SourceURL, &article.ProcessingStatus, &article.Summary,
+			&article.SourceURL, &article.ScreenshotURL, &article.ProcessingStatus, &article.Summary,
 			&article.CategoryID, &article.Published, &article.ViewCount,
 			&article.EmbeddingModel, &article.EmbeddingDim, &article.IndexedAt,
 			&article.DeletedAt, &article.RetryCount, &article.LastError,
@@ -268,12 +268,14 @@ func (r *ArticleRepositoryImpl) Update(ctx context.Context, article *model.Artic
 			title = $1, content = $2, source_url = $3,
 			processing_status = $4, summary = $5, category_id = $6,
 			published = $7, indexed_at = $8, embedding_model = $9,
-			embedding_dim = $10, last_error = $11, updated_at = $12
-		WHERE id = $13 AND deleted_at IS NULL
+			embedding_dim = $10, last_error = $11, updated_at = $12,
+			screenshot_url = $13
+		WHERE id = $14 AND deleted_at IS NULL
 	`, article.Title, article.Content, article.SourceURL,
 		article.ProcessingStatus, article.Summary, article.CategoryID,
 		article.Published, article.IndexedAt, article.EmbeddingModel,
-		article.EmbeddingDim, article.LastError, article.UpdatedAt, article.ID)
+		article.EmbeddingDim, article.LastError, article.UpdatedAt,
+		article.ScreenshotURL, article.ID)
 
 	if err != nil {
 		return fmt.Errorf("update article: %w", err)

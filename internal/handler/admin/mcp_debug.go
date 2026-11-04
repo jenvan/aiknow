@@ -21,7 +21,7 @@ func NewMCPDebugHandler(mcpService service.MCPService) *MCPDebugHandler {
 
 // Invoke 代理 MCP 调用。
 //
-// 走后端代理而非浏览器直连 /mcp（AGENT.md 决策 #8）：调试页无需持有 API Key，
+// 走后端代理而非浏览器直连 /mcp（AGENTS.md 决策 #8）：调试页无需持有 API Key，
 // 且能统一记录调用日志。鉴权由 SessionMiddleware 完成，此处不再自行校验
 // ——此前那段"取不到 Authorization 就查 Cookie"的逻辑取到 sessionID 后
 // 直接丢弃（`_ = sessionID`），实际未做任何校验。

@@ -25,9 +25,10 @@ export function registerArticleNew(Alpine) {
             try {
                 const r = await api.post('/articles/preview', { url: this.form.url });
                 this.preview = r;
-                // 采集结果填入表单，允许提交前手工修正
+                // 采集结果填入表单，允许提交前手工修正。
+                // 优先用 Markdown（保留标题/列表结构，分块更友好），无则退回纯文本。
                 this.form.title = r.title || '';
-                this.form.content = r.content || '';
+                this.form.content = r.markdown || r.content || '';
             } catch (e) {
                 this.error = e.message;
             } finally {

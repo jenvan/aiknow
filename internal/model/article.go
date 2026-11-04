@@ -6,11 +6,13 @@ import (
 
 // Article 文章模型
 type Article struct {
-	ID               string     `json:"id" db:"id"`
-	Title            string     `json:"title" db:"title"`
-	Content          string     `json:"content" db:"content"`
-	SourceType       string     `json:"source_type" db:"source_type"` // manual | url
-	SourceURL        *string    `json:"source_url,omitempty" db:"source_url"`
+	ID         string  `json:"id" db:"id"`
+	Title      string  `json:"title" db:"title"`
+	Content    string  `json:"content" db:"content"`
+	SourceType string  `json:"source_type" db:"source_type"` // manual | url
+	SourceURL  *string `json:"source_url,omitempty" db:"source_url"`
+	// ScreenshotURL 全页截图在 COS 的对象 URL（防源站失效的归档）。仅 url 来源且有截图时非空。
+	ScreenshotURL    *string    `json:"screenshot_url,omitempty" db:"screenshot_url"`
 	ProcessingStatus string     `json:"processing_status" db:"processing_status"` // pending | processing | completed | failed
 	Summary          *string    `json:"summary,omitempty" db:"summary"`
 	CategoryID       *string    `json:"category_id,omitempty" db:"category_id"`
@@ -42,19 +44,19 @@ type ArticleInput struct {
 
 // ArticleListQuery 文章列表查询参数
 type ArticleListQuery struct {
-	Page       int        `form:"page" default:"1"`
-	PageSize   int        `form:"page_size" default:"20"`
-	CategoryID *string    `form:"category_id,omitempty"`
-	Category   string     `form:"category,omitempty"`
-	Tags       string     `form:"tags,omitempty"`
-	TagIDs     []string   `form:"tag_id,omitempty"`
-	Status     *string    `form:"status,omitempty"`
-	Search     *string    `form:"search,omitempty"`
-	Tokenized  bool       `form:"tokenized" default:"true"` // 是否启用 jieba 分词（默认开启）
-	SortBy     string     `form:"sort_by" default:"created_at"`
-	SortOrder  string     `form:"sort_order" default:"desc"`
-	DateFrom   string     `form:"date_from,omitempty"` // yyyy-mm-dd
-	DateTo     string     `form:"date_to,omitempty"`   // yyyy-mm-dd
+	Page       int      `form:"page" default:"1"`
+	PageSize   int      `form:"page_size" default:"20"`
+	CategoryID *string  `form:"category_id,omitempty"`
+	Category   string   `form:"category,omitempty"`
+	Tags       string   `form:"tags,omitempty"`
+	TagIDs     []string `form:"tag_id,omitempty"`
+	Status     *string  `form:"status,omitempty"`
+	Search     *string  `form:"search,omitempty"`
+	Tokenized  bool     `form:"tokenized" default:"true"` // 是否启用 jieba 分词（默认开启）
+	SortBy     string   `form:"sort_by" default:"created_at"`
+	SortOrder  string   `form:"sort_order" default:"desc"`
+	DateFrom   string   `form:"date_from,omitempty"` // yyyy-mm-dd
+	DateTo     string   `form:"date_to,omitempty"`   // yyyy-mm-dd
 }
 
 // ArticleListResult 文章列表结果

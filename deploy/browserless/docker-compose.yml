@@ -1,0 +1,45 @@
+# Browserless 独立部署（供 AiKnow 采集无头浏览器渲染）
+#
+# 本编排独立运行，与 AiKnow 主服务分处不同服务器。AiKnow 侧通过
+# COLLECTOR_BROWSER_ENDPOINT 指向本服务的容器 IP，走 browserless 的
+# HTTP /content 端点拉取「渲染后的 HTML」。
+#
+# 启动：
+#   1. 复制 .env.example 为 .env，设置 TOKEN（openssl rand -hex 16）
+#   2. docker compose up -d
+#
+# AiKnow 侧配置（.env / config.yaml 的 render 段）：
+#   COLLECTOR_RENDER_ENABLED=true
+#   COLLECTOR_BROWSER_ENDPOINT=http://<本服务容器IP>:3000
+#   COLLECTOR_BROWSER_TOKEN=<与下方 TOKEN 一致>
+
+services:
+  browserless:
+    image: ghcr.io/browserless/chromium:v2.56.7
+    container_name: browserless
+    restart: unless-stopped
+    environment:
+      # 访问令牌：AiKnow 请求须带 x-access-token。留空则不做鉴权（仅限内网隔离部署）
+      TOKEN: ${TOKEN:?请在 .env 中设置 TOKEN（openssl rand -hex 16）}
+      # 单页硬超时 30s：AiKnow 侧 COLLECTOR_BROWSER_TIMEOUT 应 >= 此值，
+      # 让服务端先超时释放，避免客户端干等
+      TIMEOUT: "30000"
+      # 并发渲染上限：防 Chromium 内存打爆。按机器内存调整，8C16G 建议 3-4
+      CONCURRENT: "3"
+      # 排队上限：超过则快速失败，由 AiKnow 侧降级为不渲染
+      QUEUED: "10"
+      # 时区/语言：与目标页一致可减少区域化渲染差异
+      TZ: "Asia/Shanghai"
+      LANG: "C.UTF-8"
+    ports:
+      # 3000 = HTTP + CDP WebSocket 复用端口。/content 走这里。
+      # 仅发布到本机/内网供 AiKnow 访问，勿暴露公网。
+      - "127.0.0.1:3000:3000"
+    # Chromium 渲染大页需要共享内存，否则偶发崩溃
+    shm_size: "2gb"
+    # 渲染出的 DOM 与 Chromium 临时文件，可选持久化，一般不需要
+    # volumes:
+    #   - browserless-data:/tmp/browserless
+
+# volumes:
+#   browserless-data:

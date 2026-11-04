@@ -122,6 +122,42 @@ collector:
   # 后台「系统配置 → collector.user_agent」可覆盖此值并热生效。
   user_agent: "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
 
+# 无头浏览器渲染（渲染优先，http 兜底）
+#
+# 渲染优先：需 enabled=true 且 endpoint 非空才真正走浏览器；否则采集退化为
+# 纯 http，无需部署浏览器。浏览器独立部署（browserless），见 deploy/browserless/。
+render:
+  # 总开关。对应环境变量 COLLECTOR_BROWSER_ENABLED，默认 false
+  enabled: false
+  # browserless 端点，如 http://1.2.3.4:3000。
+  # 对应环境变量 COLLECTOR_BROWSER_ENDPOINT，默认空（关闭渲染）
+  endpoint: ""
+  # browserless 访问令牌。对应环境变量 COLLECTOR_BROWSER_TOKEN
+  token: ""
+  # 单页渲染硬超时（含浏览器内导航、等待、截图全程）。对应环境变量
+  # COLLECTOR_BROWSER_TIMEOUT，默认 30s。
+  # 派生的子超时按此值缩放：导航 = 此值-2s；等网络空闲/等图片加载 = 此值/3（下限 3s）。
+  # 调大此值会等比放宽各子超时，故长文/图片多的页面可适当调大（如 60s）。
+  timeout: "30s"
+
+# 腾讯云 COS（采集文章截图归档）
+#
+# URL 采集的文章在渲染时顺带截全页图，上传 COS 防止源站失效后无从回溯。
+# 下列字段任一缺失则截图归档整体关闭（不影响正文采集）。
+# 凭据建议用环境变量或 .env 提供，避免写入本文件。
+cos:
+  # 腾讯云 API 密钥，对应环境变量 COS_SECRET_ID / COS_SECRET_KEY
+  secret_id: ""
+  secret_key: ""
+  # 存储桶名（含 appid 后缀），如 aiknow-1300000000。对应环境变量 COS_BUCKET
+  bucket: ""
+  # 地域，如 ap-guangzhou。对应环境变量 COS_REGION
+  region: ""
+  # 自定义访问域名（CDN）；留空用 COS 默认域名。对应环境变量 COS_ENDPOINT
+  endpoint: ""
+  # 对象键前缀，默认 screenshots。对应环境变量 COS_PATH_PREFIX
+  path_prefix: "screenshots"
+
 # ================================================================
 # 以下配置项当前由代码固定，不通过本文件读取：
 #

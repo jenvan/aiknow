@@ -6,8 +6,8 @@
 - **品牌**：AiKnow（中文「爱脑」），slogan「AI 知识库管理工具」。前端 logo 为
   「神经元网络」图标（蓝紫渐变 `from-blue-600 to-indigo-500`），侧栏与登录页共用。
 - **定位**：企业内部知识库管理 + RAG 检索 + API/MCP 接入
-- **当前版本**：v0.6.0（W5-W6 鉴权+后台已完成）
-- **状态**：PRD 已评审完成，W1 基础框架骨架已落地
+- **当前版本**：v0.7.0（URL 采集渲染优先 + Markdown + 截图归档已完成）
+- **状态**：MVP 主链路已打通，持续联调与打磨
 
 ## 前端约定（`web/`，Tailwind CDN + Alpine，零构建）
 - **未登录直接跳登录页**：`app.js` 的 `shell.init()` 里 `fetchSession()` 无会话时
@@ -288,14 +288,68 @@ v1 单管理员，凭据来自 `ADMIN_USERNAME` + `ADMIN_PASSWORD_HASH`，无用
 - 登录失败锁定状态存内存
 - 多用户/角色/自助改密留待 v2
 
-## Web 管理后台（9 个页面）
+### 11. URL 采集：渲染优先 + 双引擎提取 + 截图归档（v0.7.0）
+
+采集 URL 正文解决三类痛点：SPA 动态页 http 只抓空壳、抓到的 HTML 含大量
+广告/评论/导航噪声、源站失效后无从回溯。关键决策如下：
+
+- **渲染优先，http 兜底**。浏览器渲染**开启时**（`COLLECTOR_BROWSER_ENABLED=true`
+  且 endpoint 非空，二者都满足），URL 采集每篇都先过无头浏览器（拿「渲染后
+  HTML + 全页截图」）；渲染失败（超时/报错）才降级为轻量 http 抓源码。
+  关闭时不调浏览器，始终走 http。切换自 v0.7.0 早期版本的「仅 SPA 空壳才渲染」
+  ——因截图归档需要每篇都过浏览器。
+- **一次浏览器调用同时拿 HTML + 截图**。`pkg/webfetch.RenderAndScreenshot`
+  走 browserless `/function` 端点跑 Puppeteer（`page.content()` +
+  `page.screenshot({fullPage:true})`），避免 `/content` 与 `/screenshot`
+  各渲染一次导致结果不一致、耗时翻倍。全页截图靠 `fullPage:true`（默认仅视口）。
+- **渲染必须传 User-Agent**。不传则用数据中心 Chromium 默认 UA，微信等反爬站
+  直接返回验证页。`RenderAndScreenshot` 的 `userAgent` 参数来自
+  `Collector.effectiveUserAgent`（后台覆盖同样生效）。
+- **等待策略用 `load` 而非 `networkidle2`**。有长轮询/埋点/长连接的页面永远达不到
+  网络空闲，用 `networkidle2` 作 goto 的 waitUntil 会整页超时。改为 goto `load` +
+  尽力 `waitForNetworkIdle`（单独短超时、失败忽略）+ 固定 `waitMs`。
+- **`WriteTimeout` 需容纳渲染耗时**。渲染单页可达 20s+，服务 `WriteTimeout` 在渲染
+  启用时取 `COLLECTOR_BROWSER_TIMEOUT + 20s`（见 `main.go`），否则 Preview 被掐断。
+- **浏览器独立部署（browserless），不进主镜像**。aiknow 通过 HTTP 连
+  browserless（`pkg/webfetch`），不引 chromedp、主服务镜像不变大；可独立扩缩容、
+  分处不同服务器。部署物在 `deploy/browserless/`。注意**该机器的出网质量**决定
+  可达性：境外站点若在该机器上导航超时，属网络问题而非代码问题（`/function`
+  对 example.com 稳定 ~900ms 即证明服务本身正常）。
+- **提取器双引擎按 host 路由**。微信公众号（`mp.weixin.qq.com`）走
+  `pkg/htmlclean` 的 `#js_content` 专用规则（通用 Readability 对微信常判
+  「非文章页」返回空，专用规则更准）；其余走 `pkg/readability`
+  （Mozilla Readability 的 go 移植）打分提取。Readability 判「非文章页」
+  自动回退 htmlclean 兜底，保证不丢内容。
+- **文章存 Markdown**。前端录入优先提交 `markdown`；分块器 `splitStructure`
+  本就按 `#` 标题与空行切段，Markdown 正文分块质量天然更好，chunker 零改动。
+  `CollectorResult` 仍保留 `Content`（纯文本）不破坏既有契约。
+- **URL 文章在 worker 处理时重采集**：用 `source_url` 重采集（渲染优先），
+  最新 Markdown 覆盖正文（与截图同源），全页截图上传 COS 写回
+  `articles.screenshot_url`（migration 011）。采集/截图失败不阻断处理，仅记日志。
+  取「处理时为准」而非「录入时为准」：录入 Preview 仅作预览，最终以处理时数据为准。
+
+**SSRF 防护**：提交浏览器的 URL 在 `Collector.Fetch` 内先过 `pkg/ssrf`
+（拦内网段/云元数据/非白名单端口）。注意：浏览器内页面 JS 仍会自发子请求，
+Go 层拦不住——必须靠「browserless 部署在访问不到敏感内网的网段（DMZ）」
+这道网络隔离，详见 `deploy/browserless/README.md`。
+
+**依赖**：`codeberg.org/readeck/go-readability/v2`（Mozilla Readability go
+移植）+ `github.com/JohannesKaufmann/html-to-markdown/v2` +
+`github.com/tencentyun/cos-go-sdk-v5`（截图归档）。
+
+**接口**：`service.URLCollector` / `service.ScreenshotStore` 抽成接口便于
+测试注入假实现；`*cos.Client` 实现 `ScreenshotStore`。
+
+## Web 管理后台（10 个页面）
+
 
 | 页面 | 路径 | 核心内容 |
 |------|------|---------|
 | 登录页 | `/ui/login` | 密码登录，5 次失败锁定 15 分钟 |
 | 仪表盘 | `/ui/dashboard` | 统计卡片、状态分布、队列深度、最近活动、服务健康 |
 | 文章列表 | `/ui/articles` | 筛选、搜索、排序、行内/批量操作 |
-| 文章编辑 | `/ui/articles/:id` | 正文编辑、AI 结果修正、状态面板、Chunk 预览 |
+| 文章预览 | `/ui/articles/:id/preview` | 阅读态 Markdown 正文、AI 摘要、网页截图（灯箱） |
+| 文章编辑 | `/ui/articles/:id` | 正文 Markdown 分屏编辑、AI 结果修正、状态面板、Chunk 预览 |
 | 文章录入 | `/ui/articles/new` | 手动录入 / URL 采集（含预览） |
 | 检索测试 | `/ui/search` | 分阶段结果、耗时明细、分词结果 |
 | MCP 调试 | `/ui/mcp-debug` | 参数表单、原始请求响应、SSE、鉴权切换 |
@@ -304,8 +358,11 @@ v1 单管理员，凭据来自 `ADMIN_USERNAME` + `ADMIN_PASSWORD_HASH`，无用
 | API Key 管理 | `/ui/settings/api-keys` | 创建/禁用/删除 |
 
 **关键行为约定**：
+- 列表标题点击进「文章预览」（只读阅读形态），操作列「编辑」进编辑页
 - 改正文保存 → `processing_status` 重置 `pending` 并重新入队
 - 仅改 AI 结果（摘要/分类/标签）→ **不**触发重新处理
+- 页面组件里 `article` 初始为 `null`，依赖它的整块内容用 `<template x-if>`
+  包裹而非 `x-show`，否则加载完成前 `article.xxx` 会抛 Alpine 表达式错误
 
 ## 鉴权体系（两套并存）
 
@@ -398,6 +455,11 @@ POST /api/v1/search
 | 采集超时 | 10s | L1 | `COLLECTOR_TIMEOUT`，重启生效 |
 | 采集重定向次数 | 3 | L1 | `COLLECTOR_MAX_REDIRECTS` |
 | 采集最小内容长度 | 200 | L1 | `COLLECTOR_MIN_CONTENT_LENGTH`（字符） |
+| 浏览器渲染开关 | false | L1 | `COLLECTOR_BROWSER_ENABLED`，须与 endpoint 同时满足才渲染 |
+| browserless 端点 | 空 | L1 | `COLLECTOR_BROWSER_ENDPOINT`，空则渲染关闭；部署见 `deploy/browserless/` |
+| browserless 令牌 | 空 | L1 | `COLLECTOR_BROWSER_TOKEN`（x-access-token） |
+| 单页渲染超时 | 30s | L1 | `COLLECTOR_BROWSER_TIMEOUT`，子超时按此缩放；服务 WriteTimeout 取此值+20s |
+| COS 截图归档 | 全空=关闭 | L1 | `COS_SECRET_ID/KEY`、`COS_BUCKET`、`COS_REGION`、`COS_ENDPOINT`、`COS_PATH_PREFIX` |
 | 向量维度 | 1024 | 固定 | bge-large-zh-v1.5，与表结构绑定，不可配置 |
 | HNSW m | 16 | 建表参数 | 每层连接数 |
 | HNSW ef_construction | 64 | 建表参数 | 构建时列表大小 |
@@ -418,14 +480,14 @@ POST /api/v1/search
 ## v1 范围（MVP）
 
 ### ✅ 包含功能
-- 文章增删改查 + 手动/URL 采集
+- 文章增删改查 + 手动/URL 采集（渲染优先 + Markdown + 截图归档）
 - AI 异步处理（单次调用产出摘要/分类/标签）
 - 混合检索 + Reranker 精排
 - 关键词检索文章（标签/分类加权）
 - RESTful API + API Key 鉴权
 - MCP 四个工具（3 只读 + 1 写入，按 scope 过滤）
 - MCP 请求日志（检索 + 回放）
-- Web 管理后台（9 个页面，含 MCP 调试与检索测试）
+- Web 管理后台（10 个页面，含文章预览、MCP 调试与检索测试）
 - 业务参数与提示词后台可配置（热生效）
 - 基础安全措施（防 SSRF、防 XSS）
 
@@ -452,6 +514,8 @@ POST /api/v1/search
 007_job_queue.sql               # 任务队列表 job_queue / job_archive
 008_articles_retry_columns.sql  # articles 补 retry_count / last_error 列
 009_operator_columns_to_text.sql # api_keys.created_by / setting_history.changed_by / articles.deleted_by UUID → TEXT
+010_config_hierarchy_cleanup.sql  # 配置分层清理（L1/L2 归位）
+011_article_screenshot.sql       # articles 补 screenshot_url（URL 采集截图归档）
 ```
 
 > 003/004 降级为空操作而非原地改写：已有开发库中它们已记录为"已应用"，
@@ -687,10 +751,14 @@ aiknow/
 │   └── config/             # config.go(L1) / defaults.go(L2默认) / cache.go(热重载)
 ├── pkg/                    # 公共库
 │   ├── ssrf/               # SSRF 防护（协议/端口/IP 校验）
-│   ├── htmlclean/          # HTML 清洗（标签移除 + 实体解码）
+│   ├── htmlclean/          # HTML 清洗（纯文本 + Markdown，微信专用规则）
+│   ├── readability/        # Readability 正文提取（Mozilla 移植，输出 Markdown）
+│   ├── webfetch/           # browserless 渲染客户端（HTML + 全页截图）
+│   ├── cos/                # 腾讯云 COS 上传（截图归档）
 │   └── pgqueue/            # 任务队列（表 + FOR UPDATE SKIP LOCKED，含租约/重试/死信）
+├── deploy/browserless/     # browserless 独立部署（compose + README）
 ├── web/js/pages/           # 前端按页面拆分
-├── migrations/             # 数据库迁移
+├── migrations/             # 数据库迁移（顶层镜像；embed 实际读 internal/repository/migrations）
 ├── .env.example            # .env 本身在 .gitignore 中
 └── docs/                   # 文档
 ```
@@ -698,19 +766,22 @@ aiknow/
 ### 9. 开发路线图（7 周）
 | Phase | 周 | 内容 | 状态 |
 |-------|-----|------|------|
-| 1 | W1 | 基础框架 + 配置分层加载（env > .env > yaml） | ✅ 骨架完成 |
-| 2 | W2 | 采集 + AI 处理（单次调用 + JSON 校验） |
-| 3 | W3 | 检索核心（向量 + BM25 + RRF） |
-| 4 | W4 | 精排 + 后台基础页 |
-| 5 | W5 | MCP + API + 鉴权/限流/MCP 日志记录 |
-| 6 | W6 | 调试页、MCP 日志页、配置页 |
-| 7 | W7 | 测试与发布 |
+| 1 | W1 | 基础框架 + 配置分层加载（env > .env > yaml） | ✅ |
+| 2 | W2 | 采集 + AI 处理（单次调用 + JSON 校验） | ✅ |
+| 3 | W3 | 检索核心（向量 + BM25 + RRF） | ✅ |
+| 4 | W4 | 精排 + 后台基础页 | ✅ |
+| 5 | W5 | MCP + API + 鉴权/限流/MCP 日志记录 | ✅ |
+| 6 | W6 | 调试页、MCP 日志页、配置页 | ✅ |
+| 7 | W7 | 测试与发布 | 进行中（v0.7.0 渲染/截图已合入） |
 
 ## 重要链接
 
 - PRD 文档：`docs/PRD.md`
 - 变更日志：`docs/CHANGELOG.md`
 - 部署与运维：`docs/DEPLOY.md`
+- 对外 API：`docs/API.md`
+- 后台管理 API：`docs/API_ADMIN.md`
+- browserless 部署：`deploy/browserless/README.md`
 - ParadeDB / pg_search：https://github.com/paradedb/paradedb
 - pgvector：https://github.com/pgvector/pgvector
 - MCP 规范：https://modelcontextprotocol.io/specification/2025-06-18

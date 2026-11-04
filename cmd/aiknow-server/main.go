@@ -24,6 +24,7 @@ import (
 	"github.com/jenvan/aiknow/internal/repository"
 	"github.com/jenvan/aiknow/internal/service"
 	"github.com/jenvan/aiknow/internal/service/provider"
+	"github.com/jenvan/aiknow/pkg/cos"
 	"github.com/jenvan/aiknow/pkg/pgqueue"
 )
 
@@ -333,9 +334,31 @@ func serve() {
 		}
 	}
 	collectorConfig.UserAgent = cfg.GetOr("COLLECTOR_USER_AGENT", collectorConfig.UserAgent)
+
+	// 无头浏览器渲染：需要 COLLECTOR_BROWSER_ENABLED=true 且 endpoint 非空
+	// 才真正走浏览器；否则采集退化为纯 http。
+	collectorConfig.RenderEnabled = cfg.GetBool("COLLECTOR_BROWSER_ENABLED", collectorConfig.RenderEnabled)
+	collectorConfig.BrowserEndpoint = cfg.GetOr("COLLECTOR_BROWSER_ENDPOINT", collectorConfig.BrowserEndpoint)
+	collectorConfig.BrowserToken = cfg.GetOr("COLLECTOR_BROWSER_TOKEN", collectorConfig.BrowserToken)
+	collectorConfig.BrowserTimeout = cfg.GetDuration("COLLECTOR_BROWSER_TIMEOUT", collectorConfig.BrowserTimeout)
+
 	collector := service.NewCollector(collectorConfig)
 	// 后台「系统配置 → collector.user_agent」可覆盖启动配置并热生效
 	collector.SetUserAgentSource(db.GetSettingRepo())
+
+	// 腾讯云 COS：采集文章截图归档。配置不全时 Enabled()==false，跳过上传。
+	cosClient := cos.New(cos.Config{
+		SecretID:   cfg.GetOr("COS_SECRET_ID", ""),
+		SecretKey:  cfg.GetOr("COS_SECRET_KEY", ""),
+		Bucket:     cfg.GetOr("COS_BUCKET", ""),
+		Region:     cfg.GetOr("COS_REGION", ""),
+		Endpoint:   cfg.GetOr("COS_ENDPOINT", ""),
+		PathPrefix: cfg.GetOr("COS_PATH_PREFIX", "screenshots"),
+	})
+	if cosClient.Enabled() {
+		fmt.Println("COS 截图归档已启用")
+	}
+
 	promptService := service.NewPromptService(
 		db.GetSettingRepo(), db.GetArticleRepo(), db.GetCategoryRepo(), llmProvider)
 
@@ -487,6 +510,9 @@ func serve() {
 	)
 	// L2 配置：分块大小与 LLM 参数（model / temperature / max_tokens）后台可调
 	pipeline.SetConfigSource(configCache)
+	// URL 文章处理时重采集（渲染 + 截图），截图上传 COS 归档
+	pipeline.SetCollector(collector)
+	pipeline.SetScreenshotStore(cosClient)
 
 	worker := service.NewWorker(db, pipeline, queue, service.DefaultWorkerConfig())
 	go func() {
@@ -499,11 +525,19 @@ func serve() {
 	// 启动 HTTP 服务器
 	port, _ := cfg.Get("PORT")
 	addr := fmt.Sprintf(":%s", port)
+
+	// WriteTimeout 必须容纳最慢的同步请求：URL 采集 Preview 会走无头浏览器渲染
+	// （含全页截图），单页可达 20s+。取「浏览器渲染超时 + 20s 余量」，
+	// 渲染关闭时退回 15s 基线，避免慢连接长期占用。
+	writeTimeout := 15 * time.Second
+	if collectorConfig.RenderEnabled && collectorConfig.BrowserEndpoint != "" {
+		writeTimeout = collectorConfig.BrowserTimeout + 20*time.Second
+	}
 	server := &http.Server{
 		Addr:         addr,
 		Handler:      r,
 		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 15 * time.Second,
+		WriteTimeout: writeTimeout,
 		IdleTimeout:  60 * time.Second,
 	}
 

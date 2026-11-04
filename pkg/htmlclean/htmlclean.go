@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"strings"
 
+	htmltomarkdown "github.com/JohannesKaufmann/html-to-markdown/v2"
 	"github.com/PuerkitoBio/goquery"
 	"golang.org/x/net/html"
 )
@@ -36,6 +37,79 @@ func (c *Cleaner) Clean(html string) string {
 
 	text := formatText(content)
 	return strings.TrimSpace(text)
+}
+
+// CleanMarkdown 清洗 HTML，返回保留结构的 Markdown（标题层级 / 列表 / 代码块）。
+//
+// 与 Clean 走同一套「语义选择器 + 去噪」逻辑，区别只在输出：把清洗后的
+// 正文子文档整体交给 html-to-markdown 转换，保留 h1-h6、ul/ol、pre/code、
+// 表格等结构，供后续分块使用。微信等 #js_content 平台走此方法可得比平铺
+// 纯文本更友好的 RAG 输入。
+//
+// 转换失败（如解析异常）时降级为 Clean 的纯文本，保证不丢内容。
+func (c *Cleaner) CleanMarkdown(html string) string {
+	if md, ok := c.cleanedSubDocumentHTML(html); ok {
+		return md
+	}
+	// 无法定位正文子文档，降级为纯文本
+	return c.Clean(html)
+}
+
+// cleanedSubDocumentHTML 返回经「语义选择器 + 去噪」处理后的正文子文档 Markdown。
+// ok 为 false 表示未定位到正文（调用方应降级处理）。
+func (c *Cleaner) cleanedSubDocumentHTML(html string) (string, bool) {
+	doc, err := goquery.NewDocumentFromReader(strings.NewReader(html))
+	if err != nil {
+		return "", false
+	}
+
+	// 优先微信 #js_content
+	if el, err := doc.Find("#js_content").Html(); err == nil && el != "" {
+		if md, ok := markdownOfFragment(el); ok {
+			return md, true
+		}
+	}
+
+	// 通用语义标签
+	for _, sel := range []string{
+		"article", "main", "[role='main']",
+		".post-content,.article-content,.entry-content,.post_body",
+		".content,.main-content,.article-body",
+		"#content,#main,#article",
+	} {
+		if el, err := doc.Find(sel).First().Html(); err == nil && el != "" {
+			if md, ok := markdownOfFragment(el); ok {
+				return md, true
+			}
+		}
+	}
+
+	// 兜底整段 body
+	if el, err := doc.Find("body").Html(); err == nil && el != "" {
+		if md, ok := markdownOfFragment(el); ok {
+			return md, true
+		}
+	}
+	return "", false
+}
+
+// markdownOfFragment 将正文片段（裸标签序列）去噪后转为 Markdown。
+// 片段先包一层 <body> 供 goquery 解析，去噪后用 Selection 取整片再转 Markdown。
+func markdownOfFragment(fragment string) (string, bool) {
+	sdoc, err := goquery.NewDocumentFromReader(strings.NewReader("<body>" + fragment + "</body>"))
+	if err != nil {
+		return "", false
+	}
+	removeNoise(sdoc)
+	body, err := sdoc.Find("body").Html()
+	if err != nil || body == "" {
+		return "", false
+	}
+	out, err := htmltomarkdown.ConvertString(body)
+	if err != nil {
+		return "", false
+	}
+	return strings.TrimSpace(out), out != ""
 }
 
 // blockElements 块级元素标签集合

@@ -2,6 +2,162 @@
 
 ## [Unreleased] - 2026-09-12
 
+### docs: 同步 v0.7.0 渲染/截图归档相关文档
+
+- `AGENTS.md`：版本更新到 v0.7.0；补「文章预览」页面（后台 9→10 页）、
+  迁移 010/011、浏览器渲染与 COS 配置项、`pkg/readability|webfetch|cos` 与
+  `deploy/browserless/` 目录；补充「article 为 null 时用 x-if 而非 x-show」约定。
+- `docs/DEPLOY.md`：配置表补齐采集/渲染/COS 变量，新增「无头浏览器渲染与截图
+  归档（可选）」部署小节，更新 WriteTimeout 固定项说明。
+- `docs/API.md` / `docs/API_ADMIN.md`：文章响应补 `screenshot_url`；采集预览
+  响应补 `markdown` / `rendered`，说明截图上传时机。
+- `docs/PRD.md`：采集需求补渲染优先、Markdown 与截图归档；页面清单补文章预览；
+  验收标准补渲染/截图检查项。
+
+### fix: 采集重构遗漏 Truncated 标记与 http 错误透传
+
+「渲染优先」重构把 `fetchHTML` 改为只返回 HTML/截图/渲染标志，导致：
+① `CollectorResult.Truncated` 永远为 false（录入页不再提示「内容过长已截断」）；
+② 渲染与 http 都失败时错误被吞，`Fetch` 退化成「content too short: 0 characters」。
+现 `fetchHTML` 一并返回 `truncated` 与 `error`，`Fetch` 恢复透传。
+`collector_test.go` 补两个子测试（双失败返回错误、截断标志透传）。
+
+### fix: 预览/编辑页加载前刷 Alpine 表达式错误
+
+`article` 初始为 `null`，整块内容用 `x-show` 包裹时子节点的 `article.xxx`
+仍会在初始化时求值，控制台对 title/summary/screenshot_url 等逐条报
+`Cannot read properties of null`。改为 `<template x-if="!loading && article">`
+包裹内容区（x-if 不实例化子节点），加载完成后再创建。已用 agent-browser 验证
+两个页面控制台 0 条表达式错误，预览页 Markdown/截图灯箱与编辑页分屏预览均正常。
+
+### fix: 截图/预览页三处显示问题
+
+- **截图里的正文配图不显示（空白/转圈）**。微信等站点正文图用 `data-src` 懒加载，
+  真实地址在图片进入视口时才由 JS 换到 `src`；整页截图只渲染视口内内容，故未滚动
+  过的懒加载图在截图里只剩占位（空白框）。修：`pkg/webfetch` 的 Puppeteer 脚本在
+  截图前**滚动整页**触发所有懒加载图，再等图片加载完成、回到顶部截图。
+  同时修正等图片逻辑——懒加载占位图是 `complete=true, naturalWidth=1` 的 SVG，
+  原判断会把它误当"已加载"。实测微信文 41 张正文图 100% 加载（修复前大量占位）。
+- **预览页截图灯箱把超长图压成细线**。全页截图常为 800×38000 的超长图，
+  灯箱用 `max-h-full` 塞进一屏时宽度被压到约 11px。修：灯箱改为按宽度铺满 +
+  垂直滚动查看。
+- **编辑页正文改为 Markdown 分屏编辑器**（复用已 vendor 的 marked + DOMPurify，
+  零新依赖）：左编辑源码、右实时预览。渲染逻辑抽到 `api.js` 的 `renderMarkdown`
+  供预览页与编辑页共用。
+
+### fix: 端到端验证暴露的三个渲染问题
+
+真实环境（自建 browserless + COS）端到端验证中发现并修复：
+
+- **渲染不传 User-Agent，被反爬站点拦成验证页**。`fetchHTML` 只给 http 路径设了
+  UA，渲染路径没设，browserless 用数据中心桌面 Chromium 默认 UA，微信等直接返回
+  验证页（实测正文仅 114 字符）。修：`RenderAndScreenshot` 增 `userAgent` 参数，
+  Puppeteer 脚本 `page.setUserAgent`；collector 传 `effectiveUserAgent(ctx)`
+  （后台 UA 覆盖同样对渲染生效）。修复后微信渲染出 5.5MB 真实全文。
+- **`waitUntil: networkidle2` 对持续活动的页面整页超时**（报
+  `Navigation timeout of 28000 ms exceeded`）。有长轮询/埋点/长连接的站点永远达不到
+  网络空闲。修：goto 用 `load`，随后**尽力**等 `waitForNetworkIdle`（单独短超时，
+  失败即忽略），再固定 `waitMs` 补足动态渲染。
+- **服务 `WriteTimeout=15s` 扛不住渲染路径**（渲染单页可达 20s+，写响应被掐断）。
+  修：渲染启用时取 `COLLECTOR_BROWSER_TIMEOUT + 20s`，否则维持 15s 基线。
+
+另修正两个实现缺陷：
+
+- **migration 011 建错目录**导致未生效。`//go:embed migrations/*.sql` 相对
+  `internal/repository/` 解析，实际读取 `internal/repository/migrations/`；仓库另有
+  一个同名的顶层 `migrations/`（仅文档提及、不参与 embed），易混淆。已把 011 放入
+  正确目录并同步两份保持一致。
+- **COS 对象键重复前缀**：`BuildScreenshotKey` 硬编码 `screenshots/` 又与
+  `PathPrefix`（默认 `screenshots`）叠加成 `.../screenshots/screenshots/...`。
+  改为键只含 `<yyyy>/<mm>/<id>.png`，命名空间由 PathPrefix 负责。
+
+验证方式：起临时实例（18080）→ Preview 采集 React SPA / SSR 文档站 / 微信公众号三类，
+确认 `rendered=true` 且正文正确；建 URL 文章跑 worker 全链路；独立探针验证 COS 上传。
+
+### feat: 采集改为「渲染优先」+ 文章存 Markdown + 截图归档到腾讯云 COS
+
+在上一版「SPA 才渲染」的基础上按需求调整：
+
+- **渲染优先，http 兜底**：浏览器渲染开启时（`COLLECTOR_BROWSER_ENABLED=true`
+  且 endpoint 非空），URL 采集每篇都先过无头浏览器（一次会话同时拿「渲染后
+  HTML + 全页截图」）；渲染失败（超时/报错）才降级为轻量 http 抓源码。
+  取代原「仅 SPA 空壳触发渲染」的分级判定。见 `internal/service/collector.go`
+  的 `fetchHTML`。原 SPA 特征判定与 `COLLECTOR_SPADROP_THRESHOLD` 已移除（死代码）。
+- **一次调用拿 HTML + 截图**：`pkg/webfetch` 新增 `RenderAndScreenshot`，
+  走 browserless `/function` 端点跑 Puppeteer（`page.content()` +
+  `page.screenshot({fullPage:true})`），避免 `/content` 与 `/screenshot`
+  各渲染一次导致结果不一致、耗时翻倍。
+- **文章存 Markdown**：前端录入页优先提交 `markdown` 作为正文
+  （`web/js/pages/article-new.js`）。分块器 `splitStructure` 本就按 `#` 标题
+  与空行切段，Markdown 正文的分块质量天然更好，chunker **零改动**。
+- **截图归档 COS**：新增 `pkg/cos`（腾讯云官方 SDK）。URL 文章在 worker
+  处理时重采集（渲染优先），拿全页截图上传 COS，URL 写回
+  `articles.screenshot_url`（migration 011，新增列）。防源站失效。
+  采集/截图失败不阻断文章处理，仅记日志、保留原正文。
+- **重采集以处理时为准**：worker 处理 URL 文章时用 `source_url` 重采集，
+  用最新 Markdown 覆盖正文（与截图同源一致）；录入时的 Preview 仅作预览。
+
+配置项（`config.yaml` 的 `cos` 段 / 对应 env）：
+
+- `COS_SECRET_ID` / `COS_SECRET_KEY`（腾讯云密钥，建议仅放 .env）
+- `COS_BUCKET`（含 appid 后缀）、`COS_REGION`、`COS_ENDPOINT`（CDN，可空）
+- `COS_PATH_PREFIX`（对象键前缀，默认 screenshots）
+- 任一缺失则截图归档整体关闭，不影响正文采集。
+
+新增接口：`service.ScreenshotStore` / `service.URLCollector`（便于测试注入
+假实现）；`*cos.Client` 实现 `ScreenshotStore`。`AIPipeline` 新增
+`SetCollector` / `SetScreenshotStore`。
+
+### feat: URL 采集支持无头浏览器渲染 + Readability 正文提取（SPA fallback + Markdown 输出）
+
+解决两类痛点：① 前端动态渲染（SPA）页面用 http 只抓到空壳；② 抓取到的
+HTML 含大量广告/评论/导航等噪声，正文不干净且丢结构。
+
+新架构分三层：
+
+- **抓取层（分级）**：先走轻量 http（现状不变）；命中 SPA 特征（可见文字
+  极少 + `#root`/`#app`/`#__next`/`#nuxt` 空壳挂载点，且正文低于
+  `COLLECTOR_SPADROP_THRESHOLD`）且渲染层启用时，才调外部无头浏览器
+  （browserless）拿「渲染后 HTML」。SSR/静态页（含微信）继续走轻量路径。
+- **提取层（双引擎路由）**：微信公众号 host（`mp.weixin.qq.com`）走
+  `pkg/htmlclean` 的 `#js_content` 专用规则（Readability 对微信常判「非文章页」）；
+  其余走 `pkg/readability`（Mozilla Readability 的 go 移植 `codeberg.org/readeck/
+  go-readability/v2`）打分提取，保留标题层级/列表/表格/代码块。Readability
+  判定「非文章页」时自动回退 htmlclean，保证不丢内容。
+- **输出层**：`CollectorResult` 新增 `Markdown`（保留结构）与 `Rendered`
+  字段，`Content` 仍为纯文本（入库/embedding 契约不变，Markdown 供结构化展示）。
+
+新增组件：
+
+- `pkg/webfetch`：browserless 渲染客户端，走 HTTP `/content` 端点（无状态、
+  不引入 chromedp）。兼容 HTML 直返与 JSON 包装两种响应形态。
+- `pkg/readability`：Readability 提取器，输出 Markdown + 纯文本；`IsNotArticle`
+  识别「非文章页」。
+- `pkg/htmlclean` 补 `CleanMarkdown`：同选择器/去噪逻辑出 Markdown（微信专用
+  路径也能拿结构化文本）。
+- `deploy/browserless/`：browserless 独立部署 compose + README + .env.example，
+  与 aiknow 主服务解耦、分处不同服务器，独立扩缩容。
+
+配置项（`config.yaml` 的 `render` 段 / 对应 env）：
+
+- `COLLECTOR_RENDER_ENABLED`（默认 false，渲染层总开关；endpoint 为空时也视为关闭）
+- `COLLECTOR_BROWSER_ENDPOINT`（browserless 基础地址，如 http://x.x.x.x:3000）
+- `COLLECTOR_BROWSER_TOKEN`（x-access-token）
+- `COLLECTOR_BROWSER_TIMEOUT`（默认 30s）
+- `COLLECTOR_SPADROP_THRESHOLD`（默认 200，SPA 降级阈值）
+
+> 后续调整（见本文件顶部「渲染优先」条目）：`COLLECTOR_RENDER_ENABLED` 已改名
+> `COLLECTOR_BROWSER_ENABLED`；`COLLECTOR_SPADROP_THRESHOLD` 已随 SPA 门控移除。
+
+SSRF 防护：提交浏览器的 URL 在 `Fetch` 内先过 `pkg/ssrf` 校验（拦内网段 /
+云元数据 169.254.169.254 / 非白名单端口）；浏览器侧网络隔离由部署网段承担
+（见 deploy/browserless/README.md）。
+
+已用 5 个真实 URL 验证（React SPA / 两个 SSR 文档站 / 两篇微信公众号文）：
+SPA 空壳 http 抓 38 字符、渲染后 Readability 精准抽正文并去噪；文档站
+Readability 保留 `##`/列表/表格，优于现有平铺文本；微信走 htmlclean 专用
+规则正确提取（Readability 对微信返回空，印证路由必要性）。
+
 ### feat: 检索测试页「关键词检索」增加分词开关（tokenized）
 
 在后台「检索测试」页的关键词检索表单，关键词输入框右侧新增「分词」复选框，

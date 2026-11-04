@@ -296,6 +296,21 @@ docker compose exec -T postgres psql -U postgres -d aiknow \
 | `QWEN_BASE_URL` | 无 | Qwen 兼容模式端点 |
 | `BAAI_API_KEY` | 无 | Embedding / Reranker 选 `baai` 时必填 |
 | `BAAI_BASE_URL` | 无 | BAAI 服务端点 |
+| `COLLECTOR_TIMEOUT` | `10s` | 采集 http 超时（渲染关闭时的兜底路径） |
+| `COLLECTOR_MAX_REDIRECTS` | `3` | 采集最大重定向次数 |
+| `COLLECTOR_MIN_CONTENT_LENGTH` | `200` | 正文最小字符数，低于此值判定采集失败 |
+| `COLLECTOR_USER_AGENT` | 移动端 Safari UA | 采集 UA 基线；后台 `collector.user_agent` 可热覆盖 |
+| `COLLECTOR_BROWSER_ENABLED` | `false` | 无头浏览器渲染总开关，须与 endpoint 同时满足才渲染 |
+| `COLLECTOR_BROWSER_ENDPOINT` | 空 | browserless 端点，如 `http://10.0.0.5:3000`；空则渲染关闭 |
+| `COLLECTOR_BROWSER_TOKEN` | 空 | browserless 访问令牌（`x-access-token`） |
+| `COLLECTOR_BROWSER_TIMEOUT` | `30s` | 单页渲染硬超时（含导航、等待、截图）；服务 `WriteTimeout` 取此值 + 20s |
+| `COS_SECRET_ID` / `COS_SECRET_KEY` | 空 | 腾讯云 API 密钥。建议只放 `.env`，勿写入 `config.yaml` |
+| `COS_BUCKET` | 空 | 存储桶名（含 appid 后缀），如 `aiknow-1300000000` |
+| `COS_REGION` | 空 | 地域，如 `ap-guangzhou` |
+| `COS_ENDPOINT` | 空 | 自定义访问域名（CDN）；空则用 COS 默认域名 |
+| `COS_PATH_PREFIX` | `screenshots` | 截图对象键前缀 |
+
+> `COS_*` 任一必填项（密钥 / bucket / region）缺失时截图归档整体关闭，**不影响正文采集**。
 
 `APP_ENV=production` 会改变两处行为：
 
@@ -379,6 +394,37 @@ ai:
 > `managedKeys` 清单中登记，否则不会生效。`config_test.go` 中的
 > `TestExampleYAMLMatchesParser` 会守住示例文件与解析器的一致性。
 
+### 无头浏览器渲染与截图归档（可选）
+
+URL 采集默认只走轻量 http；配置后改为**渲染优先**：每篇先请求 browserless 拿
+「渲染后 HTML + 全页截图」，渲染失败才降级 http。适合采集 SPA 动态页与需要
+截图归档的场景，静态站/纯内网可不部署。
+
+1. **部署 browserless**（独立容器，不进主镜像）：
+
+   ```bash
+   cd deploy/browserless
+   cp .env.example .env    # 填 TOKEN 等
+   docker compose up -d
+   ```
+
+   详细说明与网络隔离要求见 `deploy/browserless/README.md`。**必须部署在访问不到
+   敏感内网的网段（DMZ）**：Go 层 SSRF 只校验入口 URL，页面内 JS 自发的子请求
+   拦不住。
+
+2. **主服务开启渲染**：`COLLECTOR_BROWSER_ENABLED=true` +
+   `COLLECTOR_BROWSER_ENDPOINT=http://<browserless>:3000` +
+   `COLLECTOR_BROWSER_TOKEN=<token>`。三者缺一（或 enabled=false）即保持纯 http。
+
+3. **配置 COS 归档截图**（可选）：填 `COS_SECRET_ID` / `COS_SECRET_KEY` /
+   `COS_BUCKET`（含 appid 后缀）/ `COS_REGION`；`COS_ENDPOINT` 可填 CDN 域名，
+   `COS_PATH_PREFIX` 默认 `screenshots`。截图在 worker 处理 URL 文章时上传并写回
+   `articles.screenshot_url`；上传失败只记日志，不阻断文章处理。
+
+> 渲染单页可达 20s+。服务 `WriteTimeout` 在渲染启用时自动取
+> `COLLECTOR_BROWSER_TIMEOUT + 20s`，避免同步的采集 Preview 请求被掐断；关闭渲染
+> 时维持 15s 基线。
+
 ### 尚未接线的配置项
 
 `SESSION_SECRET` 目前**只被配置校验使用**（强制必填且检查长度 ≥32），代码尚未
@@ -392,7 +438,7 @@ ai:
 |---|---|---|
 | 连接池上下限 | `MaxConns=20` / `MinConns=2` | `internal/repository/postgres.go` |
 | 连接寿命 / 空闲超时 | 30 分钟 / 10 分钟 | 同上 |
-| HTTP 读写 / 空闲超时 | 15s / 15s / 60s | `cmd/aiknow-server/main.go` |
+| HTTP 读写 / 空闲超时 | 15s / 15s / 60s；渲染启用时写超时 = `COLLECTOR_BROWSER_TIMEOUT + 20s` | `cmd/aiknow-server/main.go` |
 | 向量维度 | 1024（与 bge-large-zh-v1.5 绑定） | 迁移 SQL 与 Provider |
 | 模型名 | `BAAI/bge-large-zh-v1.5`、`BAAI/bge-reranker-v2-m3` | `internal/service/provider/` |
 | Session 存储 | 进程内存 | `internal/service/auth.go` |
@@ -419,7 +465,7 @@ ai:
 
 1. 阅读目标版本的 release notes，确认索引 DDL 与查询语法有无变更
 2. **先备份**（见第六章"备份与恢复"）
-3. 修改 `docker-compose.yml` 中的镜像 tag，以及本文档与 `AGENT.md` 中的版本记录
+3. 修改 `docker-compose.yml` 中的镜像 tag，以及本文档与 `AGENTS.md` 中的版本记录
 4. `docker compose up -d`，观察 `docker compose logs postgres`
 5. 若语法有变更，需同步修改 `internal/repository/migrations/006_paradedb_search.sql`
    与 `internal/repository/search_repo.go`，并新增迁移重建索引

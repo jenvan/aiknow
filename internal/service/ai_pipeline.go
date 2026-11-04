@@ -33,6 +33,36 @@ type AIPipeline struct {
 	promptService *PromptService
 	// configSource 可选：L2 配置来源（分块参数、LLM 参数等），nil 时用内置默认
 	configSource L2ConfigSource
+	// collector 可选：URL 文章处理时重采集（渲染 + 截图）。为 nil 时跳过重采集。
+	collector URLCollector
+	// screenshotStore 可选：截图归档存储（COS）。为 nil 或未配置时跳过上传。
+	screenshotStore ScreenshotStore
+}
+
+// URLCollector 采集器抽象：URL 文章重采集所需的最小能力。
+// 抽成接口便于测试注入假实现（真实实现为 *Collector）。
+type URLCollector interface {
+	Fetch(ctx context.Context, url string) (*CollectorResult, error)
+}
+
+// ScreenshotStore 截图归档存储（实现方为 pkg/cos 客户端封装）。
+// 解耦为接口便于测试与替换存储后端。
+type ScreenshotStore interface {
+	// UploadScreenshot 上传某文章的截图，返回可访问 URL。id 一般为文章 ID，
+	// 由实现方据此生成对象键与路径。
+	UploadScreenshot(ctx context.Context, id string, data []byte) (string, error)
+	// Enabled 存储是否可用（配置完整）。
+	Enabled() bool
+}
+
+// SetCollector 注入 URL 采集器：URL 文章处理时重采集正文与截图。
+func (p *AIPipeline) SetCollector(c URLCollector) {
+	p.collector = c
+}
+
+// SetScreenshotStore 注入截图归档存储。
+func (p *AIPipeline) SetScreenshotStore(s ScreenshotStore) {
+	p.screenshotStore = s
 }
 
 // NewAIPipeline 创建 AI 处理流水线。
@@ -98,6 +128,10 @@ func intPtr(i int) *int {
 
 // Process 处理文章（AI 处理流水线）
 func (p *AIPipeline) Process(ctx context.Context, article *model.Article) error {
+	// 0. URL 文章重采集：渲染拿最新正文（Markdown）+ 全页截图，截图上传归档。
+	//    渲染/截图失败不阻断处理（降级为已有正文），仅记日志。
+	p.recollectIfURL(ctx, article)
+
 	// 1. 更新状态为 processing
 	article.ProcessingStatus = "processing"
 	if err := p.articleRepo.Update(ctx, article); err != nil {
@@ -212,6 +246,43 @@ func (p *AIPipeline) Process(ctx context.Context, article *model.Article) error 
 	}
 
 	return nil
+}
+
+// recollectIfURL 对 URL 来源文章重采集：渲染拿最新 Markdown 与全页截图。
+//
+// 行为：
+//   - 仅当 article.SourceType == "url" 且 source_url 非空、且注入了 collector 时执行。
+//   - 采集成功（正文非空）：用最新 Markdown 覆盖 article.Content（更结构、与截图同源）。
+//   - 采集到截图且配置了 screenshotStore：上传归档，写回 article.ScreenshotURL。
+//   - 任何失败都不阻断处理：记日志后保留原有正文，交由后续步骤继续。
+//
+// 取 Markdown 而非纯文本：分块器认 Markdown 的 # 标题与空行，结构化分块质量更好。
+func (p *AIPipeline) recollectIfURL(ctx context.Context, article *model.Article) {
+	if p.collector == nil || article.SourceType != "url" || article.SourceURL == nil || *article.SourceURL == "" {
+		return
+	}
+
+	result, err := p.collector.Fetch(ctx, *article.SourceURL)
+	if err != nil {
+		fmt.Printf("警告: 文章 %s 重采集失败，保留原正文: %v\n", article.ID, err)
+		return
+	}
+
+	// 优先用 Markdown（结构化）；无则退回纯文本
+	if content := firstNonEmpty(result.Markdown, result.Content); content != "" {
+		article.Content = content
+	}
+
+	// 截图归档
+	if len(result.Screenshot) == 0 || p.screenshotStore == nil || !p.screenshotStore.Enabled() {
+		return
+	}
+	url, uerr := p.screenshotStore.UploadScreenshot(ctx, article.ID, result.Screenshot)
+	if uerr != nil {
+		fmt.Printf("警告: 文章 %s 截图上传失败: %v\n", article.ID, uerr)
+		return
+	}
+	article.ScreenshotURL = &url
 }
 
 // runLLM 调用 LLM 生成 AI 结果

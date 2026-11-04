@@ -39,7 +39,7 @@ type session struct {
 	expiresAt time.Time
 }
 
-// 登录失败锁定策略（AGENT.md：5 次失败锁定 15 分钟）
+// 登录失败锁定策略（AGENTS.md：5 次失败锁定 15 分钟）
 const (
 	maxLoginAttempts = 5
 	lockoutDuration  = 15 * time.Minute
@@ -304,7 +304,7 @@ func (s *authServiceImpl) SessionLifetime() time.Duration {
 // ValidateKey 验证 API Key。
 //
 // 按 SHA-256 哈希直接查库（`idx_api_keys_key_hash` 索引命中），
-// 这正是 AGENT.md 决策 #7 选择 SHA-256 而非 bcrypt 的原因：
+// 这正是 AGENTS.md 决策 #7 选择 SHA-256 而非 bcrypt 的原因：
 // bcrypt 每条记录盐值不同，无法按哈希检索，只能全表遍历逐个比对。
 //
 // 此前实现只遍历内存中的 apiKeys 切片，而其唯一写入方 AddAPIKey 全局零调用，

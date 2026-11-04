@@ -13,7 +13,7 @@ import (
 	"github.com/jenvan/aiknow/internal/service/provider"
 )
 
-// PromptKeyAnalyze 分析提示词在 settings 表中的键（AGENT.md：v1 仅此一个模板）
+// PromptKeyAnalyze 分析提示词在 settings 表中的键（AGENTS.md：v1 仅此一个模板）
 const PromptKeyAnalyze = "prompt.analyze"
 
 // PromptService 提示词服务。
@@ -49,14 +49,14 @@ func NewPromptService(
 	}
 }
 
-// promptVars 模板可用变量（AGENT.md 规定的三个）
+// promptVars 模板可用变量（AGENTS.md 规定的三个）
 type promptVars struct {
 	Title      string
 	Content    string
 	Categories string
 }
 
-// maxPromptContentRunes 正文注入模板前的截断长度（AGENT.md：前 8000 字）
+// maxPromptContentRunes 正文注入模板前的截断长度（AGENTS.md：前 8000 字）
 const maxPromptContentRunes = 8000
 
 // GetPrompt 获取提示词模板。
@@ -148,7 +148,7 @@ type PromptResult struct {
 }
 
 // TestPrompt 用未保存的模板试跑指定文章：展示渲染结果、模型原始返回与校验结果，
-// 不写入任何数据（AGENT.md 明确要求）。
+// 不写入任何数据（AGENTS.md 明确要求）。
 func (s *PromptService) TestPrompt(ctx context.Context, promptTemplate, articleID string) (*PromptResult, error) {
 	result := &PromptResult{}
 

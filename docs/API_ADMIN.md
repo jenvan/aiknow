@@ -136,12 +136,18 @@ Header: X-CSRF-Token
 ```json
 {
   "title": "文章标题",
-  "content": "清洗后的正文 HTML/文本",
+  "content": "清洗后的正文纯文本",
+  "markdown": "# 文章标题\n\n保留结构的正文",
+  "rendered": true,
   "truncated": false
 }
 ```
 
 > 用于录入页在提交前预览抓取结果，SSRF 校验在 collector 内部完成。
+> 渲染开启时 `rendered=true`，`content` 为渲染后提取的纯文本，`markdown` 保留
+> 标题/列表/代码块结构（录入页优先提交它作为正文）。截图为二进制，不上传、
+> 不出现在响应中；URL 文章在异步处理时会重新采集并归档截图到
+> `articles.screenshot_url`。
 
 #### 获取文章详情
 

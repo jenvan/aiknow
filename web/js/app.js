@@ -10,6 +10,7 @@ import { fetchSession, api } from './api.js';
 import { registerDashboard } from './pages/dashboard.js';
 import { registerArticles } from './pages/articles.js';
 import { registerArticleEdit } from './pages/article-edit.js';
+import { registerArticlePreview } from './pages/article-preview.js';
 import { registerArticleNew } from './pages/article-new.js';
 import { registerSearch } from './pages/search.js';
 import { registerSettings } from './pages/settings.js';
@@ -17,11 +18,13 @@ import { registerApiKeys } from './pages/api-keys.js';
 import { registerMcpDebug } from './pages/mcp-debug.js';
 import { registerMcpLogs } from './pages/mcp-logs.js';
 
-// 路由表：先匹配者优先，故 /articles/new 必须排在 /articles/:id 之前
+// 路由表：先匹配者优先，故 /articles/new 必须排在 /articles/:id 之前，
+// /articles/:id/preview 必须排在 /articles/:id 之前（否则 preview 会当成 id）。
 const ROUTES = [
     { re: /^\/ui\/?$/,                    page: 'dashboard' },
     { re: /^\/ui\/dashboard\/?$/,         page: 'dashboard' },
     { re: /^\/ui\/articles\/new\/?$/,     page: 'article-new' },
+    { re: /^\/ui\/articles\/([^/]+)\/preview\/?$/, page: 'article-preview' },
     { re: /^\/ui\/articles\/([^/]+)\/?$/, page: 'article-edit' },
     { re: /^\/ui\/articles\/?$/,          page: 'articles' },
     { re: /^\/ui\/search\/?$/,            page: 'search' },
@@ -67,9 +70,10 @@ const NAV_GROUPS = [
 // 平铺列表（供 resolve / pageTitle 复用）
 const NAV_ITEMS = NAV_GROUPS.flatMap((g) => g.items);
 
-// 各页标题（侧栏/header 显示；非导航页如文章编辑单独映射）
+// 各页标题（侧栏/header 显示；非导航页如文章编辑/预览单独映射）
 const PAGE_TITLES = {
     'article-edit': '文章编辑',
+    'article-preview': '文章预览',
 };
 
 function resolve(pathname) {
@@ -87,6 +91,7 @@ document.addEventListener('alpine:init', () => {
     registerDashboard(Alpine);
     registerArticles(Alpine);
     registerArticleEdit(Alpine);
+    registerArticlePreview(Alpine);
     registerArticleNew(Alpine);
     registerSearch(Alpine);
     registerSettings(Alpine);

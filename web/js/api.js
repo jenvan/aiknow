@@ -109,3 +109,22 @@ export function statusMeta(status) {
         default:           return { label: status || '-', cls: 'bg-gray-100 text-gray-700' };
     }
 }
+
+/**
+ * Markdown → 清洗后的 HTML。复用 vendor 的 marked + DOMPurify。
+ *
+ * 正文可能含源站带回的原始 HTML，故必须经 DOMPurify 清洗后再注入，防 XSS。
+ * marked/purify 未加载时降级为转义纯文本（<pre>），保证不白屏。
+ */
+export function renderMarkdown(md) {
+    const text = md || '';
+    const marked = window.marked;
+    const purify = window.DOMPurify;
+    if (!marked || !purify) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return '<pre class="whitespace-pre-wrap">' + div.innerHTML + '</pre>';
+    }
+    const raw = marked.parse(text, { breaks: true, gfm: true });
+    return purify.sanitize(raw, { USE_PROFILES: { html: true } });
+}

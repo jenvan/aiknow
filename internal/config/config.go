@@ -61,6 +61,20 @@ var managedKeys = []string{
 	"COLLECTOR_TIMEOUT",
 	"COLLECTOR_MAX_REDIRECTS",
 	"COLLECTOR_MIN_CONTENT_LENGTH",
+
+	// 无头浏览器渲染（采集 SPA 页面的 fallback）
+	"COLLECTOR_BROWSER_ENABLED",
+	"COLLECTOR_BROWSER_ENDPOINT",
+	"COLLECTOR_BROWSER_TOKEN",
+	"COLLECTOR_BROWSER_TIMEOUT",
+
+	// 腾讯云 COS（采集文章截图归档，防源站失效）
+	"COS_SECRET_ID",
+	"COS_SECRET_KEY",
+	"COS_BUCKET",
+	"COS_REGION",
+	"COS_ENDPOINT",
+	"COS_PATH_PREFIX",
 }
 
 // defaultValues 任何来源都未提供时的兜底值
@@ -90,6 +104,22 @@ var defaultValues = map[string]string{
 	"COLLECTOR_MAX_REDIRECTS":      "3",
 	"COLLECTOR_MIN_CONTENT_LENGTH": "200",
 	"COLLECTOR_USER_AGENT":         "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+
+	// 无头浏览器渲染默认值（与 internal/service/collector.go 渲染配置一致）
+	// ENABLED 是总开关（默认 false）；ENDPOINT 缺省为空。二者都满足才真正渲染，
+	// 否则采集退化为纯 http。
+	"COLLECTOR_BROWSER_ENABLED":  "false",
+	"COLLECTOR_BROWSER_ENDPOINT": "",
+	"COLLECTOR_BROWSER_TOKEN":    "",
+	"COLLECTOR_BROWSER_TIMEOUT":  "30s",
+
+	// 腾讯云 COS：缺省全空，未配置时不启用截图归档（不影响采集正文）。
+	"COS_SECRET_ID":   "",
+	"COS_SECRET_KEY":  "",
+	"COS_BUCKET":      "",
+	"COS_REGION":      "",
+	"COS_ENDPOINT":    "",
+	"COS_PATH_PREFIX": "screenshots",
 }
 
 // YAMLConfig config.yaml 的结构。
@@ -140,10 +170,10 @@ type YAMLConfig struct {
 	} `yaml:"qwen"`
 
 	BAAI struct {
-		APIKey           string `yaml:"api_key"`
-		BaseURL          string `yaml:"base_url"`
-		EmbeddingModel   string `yaml:"embedding_model"`
-		RerankerModel    string `yaml:"reranker_model"`
+		APIKey         string `yaml:"api_key"`
+		BaseURL        string `yaml:"base_url"`
+		EmbeddingModel string `yaml:"embedding_model"`
+		RerankerModel  string `yaml:"reranker_model"`
 	} `yaml:"baai"`
 
 	Collector struct {
@@ -152,6 +182,34 @@ type YAMLConfig struct {
 		MinContentLength int    `yaml:"min_content_length"`
 		UserAgent        string `yaml:"user_agent"`
 	} `yaml:"collector"`
+
+	// 无头浏览器渲染（采集 SPA 页面的 fallback）
+	Render struct {
+		// 总开关。对应 env COLLECTOR_BROWSER_ENABLED，默认 false。
+		// 需与 endpoint 同时满足才真正渲染
+		Enabled bool `yaml:"enabled"`
+		// browserless 端点，如 http://1.2.3.4:3000。缺省为空则渲染关闭
+		Endpoint string `yaml:"endpoint"`
+		// browserless 访问令牌。对应 env COLLECTOR_BROWSER_TOKEN
+		Token string `yaml:"token"`
+		// 单页渲染超时。对应 env COLLECTOR_BROWSER_TIMEOUT，默认 30s
+		Timeout string `yaml:"timeout"`
+	} `yaml:"render"`
+
+	// 腾讯云 COS（采集文章截图归档）
+	COS struct {
+		// 密钥。对应 env COS_SECRET_ID / COS_SECRET_KEY
+		SecretID  string `yaml:"secret_id"`
+		SecretKey string `yaml:"secret_key"`
+		// 存储桶名（含 appid 后缀），如 aiknow-1300000000。对应 env COS_BUCKET
+		Bucket string `yaml:"bucket"`
+		// 地域，如 ap-guangzhou。对应 env COS_REGION
+		Region string `yaml:"region"`
+		// 自定义访问域名（CDN）；为空用 COS 默认域名。对应 env COS_ENDPOINT
+		Endpoint string `yaml:"endpoint"`
+		// 对象键前缀，默认 screenshots。对应 env COS_PATH_PREFIX
+		PathPrefix string `yaml:"path_prefix"`
+	} `yaml:"cos"`
 }
 
 // toFlat 将嵌套结构映射为扁平配置键；空值不参与映射，交由下一优先级来源提供
@@ -181,6 +239,17 @@ func (y *YAMLConfig) toFlat() map[string]string {
 		"BAAI_RERANKER_MODEL":  y.BAAI.RerankerModel,
 		"COLLECTOR_USER_AGENT": y.Collector.UserAgent,
 		"COLLECTOR_TIMEOUT":    y.Collector.Timeout,
+		// 无头浏览器渲染
+		"COLLECTOR_BROWSER_ENDPOINT": y.Render.Endpoint,
+		"COLLECTOR_BROWSER_TOKEN":    y.Render.Token,
+		"COLLECTOR_BROWSER_TIMEOUT":  y.Render.Timeout,
+		// 腾讯云 COS
+		"COS_SECRET_ID":   y.COS.SecretID,
+		"COS_SECRET_KEY":  y.COS.SecretKey,
+		"COS_BUCKET":      y.COS.Bucket,
+		"COS_REGION":      y.COS.Region,
+		"COS_ENDPOINT":    y.COS.Endpoint,
+		"COS_PATH_PREFIX": y.COS.PathPrefix,
 	}
 
 	if y.Collector.MaxRedirects != 0 {
@@ -189,6 +258,8 @@ func (y *YAMLConfig) toFlat() map[string]string {
 	if y.Collector.MinContentLength != 0 {
 		flat["COLLECTOR_MIN_CONTENT_LENGTH"] = strconv.Itoa(y.Collector.MinContentLength)
 	}
+	// 布尔开关：即使 false 也要写入，以允许在 yaml 中显式关闭浏览器
+	flat["COLLECTOR_BROWSER_ENABLED"] = strconv.FormatBool(y.Render.Enabled)
 
 	// 0 表示 YAML 中未设置该项，不写入以免覆盖更低优先级来源
 	if y.Server.Port != 0 {
@@ -199,7 +270,9 @@ func (y *YAMLConfig) toFlat() map[string]string {
 	}
 
 	for k, v := range flat {
-		if v == "" {
+		// 布尔开关即使为 "false" 也需保留（显式在 yaml 中关闭），
+		// 其余空值不写入以免覆盖更低优先级来源
+		if v == "" && k != "COLLECTOR_BROWSER_ENABLED" {
 			delete(flat, k)
 		}
 	}
@@ -354,6 +427,19 @@ func (c *Config) GetDuration(key string, fallback time.Duration) time.Duration {
 		return fallback
 	}
 	return d
+}
+
+// GetBool 获取布尔配置，解析失败或为空时返回 fallback
+func (c *Config) GetBool(key string, fallback bool) bool {
+	val, _ := c.Get(key)
+	if val == "" {
+		return fallback
+	}
+	b, err := strconv.ParseBool(val)
+	if err != nil {
+		return fallback
+	}
+	return b
 }
 
 // DatabaseURL 解析数据库连接串。
