@@ -140,3 +140,28 @@ func TestArchiveDisabledStorePassesThrough(t *testing.T) {
 		t.Fatalf("未配置存储时应原样返回: %v", err)
 	}
 }
+
+// 公众号正文里长 URL 会被折行，必须仍能识别并清洗
+func TestArchiveHandlesNewlineInURL(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.RawQuery != "from=appmsg&watermark=1" {
+			t.Errorf("URL 未清洗：query=%q", r.URL.RawQuery)
+		}
+		w.Header().Set("Content-Type", "image/png")
+		w.Write(tinyPNG)
+	}))
+	defer srv.Close()
+
+	a := newTestArchiver(&fakeObjectStore{}, srv)
+	md := "![折行图](" + srv.URL + "/640?from=appmsg&\nwatermark=1)\n正文\n"
+	out, err := a.Archive(context.Background(), "art-6", md)
+	if err != nil {
+		t.Fatalf("Archive: %v", err)
+	}
+	if strings.Contains(out, "mmbiz") || strings.Contains(out, "\nwatermark") {
+		t.Errorf("折行 URL 未被处理:\n%q", out)
+	}
+	if !strings.Contains(out, "https://cos.example.com/articles/art-6/img-00") {
+		t.Errorf("未替换为 COS 链接:\n%q", out)
+	}
+}

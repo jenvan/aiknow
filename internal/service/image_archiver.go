@@ -41,7 +41,11 @@ type ImageArchiver struct {
 }
 
 // 正文里的 Markdown 图片：![alt](https://...)
-var markdownImageRe = regexp.MustCompile(`!\[([^\]]*)\]\((https?://[^)\s]+)\)`)
+//
+// 允许 URL 里出现换行/空格：公众号正文经 html→markdown 后，长 URL 有时会被
+// 折行（`...?from=appmsg&\nwatermark=1...`），用 [^)\s]+ 会在换行处截断导致整张图
+// 匹配不上。这里放宽到「非右括号」，匹配后再把空白全部去掉。
+var markdownImageRe = regexp.MustCompile(`!\[([^\]]*)\]\(([^)]+)\)`)
 
 // NewImageArchiver 创建归档器。store 为 nil 或未启用时 Archive 直接透传原文。
 func NewImageArchiver(store ObjectStore, userAgent string) *ImageArchiver {
@@ -75,23 +79,39 @@ func (a *ImageArchiver) Archive(ctx context.Context, articleID, markdown string)
 	if a == nil || a.store == nil || !a.store.Enabled() {
 		return markdown, nil
 	}
-	matches := markdownImageRe.FindAllStringSubmatch(markdown, -1)
+	matches := markdownImageRe.FindAllStringSubmatchIndex(markdown, -1)
 	if len(matches) == 0 {
 		return markdown, nil
 	}
 
-	// 同一张图可能被引用多次：按 URL 去重，一次下载多处替换
-	seen := make(map[string]string, len(matches))
+	// 先把每个匹配解析成 (原始URL, 可下载URL)；同一 URL 只下载一次
+	type span struct {
+		start, end int
+		alt        string
+		src        string // 清洗后的 URL（去掉空白）
+	}
+	spans := make([]span, 0, len(matches))
+	uniq := make(map[string]bool, len(matches))
 	order := make([]string, 0, len(matches))
+
 	for _, m := range matches {
-		u := m[2]
-		if _, ok := seen[u]; !ok {
-			seen[u] = "" // 先占位，表示「待处理」
-			order = append(order, u)
+		alt := markdown[m[2]:m[3]]
+		raw := strings.Join(strings.Fields(markdown[m[4]:m[5]]), "")
+		if !strings.HasPrefix(raw, "http://") && !strings.HasPrefix(raw, "https://") {
+			continue // data: / 相对路径等一律不动
 		}
+		spans = append(spans, span{start: m[0], end: m[1], alt: alt, src: raw})
+		if !uniq[raw] {
+			uniq[raw] = true
+			order = append(order, raw)
+		}
+	}
+	if len(spans) == 0 {
+		return markdown, nil
 	}
 
 	archived, failed := 0, 0
+	replaced := make(map[string]string, len(order))
 	for i, src := range order {
 		if i >= a.maxImages {
 			break
@@ -102,16 +122,19 @@ func (a *ImageArchiver) Archive(ctx context.Context, articleID, markdown string)
 			slog.Warn("图片归档失败，保留原链接", "article_id", articleID, "url", src, "err", err)
 			continue
 		}
-		seen[src] = newURL
+		replaced[src] = newURL
 		archived++
 	}
 
+	// 按区间倒序替换，避免前面的替换影响后面的偏移
 	out := markdown
-	for src, dst := range seen {
-		if dst == "" {
+	for i := len(spans) - 1; i >= 0; i-- {
+		sp := spans[i]
+		dst, ok := replaced[sp.src]
+		if !ok {
 			continue
 		}
-		out = strings.ReplaceAll(out, "]("+src+")", "]("+dst+")")
+		out = out[:sp.start] + "![" + sp.alt + "](" + dst + ")" + out[sp.end:]
 	}
 	if archived > 0 || failed > 0 {
 		slog.Info("图片归档完成", "article_id", articleID, "archived", archived, "failed", failed)
