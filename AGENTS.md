@@ -340,7 +340,41 @@ Go 层拦不住——必须靠「browserless 部署在访问不到敏感内网�
 **接口**：`service.URLCollector` / `service.ScreenshotStore` 抽成接口便于
 测试注入假实现；`*cos.Client` 实现 `ScreenshotStore`。
 
-## Web 管理后台（10 个页面）
+## 微信 Bot 入口（v1，可选通道）
+
+`aiknow-server serve` 进程内可选启动的微信入口：发链接即采集、发关键词即检索。
+协议客户端 `pkg/ilink`（腾讯 iLink / ClawBot 个人号官方 Bot 接口），路由在
+`internal/channel/weixin`。设计与排障见 [docs/WEIXIN_BOT.md](docs/WEIXIN_BOT.md)。
+
+**六条必须知道的约定**：
+- 入口是「**粘贴链接**」（公众号：右上角 ··· → 复制链接），**不是转发卡片**：
+  实测微信「转发给朋友」列表里没有 ClawBot 会话，卡片转发不进来。
+  `pkg/ilink` 用 `Item.Raw` 保留未知类型的原始 JSON，将来微信加卡片类型不必改协议层。
+- 凭据与游标都落库（`weixin_bot_accounts`），**不进 `.env`**；游标
+  `get_updates_buf` 必须持久化，否则重启重收旧消息、重复入库。三个参考 Go
+  SDK（lib-x/ilink、etng/weixin-bot-go、corespeed/wechatbot）都把游标放内存，
+  这是本项目与它们的核心差异。
+- **群聊不可用**：微信不允许把 ClawBot 拉进群，`group_id` 只可能是空串；协议里的
+  `group_id` / `at_bot_username_list` 只是预留字段，别据此推断「群聊可做」
+  （曾这么推断过，被实测否定）。
+- 白名单默认**只放行扫码者本人**（`allow_from` 为空 ≠ 放行所有人）：一条消息
+  可能触发无头浏览器渲染 + LLM，代价远高于普通 API。
+- **bot 只能跑单副本**：`get_updates_buf` 是单游标，多副本会互相抢消息。
+  多副本部署需拆成独立进程或加选主。
+- 意图语义与 MCP 三个工具对齐（采集 / 关键词卡片 / 语义片段），channel 层
+  只做「消息 → 意图 → 现有 service」，不得另写一套检索或采集。
+
+```bash
+aiknow-server weixin login    # 打印二维码链接，扫码后凭据落库
+aiknow-server weixin status   # bot_id / 白名单 / 游标 / 最近活跃
+aiknow-server weixin logout
+```
+
+对应后台页面 `/ui/weixin`（状态 / 重新扫码 / 白名单），等价于上面三条命令。
+采集完成后会**主动回推**处理结果（摘要+分类+标签+原文链接）：`Pusher` 只推
+由微信入口发起的采集（登记表区分来源），后台/API 录入的文章不推。
+
+## Web 管理后台（11 个页面）
 
 
 | 页面 | 路径 | 核心内容 |
@@ -356,6 +390,7 @@ Go 层拦不住——必须靠「browserless 部署在访问不到敏感内网�
 | MCP 请求日志 | `/ui/mcp-logs` | 筛选、全文检索、trace_id 查询、一键重放 |
 | 系统配置 | `/ui/settings` | 模型参数、提示词、检索/采集参数 |
 | API Key 管理 | `/ui/settings/api-keys` | 创建/禁用/删除 |
+| 微信入口 | `/ui/weixin` | Bot 状态、重新扫码（手机打开链接即授权）、白名单、删除凭据 |
 
 **关键行为约定**：
 - 列表标题点击进「文章预览」（只读阅读形态），操作列「编辑」进编辑页
@@ -395,6 +430,7 @@ v1 单管理员，无角色区分。
 | `setting_history` | 配置变更记录 |
 | `api_keys` | API Key（哈希存储） |
 | `mcp_request_logs` | MCP 调用日志（含 trace_id、完整请求响应） |
+| `weixin_bot_accounts` | 微信 Bot 凭据 + 白名单 + 长轮询游标 |
 
 ## 提示词模板
 
@@ -459,6 +495,9 @@ POST /api/v1/search
 | browserless 端点 | 空 | L1 | `COLLECTOR_BROWSER_ENDPOINT`，空则渲染关闭；部署见 `deploy/browserless/` |
 | browserless 令牌 | 空 | L1 | `COLLECTOR_BROWSER_TOKEN`（x-access-token） |
 | 单页渲染超时 | 30s | L1 | `COLLECTOR_BROWSER_TIMEOUT`，子超时按此缩放；服务 WriteTimeout 取此值+20s |
+| 微信 Bot 开关 | false | L1 | `WEIXIN_BOT_ENABLED`，开启后 `serve` 启动长轮询；关闭不影响主链路 |
+| 微信 Bot 白名单 | 空=仅扫码者 | L1 | `WEIXIN_BOT_ALLOW_FROM` 非空时覆盖库中 `allow_from` |
+| 微信 Bot 服务端 | 官方域名 | L1 | `WEIXIN_BOT_BASE_URL`，空则 `ilinkai.weixin.qq.com` |
 | COS 截图归档 | 全空=关闭 | L1 | `COS_SECRET_ID/KEY`、`COS_BUCKET`、`COS_REGION`、`COS_ENDPOINT`、`COS_PATH_PREFIX` |
 | 向量维度 | 1024 | 固定 | bge-large-zh-v1.5，与表结构绑定，不可配置 |
 | HNSW m | 16 | 建表参数 | 每层连接数 |
@@ -487,7 +526,7 @@ POST /api/v1/search
 - RESTful API + API Key 鉴权
 - MCP 四个工具（3 只读 + 1 写入，按 scope 过滤）
 - MCP 请求日志（检索 + 回放）
-- Web 管理后台（10 个页面，含文章预览、MCP 调试与检索测试）
+- Web 管理后台（11 个页面，含文章预览、MCP 调试与微信入口）
 - 业务参数与提示词后台可配置（热生效）
 - 基础安全措施（防 SSRF、防 XSS）
 
@@ -516,6 +555,7 @@ POST /api/v1/search
 009_operator_columns_to_text.sql # api_keys.created_by / setting_history.changed_by / articles.deleted_by UUID → TEXT
 010_config_hierarchy_cleanup.sql  # 配置分层清理（L1/L2 归位）
 011_article_screenshot.sql       # articles 补 screenshot_url（URL 采集截图归档）
+012_weixin_bot.sql               # 微信 Bot 凭据/白名单/长轮询游标
 ```
 
 > 003/004 降级为空操作而非原地改写：已有开发库中它们已记录为"已应用"，
@@ -755,7 +795,8 @@ aiknow/
 │   ├── readability/        # Readability 正文提取（Mozilla 移植，输出 Markdown）
 │   ├── webfetch/           # browserless 渲染客户端（HTML + 全页截图）
 │   ├── cos/                # 腾讯云 COS 上传（截图归档）
-│   └── pgqueue/            # 任务队列（表 + FOR UPDATE SKIP LOCKED，含租约/重试/死信）
+│   ├── pgqueue/            # 任务队列（表 + FOR UPDATE SKIP LOCKED，含租约/重试/死信）
+│   └── ilink/              # 微信 iLink Bot 协议客户端（扫码/长轮询/发消息）
 ├── deploy/browserless/     # browserless 独立部署（compose + README）
 ├── web/js/pages/           # 前端按页面拆分
 ├── migrations/             # 数据库迁移（顶层镜像；embed 实际读 internal/repository/migrations）
@@ -782,6 +823,7 @@ aiknow/
 - 对外 API：`docs/API.md`
 - 后台管理 API：`docs/API_ADMIN.md`
 - browserless 部署：`deploy/browserless/README.md`
+- 微信 Bot 入口：`docs/WEIXIN_BOT.md`
 - ParadeDB / pg_search：https://github.com/paradedb/paradedb
 - pgvector：https://github.com/pgvector/pgvector
 - MCP 规范：https://modelcontextprotocol.io/specification/2025-06-18

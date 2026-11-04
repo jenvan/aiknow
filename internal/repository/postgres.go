@@ -26,6 +26,7 @@ type PostgresDB struct {
 	SettingRepo  SettingRepository
 	APIKeyRepo   APIKeyRepository
 	MCPLogRepo   MCPLogRepository
+	WeixinRepo   WeixinBotRepository
 }
 
 // NewPostgresDB 创建数据库连接
@@ -78,6 +79,7 @@ func (db *PostgresDB) initRepos() {
 	db.SettingRepo = NewSettingRepository(db)
 	db.APIKeyRepo = NewAPIKeyRepository(db)
 	db.MCPLogRepo = NewMCPLogRepository(db)
+	db.WeixinRepo = NewWeixinBotRepository(db)
 }
 
 // GetPool 返回连接池（用于迁移执行器）
@@ -144,6 +146,9 @@ func (db *PostgresDB) GetSettingRepo() SettingRepository { return db.SettingRepo
 
 // GetAPIKeyRepo 获取 API Key 仓库
 func (db *PostgresDB) GetAPIKeyRepo() APIKeyRepository { return db.APIKeyRepo }
+
+// GetWeixinRepo 获取微信 Bot 账号仓库
+func (db *PostgresDB) GetWeixinRepo() WeixinBotRepository { return db.WeixinRepo }
 
 // GetMCPLogRepo 获取 MCP 日志仓库
 func (db *PostgresDB) GetMCPLogRepo() MCPLogRepository { return db.MCPLogRepo }

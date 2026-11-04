@@ -1,5 +1,46 @@
 # AiKnow 变更日志
 
+## [Unreleased] - 2026-11-04
+
+### feat: 微信 Bot 入口（iLink / ClawBot）
+
+微信里发链接即采集、发关键词即检索。走腾讯 2026 年开放的个人号官方 Bot 接口
+（iLink，`ilinkai.weixin.qq.com`），非逆向协议，无需 OpenClaw 账号——实测
+`get_bot_qrcode` 无鉴权即可取码。
+
+- 新增 `pkg/ilink`：扫码登录、长轮询收消息、发送文本。投递语义为
+  **先处理消息、再推进游标**（at-least-once），会话过期 `-14` 返回哨兵错误。
+- 新增 `internal/channel/weixin`：白名单 → `message_id` 去重 → 意图路由
+  （URL 采集 / 关键词检索 / 长问句降级语义检索 / `/help` `/status`）→ 回包。
+  意图语义对齐 MCP 三个工具，不重复实现检索与采集。
+- 新增 `aiknow-server weixin login|status|logout`：终端打印二维码链接，
+  扫码后凭据直接落库（`weixin_bot_accounts`），不进 `.env`。
+- 新增迁移 `012_weixin_bot.sql`（凭据、白名单、`get_updates_buf` 游标、
+  `context_token`）。**游标落库是本设计与三个参考实现的关键差异**：它们都放在
+  内存变量，重启即归零，会重收旧消息、重复入库、重复回复。
+- 新增 L1 配置：`WEIXIN_BOT_ENABLED`（默认 false）、`WEIXIN_BOT_ALLOW_FROM`、
+  `WEIXIN_BOT_BASE_URL`。默认白名单 = 仅扫码者本人（一条消息可能触发无头浏览器
+  渲染 + LLM，代价远高于普通 API）。
+- 已知限制：微信「转发给朋友」列表里没有 ClawBot 会话，公众号文章只能
+  「复制链接 → 粘贴发送」；**群聊不可用**（微信不允许把 ClawBot 拉进群，协议里的
+  `group_id` 只是预留字段），媒体解析不在 v1 范围。
+
+#### 处理完成主动推送
+
+采集入库后由 worker 在处理完成时回推一条「摘要 + 分类 + 标签 + 原文链接」。
+只推**微信入口发起**的采集：`Pusher` 用登记表（articleID → 对话上下文）区分来源，
+后台/API 录入的文章不会被推到微信；登记 30 分钟未兑现即丢弃。
+
+#### 后台「微信入口」页（第 11 个页面）
+
+`/ui/weixin`：Bot 状态（bot_id / 扫码者 / 游标 / 最近活跃）、重新扫码、白名单编辑、
+删除凭据。扫码不渲染二维码图片——点「重新扫码」拿到的是一条
+`liteapp.weixin.qq.com` 链接，手机微信打开即授权，故零构建前端不必引入 qrcode 库。
+配套接口：`GET /weixin/status`、`POST /weixin/login/start`、`GET /weixin/login/poll`、
+`PUT /weixin/allow-from`、`POST /weixin/logout`（见 `docs/API_ADMIN.md`）。
+
+详见 [docs/WEIXIN_BOT.md](WEIXIN_BOT.md)。
+
 ## [Unreleased] - 2026-09-12
 
 ### docs: 同步 v0.7.0 渲染/截图归档相关文档

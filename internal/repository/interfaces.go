@@ -90,3 +90,13 @@ type SearchRepository interface {
 	GetCategories(ctx context.Context) ([]model.Category, error)
 	GetTags(ctx context.Context) ([]model.Tag, error)
 }
+
+// WeixinBotRepository 微信 iLink Bot 账号仓库
+type WeixinBotRepository interface {
+	// Get 取当前 bot 账号；无记录返回 (nil, nil)（尚未扫码是正常状态）
+	Get(ctx context.Context) (*model.WeixinBotAccount, error)
+	SaveLogin(ctx context.Context, account *model.WeixinBotAccount) error
+	UpdateProgress(ctx context.Context, botID, cursor, contextToken string) error
+	UpdateAllowFrom(ctx context.Context, botID, allowFrom string) error
+	Delete(ctx context.Context, botID string) error
+}

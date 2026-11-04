@@ -1180,6 +1180,78 @@
                         </div>
                     </div>
                 </template>
+
+                <!-- ============ 微信入口 ============ -->
+                <template x-if="currentPage === 'weixin'">
+                    <div x-data="weixinPage" class="p-6">
+                        <div x-show="error" class="mb-4 p-3 bg-red-50 border border-red-200 rounded text-sm text-red-700" x-text="error"></div>
+                        <div x-show="notice" class="mb-4 p-3 bg-green-50 border border-green-200 rounded text-sm text-green-700" x-text="notice"></div>
+
+                        <div class="bg-white rounded-lg shadow p-4 mb-4">
+                            <div class="flex items-center justify-between mb-3">
+                                <h3 class="font-semibold text-gray-800">Bot 状态</h3>
+                                <span class="px-2 py-0.5 rounded text-xs"
+                                      :class="status && status.enabled ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'"
+                                      x-text="status && status.enabled ? '通道已启用' : '通道已关闭（设 WEIXIN_BOT_ENABLED=true 后重启）'"></span>
+                            </div>
+
+                            <div x-show="loading" class="text-gray-500 text-sm">加载中…</div>
+                            <template x-if="!loading && status">
+                                <dl class="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                                    <div>
+                                        <dt class="text-xs text-gray-500">Bot ID</dt>
+                                        <dd class="font-mono break-all" x-text="status.bot_id || '未登录'"></dd>
+                                    </div>
+                                    <div>
+                                        <dt class="text-xs text-gray-500">扫码者</dt>
+                                        <dd class="font-mono break-all" x-text="status.owner_user_id || '-'"></dd>
+                                    </div>
+                                    <div>
+                                        <dt class="text-xs text-gray-500">消费游标</dt>
+                                        <dd x-text="status.cursor_saved ? '已保存（重启后接着拉取）' : '空（重启会从头拉取）'"></dd>
+                                    </div>
+                                    <div>
+                                        <dt class="text-xs text-gray-500">最近活跃</dt>
+                                        <dd x-text="status.last_seen_at ? fmt(status.last_seen_at) : '-'"></dd>
+                                    </div>
+                                </dl>
+                            </template>
+
+                            <div class="mt-4 flex flex-wrap gap-2">
+                                <button @click="startLogin()" class="bg-blue-600 text-white px-4 py-2 rounded text-sm">重新扫码登录</button>
+                                <button @click="logout()" class="border border-red-300 text-red-600 px-4 py-2 rounded text-sm">删除凭据</button>
+                            </div>
+
+                            <template x-if="loginUrl">
+                                <div class="mt-4 p-3 bg-amber-50 border border-amber-200 rounded">
+                                    <p class="text-xs text-amber-900 mb-2">用<b>手机微信</b>打开下面的链接授权（约 4 分钟内有效）：</p>
+                                    <div class="flex gap-2">
+                                        <input readonly :value="loginUrl" class="flex-1 border rounded px-3 py-2 text-xs font-mono bg-white">
+                                        <button @click="copyUrl()" class="bg-amber-600 text-white px-3 py-2 rounded text-xs"
+                                                x-text="copied ? '已复制' : '复制'"></button>
+                                    </div>
+                                    <p class="text-xs text-amber-800 mt-2" x-text="statusLabel(loginStatus)"></p>
+                                </div>
+                            </template>
+                        </div>
+
+                        <div class="bg-white rounded-lg shadow p-4">
+                            <h3 class="font-semibold text-gray-800 mb-1">白名单</h3>
+                            <p class="text-xs text-gray-500 mb-2">
+                                逗号分隔的微信用户 ID（形如 <span class="font-mono">xxx@im.wechat</span>）。留空 = 只放行扫码者本人。
+                                一条消息可能触发无头浏览器渲染 + LLM，别放给不信任的人。
+                            </p>
+                            <textarea x-model="allowFromDraft" rows="3"
+                                      class="w-full border rounded px-3 py-2 text-sm font-mono"
+                                      placeholder="user1@im.wechat,user2@im.wechat"></textarea>
+                            <div class="mt-3">
+                                <button @click="saveAllowFrom()" :disabled="saving"
+                                        class="bg-gray-800 text-white px-4 py-2 rounded text-sm disabled:opacity-50"
+                                        x-text="saving ? '保存中…' : '保存白名单'"></button>
+                            </div>
+                        </div>
+                    </div>
+                </template>
                 </main>
                 <!-- /主区列（header + main） -->
             </div>

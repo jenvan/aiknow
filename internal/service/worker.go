@@ -39,6 +39,15 @@ type Worker struct {
 	cancel   context.CancelFunc
 	wg       sync.WaitGroup
 	running  bool
+
+	// onProcessed 在文章处理完成后回调（用于微信入口的处理完成推送等）。
+	// 可为 nil；回调失败只记日志，不影响任务归档。
+	onProcessed func(ctx context.Context, articleID string)
+}
+
+// SetOnProcessed 注册「处理完成」回调。
+func (w *Worker) SetOnProcessed(fn func(ctx context.Context, articleID string)) {
+	w.onProcessed = fn
 }
 
 // NewWorker 创建 Worker
@@ -171,11 +180,30 @@ func (w *Worker) consume(workerID int) {
 			continue
 		}
 
-		// 成功，归档消息
+		// 成功：先通知（如微信回推），再归档
+		w.notifyProcessed(message)
+
 		if archErr := w.queue.Archive(w.ctx, msg.MsgID); archErr != nil {
 			fmt.Printf("worker %d: 归档消息 %d 失败: %v\n", workerID, msg.MsgID, archErr)
 		}
 	}
+}
+
+// notifyProcessed 在处理成功后回调外部观察者。
+//
+// 用独立 context：w.ctx 可能已在停止流程中取消，而这条通知恰恰是
+// 「告诉用户处理完了」的唯一时机。
+func (w *Worker) notifyProcessed(message map[string]interface{}) {
+	if w.onProcessed == nil {
+		return
+	}
+	articleID, _ := message["article_id"].(string)
+	if articleID == "" {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	w.onProcessed(ctx, articleID)
 }
 
 // processMessage 处理单条消息。

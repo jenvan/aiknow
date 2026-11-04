@@ -3,8 +3,10 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -16,6 +18,8 @@ import (
 
 	"github.com/jenvan/aiknow/cmd/aiknow-server/apikey"
 	"github.com/jenvan/aiknow/cmd/aiknow-server/hashpwd"
+	weixincmd "github.com/jenvan/aiknow/cmd/aiknow-server/weixin"
+	channelweixin "github.com/jenvan/aiknow/internal/channel/weixin"
 	"github.com/jenvan/aiknow/internal/config"
 	"github.com/jenvan/aiknow/internal/handler/admin"
 	"github.com/jenvan/aiknow/internal/handler/api"
@@ -69,6 +73,12 @@ func main() {
 		return
 	}
 
+	// weixin 子命令（扫码登录 / 状态 / 登出）
+	if len(os.Args) > 1 && os.Args[1] == "weixin" {
+		weixincmd.Main(os.Args[2:])
+		return
+	}
+
 	// serve 子命令
 	if len(os.Args) > 1 && os.Args[1] == "serve" {
 		serve()
@@ -93,6 +103,7 @@ func printHelp() {
   hashpwd [密码]    生成 bcrypt 密码哈希
   migrate           执行数据库迁移后退出（用于开发期初始化/重建）
   apikey            管理对外 API / MCP 所用的 API Key（create / list / revoke）
+  weixin            微信 iLink Bot（login / status / logout）
   serve             启动 HTTP 服务（启动时会自动执行迁移）
 
 示例:
@@ -100,6 +111,7 @@ func printHelp() {
   aiknow-server version
   aiknow-server hashpwd mysecretpassword
   aiknow-server migrate
+  aiknow-server weixin login
   aiknow-server serve
 `, version)
 }
@@ -442,6 +454,17 @@ func serve() {
 		adminGroup.POST("/search/debug", searchDebugHandler.Debug)
 		adminGroup.POST("/search/debug/keywords", searchDebugHandler.DebugKeywords)
 
+		weixinHandler := admin.NewWeixinHandler(
+			db.GetWeixinRepo(),
+			cfg.GetBool("WEIXIN_BOT_ENABLED", false),
+			cfg.GetOr("WEIXIN_BOT_BASE_URL", ""),
+		)
+		adminGroup.GET("/weixin/status", weixinHandler.GetStatus)
+		adminGroup.POST("/weixin/login/start", weixinHandler.StartLogin)
+		adminGroup.GET("/weixin/login/poll", weixinHandler.PollLogin)
+		adminGroup.PUT("/weixin/allow-from", weixinHandler.SetAllowFrom)
+		adminGroup.POST("/weixin/logout", weixinHandler.Logout)
+
 		mcpDebugHandler := admin.NewMCPDebugHandler(mcpService)
 		adminGroup.POST("/mcp/debug", mcpDebugHandler.Invoke)
 
@@ -521,6 +544,43 @@ func serve() {
 		}
 	}()
 	defer worker.Stop()
+
+	// ---- 微信 iLink Bot（可选通道：单聊 + 采集 + 检索）----
+	//
+	// 与主服务同进程：直接调 service 层（不需要给 bot 发 API Key，也不走 HTTP 回环）。
+	// 开关关闭或未扫码时完全不启动；bot 出错只影响自身，不阻塞 HTTP 主链路。
+	if cfg.GetBool("WEIXIN_BOT_ENABLED", false) {
+		botCtx, botCancel := context.WithCancel(context.Background())
+		defer botCancel()
+
+		articleAdapter := channelweixin.ArticleAdapter{Svc: articleService}
+		botRouter := channelweixin.NewRouter(
+			articleAdapter,
+			keywordService,
+			searchService,
+			channelweixin.CollectorAdapter{Svc: collector},
+			slog.Default(),
+		)
+		// 处理完成回推：只推「由微信入口发起」的采集，靠 Pusher 的登记表区分，
+		// 后台/API 录入的文章不会被推到微信。
+		pusher := channelweixin.NewPusher(articleAdapter, slog.Default())
+		worker.SetOnProcessed(pusher.Deliver)
+
+		bot := channelweixin.NewBot(db.GetWeixinRepo(), botRouter, slog.Default(),
+			channelweixin.WithAllowFrom(cfg.GetOr("WEIXIN_BOT_ALLOW_FROM", "")),
+			channelweixin.WithPusher(pusher))
+		go func() {
+			err := bot.Run(botCtx)
+			switch {
+			case err == nil:
+			case errors.Is(err, context.Canceled):
+				// 正常关闭
+			default:
+				fmt.Printf("微信 bot 已停止: %v\n", err)
+			}
+		}()
+		fmt.Println("微信 Bot 已启用")
+	}
 
 	// 启动 HTTP 服务器
 	port, _ := cfg.Get("PORT")

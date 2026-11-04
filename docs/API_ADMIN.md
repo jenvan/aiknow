@@ -707,6 +707,44 @@ Content-Type: application/json
 
 ---
 
+### 微信入口
+
+管理微信 iLink Bot：状态、扫码登录、白名单、删除凭据。设计与排障见
+[docs/WEIXIN_BOT.md](WEIXIN_BOT.md)。
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/v1/admin/weixin/status` | Bot 状态 |
+| POST | `/api/v1/admin/weixin/login/start` | 生成扫码链接 |
+| GET | `/api/v1/admin/weixin/login/poll` | 轮询扫码结果 |
+| PUT | `/api/v1/admin/weixin/allow-from` | 更新白名单 |
+| POST | `/api/v1/admin/weixin/logout` | 删除本地凭据 |
+
+`GET /weixin/status` 响应（`logged_in=false` 时不含 bot 字段）：
+
+```json
+{
+  "enabled": true,
+  "logged_in": true,
+  "bot_id": "xxx@im.bot",
+  "owner_user_id": "xxx@im.wechat",
+  "allow_from": "",
+  "cursor_saved": true,
+  "last_seen_at": "2026-11-04T15:52:03+08:00",
+  "updated_at": "2026-11-04T15:52:03+08:00"
+}
+```
+
+`POST /weixin/login/start` → `{"url":"https://liteapp.weixin.qq.com/q/xxx","reused":false}`。
+**不返回二维码图片**：`url` 用手机微信打开即等于扫码。4 分钟内重复调用复用同一二维码
+（`reused=true`），避免连点让先前那个失效。
+
+`GET /weixin/login/poll` → `{"status":"wait|scaned|confirmed|expired|none"}`，
+`confirmed` 时额外返回 `bot_id`，此时凭据已落库，并在重启 `serve` 后生效。
+
+`PUT /weixin/allow-from` 请求 `{"allow_from":"a@im.wechat,b@im.wechat"}`，
+服务端去空白去重后返回规整结果。**空串表示只放行扫码者本人**。
+
 ## 快速上手
 
 ```bash

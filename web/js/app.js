@@ -17,6 +17,7 @@ import { registerSettings } from './pages/settings.js';
 import { registerApiKeys } from './pages/api-keys.js';
 import { registerMcpDebug } from './pages/mcp-debug.js';
 import { registerMcpLogs } from './pages/mcp-logs.js';
+import { registerWeixin } from './pages/weixin.js';
 
 // 路由表：先匹配者优先，故 /articles/new 必须排在 /articles/:id 之前，
 // /articles/:id/preview 必须排在 /articles/:id 之前（否则 preview 会当成 id）。
@@ -32,6 +33,7 @@ const ROUTES = [
     { re: /^\/ui\/settings\/?$/,          page: 'settings' },
     { re: /^\/ui\/mcp-debug\/?$/,         page: 'mcp-debug' },
     { re: /^\/ui\/mcp-logs\/?$/,          page: 'mcp-logs' },
+    { re: /^\/ui\/weixin\/?$/,            page: 'weixin' },
 ];
 
 // 导航图标：inline-SVG 内层路径（heroicons outline 风格）。
@@ -45,6 +47,7 @@ const ICONS = {
     'mcp-logs': '<path d="M7 3h7l4 4v14H7z"/><path d="M14 3v4h4M10 12h5M10 16h5"/>',
     settings:  '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9 7 7M17 17l2.1 2.1M19.1 4.9 17 7M7 17l-2.1 2.1"/>',
     'api-keys':'<circle cx="7.5" cy="7.5" r="3.5"/><path d="m10.2 10.2 8.8 8.8M15 15l2.2-2.2M17.5 17.5l2-2"/>',
+    weixin:   '<path d="M4 5.5h16v10H9.5L5 19.5z"/><path d="M9 10.5h.01M12.5 10.5h.01M16 10.5h.01"/>',
 };
 
 // 导航按功能域分组（展示顺序即渲染顺序）。URL/路由不变，只改侧栏展示。
@@ -64,6 +67,7 @@ const NAV_GROUPS = [
     { name: '系统', items: [
         { page: 'api-keys',  href: '/ui/settings/api-keys', label: '密钥管理', icon: ICONS['api-keys'] },
         { page: 'settings',  href: '/ui/settings',        label: '系统配置', icon: ICONS.settings },
+        { page: 'weixin',    href: '/ui/weixin',          label: '微信入口', icon: ICONS.weixin },
     ]},
 ];
 
@@ -98,6 +102,7 @@ document.addEventListener('alpine:init', () => {
     registerApiKeys(Alpine);
     registerMcpDebug(Alpine);
     registerMcpLogs(Alpine);
+    registerWeixin(Alpine);
 
     // 路由参数（如文章 ID）经全局 store 传给页面组件，
     // 避免把参数解析逻辑复制到每个页面
