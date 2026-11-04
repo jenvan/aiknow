@@ -122,6 +122,19 @@ func TestCreateFromURLDuplicate(t *testing.T) {
 	}
 }
 
+func TestCreateFromURLDuplicateSkipsCollection(t *testing.T) {
+	coll := &fakeURLCollector{result: &CollectorResult{Title: "t", Content: "c"}}
+	s := newServiceForURL(&fakeArticleRepo{byURL: &model.Article{ID: "existing"}}, coll)
+
+	_, err := s.CreateFromURL(context.Background(), "https://example.com/a")
+	if !errors.Is(err, ErrDuplicateArticle) {
+		t.Fatalf("err = %v, want ErrDuplicateArticle", err)
+	}
+	if coll.called {
+		t.Error("重复链接不应触发采集（渲染很贵）")
+	}
+}
+
 func TestCreateFromURLWithoutCollector(t *testing.T) {
 	s := newServiceForURL(&fakeArticleRepo{}, nil)
 	_, err := s.CreateFromURL(context.Background(), "https://example.com/a")

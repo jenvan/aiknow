@@ -96,6 +96,13 @@ func (s *articleServiceImpl) CreateFromURL(ctx context.Context, rawURL string) (
 		return nil, ErrEmptyURL
 	}
 
+	// 先按 URL 查重：重复的文章没必要跑一次采集（渲染开启时单篇 10-30s）。
+	// 扩展的「历史回填」会重复提交同一批链接，若放在采集之后再判重，
+	// 8 条历史就是 4 分钟的无效渲染。
+	if existing, err := s.articleRepo.FindByURL(ctx, target); err == nil && existing != nil {
+		return nil, fmt.Errorf("%w: same URL, existing article %s", ErrDuplicateArticle, existing.ID)
+	}
+
 	res, err := s.collector.Fetch(ctx, target)
 	if err != nil {
 		return nil, fmt.Errorf("collect %s: %w", target, err)
