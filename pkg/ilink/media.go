@@ -126,10 +126,11 @@ func (c *Client) SendImage(ctx context.Context, toUserID, contextToken string, d
 						"media": map[string]any{
 							"encrypt_query_param": mediaParam,
 							"aes_key":             keyB64,
-							"encrypt_type":        0,
-							"full_url":            urlResp.UploadFullURL,
+							// 参考实现用 1（打包了缩略图/中图信息）；用 0 时微信不渲染
+							"encrypt_type": 1,
 						},
-						"mid_size": len(data),
+						// mid_size 是**密文**长度（不是原图长度）
+						"mid_size": len(encrypted),
 					},
 				},
 			},

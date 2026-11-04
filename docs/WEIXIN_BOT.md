@@ -112,6 +112,18 @@ L1 配置（`.env`）：
 后台页面：`/ui/weixin`（状态 / 重新扫码 / 白名单 / 删除凭据）。扫码只需把页面给出的
 `liteapp.weixin.qq.com` 链接用手机微信打开——所以不渲染二维码图片，前端零依赖。
 
+### 运维小工具
+
+```bash
+aiknow-server weixin send-text "文本"      # 往最近一次会话发一条文本（排查触达用）
+aiknow-server weixin send-image ./pic.png  # 发一张图片
+```
+
+图片走 CDN + AES-128-ECB 加密上传（`pkg/ilink/SendImage`）。注意两个编码别搞混：
+`getuploadurl` 的 `aeskey` 是 **hex(32)**，`image_item.media.aes_key` 是 **base64(hex)**；
+用反了 CDN 返回 500 且不带错误信息。实测微信**不提供**对收到的图片「长按识别二维码」
+（只有摄像头扫码），所以别指望用这条链路完成扫码登录。
+
 CLI（与页面等价）：
 
 ```bash

@@ -37,6 +37,8 @@ func Main(args []string) {
 		logout(args[1:])
 	case "send-image":
 		sendImage(args[1:])
+	case "send-text":
+		sendText(args[1:])
 	default:
 		fmt.Printf("未知的 weixin 子命令: %s\n\n", args[0])
 		printUsage()
@@ -50,6 +52,7 @@ func printUsage() {
   aiknow-server weixin status
   aiknow-server weixin logout [--yes]
   aiknow-server weixin send-image <图片路径>
+  aiknow-server weixin send-text <文本>
 
 说明:
   login    扫码登录微信 iLink Bot（等价于把「微信 ClawBot」插件授权给 AiKnow）
@@ -234,6 +237,39 @@ func logout(args []string) {
 		os.Exit(1)
 	}
 	fmt.Println("已删除本地凭据。")
+}
+
+// sendText 往最近一次会话发一条文本（排查/触达用）。
+func sendText(args []string) {
+	fs := flag.NewFlagSet("weixin send-text", flag.ExitOnError)
+	_ = fs.Parse(args)
+	if fs.NArg() < 1 {
+		fmt.Println("用法: aiknow-server weixin send-text <文本>")
+		os.Exit(1)
+	}
+	text := fs.Arg(0)
+
+	ctx := context.Background()
+	db, _, closeDB, err := openDB(ctx)
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+	defer closeDB()
+
+	acc, err := db.GetWeixinRepo().Get(ctx)
+	if err != nil || acc == nil || acc.LastContextToken == "" {
+		fmt.Println("缺少 bot 凭据或 context_token：先确保 bot 已登录且最近收到过消息")
+		os.Exit(1)
+	}
+	client := ilink.NewClient(ilink.Token{
+		BotToken: acc.BotToken, BotID: acc.BotID, UserID: acc.OwnerUserID, BaseURL: acc.BaseURL,
+	})
+	if err := client.SendText(ctx, acc.OwnerUserID, acc.LastContextToken, text); err != nil {
+		fmt.Printf("发送失败: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Println("文本已发送")
 }
 
 // sendImage 往最近一次会话发一张图片。
