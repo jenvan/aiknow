@@ -30,6 +30,18 @@ AiKnow 只有一个采集实现（`service.Collector`）和一个入库入口
 带真实 `href` 和标题，所以扩展能抽链接入库。安装与限制见
 [extensions/aiknow-clipper/README.md](../extensions/aiknow-clipper/README.md)。
 
+### 实现时踩到的四个坑（真机验证）
+
+| 坑 | 说明 |
+|---|---|
+| **登录后换域名** | `filehelper.weixin.qq.com` → **`szfilehelper.weixin.qq.com`**；扩展只匹配前者会静默失效 |
+| **刷新即空列表** | 刷新后只剩引导文案；但**下一条新消息到达时历史整批回填**（实测 0 → 8 条，含刷新前发的）。所以「打开页面补录」是主路径 |
+| **节点整批重建** | 不是逐条 append。必须全量扫描 + 已见去重，只监听新增节点会漏 |
+| **`skey` 在图片 URL 里** | 头像/封面 `img src` 带网页会话凭据，只发 `href` |
+
+页面本身是网页版微信协议的裁剪版（`webwxinit` / `webwxsync` / `synccheck`），
+随时可能被腾讯关停——所以它只能当辅助通道，不能当唯一入口。
+
 ## iOS 快捷指令（手机端最省事）
 
 手机主场景、又不想依赖电脑时，用「读剪贴板 → POST」的快捷指令：

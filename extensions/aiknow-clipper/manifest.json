@@ -3,8 +3,17 @@
   "name": "AiKnow 剪藏",
   "version": "0.1.0",
   "description": "把公众号文章（文件传输助手网页版）或任意网页一键存入 AiKnow 知识库",
-  "permissions": ["storage", "contextMenus", "activeTab"],
-  "host_permissions": ["https://filehelper.weixin.qq.com/*", "http://*/*", "https://*/*"],
+  "permissions": [
+    "storage",
+    "contextMenus",
+    "activeTab"
+  ],
+  "host_permissions": [
+    "*://filehelper.weixin.qq.com/*",
+    "*://szfilehelper.weixin.qq.com/*",
+    "http://*/*",
+    "https://*/*"
+  ],
   "background": {
     "service_worker": "background.js"
   },
@@ -14,8 +23,13 @@
   "options_page": "options.html",
   "content_scripts": [
     {
-      "matches": ["https://filehelper.weixin.qq.com/*"],
-      "js": ["content-filehelper.js"],
+      "matches": [
+        "*://filehelper.weixin.qq.com/*",
+        "*://szfilehelper.weixin.qq.com/*"
+      ],
+      "js": [
+        "content-filehelper.js"
+      ],
       "run_at": "document_idle"
     }
   ]
