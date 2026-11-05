@@ -414,7 +414,7 @@ aiknow-server wechatweb status
 aiknow-server wechatweb logout
 ```
 
-## Web 管理后台（11 个页面）
+## Web 管理后台（12 个页面）
 
 
 | 页面 | 路径 | 核心内容 |
@@ -430,7 +430,7 @@ aiknow-server wechatweb logout
 | MCP 请求日志 | `/ui/mcp-logs` | 筛选、全文检索、trace_id 查询、一键重放 |
 | 系统配置 | `/ui/settings` | 模型参数、提示词、检索/采集参数 |
 | API Key 管理 | `/ui/settings/api-keys` | 创建/禁用/删除 |
-| 微信入口 | `/ui/weixin` | Bot 状态、重新扫码（显示二维码）、删除凭据；**文件传输助手通道**（二维码扫码/状态/启动·暂停/登出） |
+| 微信入口 | `/ui/weixin` | **微信 Bot 通道**（状态 / 重新扫码·显示二维码 / 删除凭据）+ **文件传输助手通道**（二维码扫码 / 状态 / 启动·暂停 / 登出） |
 
 **关键行为约定**：
 - 列表标题点击进「文章预览」（只读阅读形态），操作列「编辑」进编辑页
@@ -568,7 +568,7 @@ POST /api/v1/search
 - RESTful API + API Key 鉴权
 - MCP 四个工具（3 只读 + 1 写入，按 scope 过滤）
 - MCP 请求日志（检索 + 回放）
-- Web 管理后台（11 个页面，含文章预览、MCP 调试与微信入口）
+- Web 管理后台（12 个页面，含文章预览、MCP 调试与微信入口）
 - 业务参数与提示词后台可配置（热生效）
 - 基础安全措施（防 SSRF、防 XSS）
 

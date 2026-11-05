@@ -9,6 +9,8 @@
 - **扫码页直接显示二维码**（两条通道都一样）：iLink 给的是 web 链接，用
   `skip2/go-qrcode` 在服务端编码成 data URI；文件传输助手直接用微信官方二维码图
   （`login.weixin.qq.com/qrcode/<uuid>`），链接仍保留可复制。
+- 文案统一：`/ui/weixin` 两个区块都按「…通道」命名（微信 Bot 通道 / 文件传输助手通道），
+  状态用右上角徽标表达，不再「一个叫状态、一个叫通道」。
 - 新增「最近一次长轮询」：`last_sync_at` 只在有新消息时更新，空闲时看着像卡住，
   故单独记录 synccheck 心跳（`Manager.LastPollAt`）。扫码成功后由 `Manager.Start` **当场拉起接收器**，
   不需要重启 `serve`（`WECHATWEB_ENABLED` 只决定启动时是否自动拉起）。
