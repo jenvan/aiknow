@@ -1224,7 +1224,12 @@
 
                             <template x-if="loginUrl">
                                 <div class="mt-4 p-3 bg-amber-50 border border-amber-200 rounded">
-                                    <p class="text-xs text-amber-900 mb-2">用<b>手机微信</b>打开下面的链接授权（约 4 分钟内有效）：</p>
+                                    <p class="text-xs text-amber-900 mb-2">用<b>手机微信</b>扫码，或打开下面的链接（约 4 分钟内有效）：</p>
+                                    <template x-if="loginQr">
+                                        <div class="flex justify-center mb-3">
+                                            <img :src="loginQr" alt="登录二维码" class="w-44 h-44 bg-white p-2 rounded border">
+                                        </div>
+                                    </template>
                                     <div class="flex gap-2">
                                         <input readonly :value="loginUrl" class="flex-1 border rounded px-3 py-2 text-xs font-mono bg-white">
                                         <button @click="copyUrl()" class="bg-amber-600 text-white px-3 py-2 rounded text-xs"
@@ -1259,8 +1264,12 @@
                                         <dd x-text="web.logged_in ? (web.sync_key_items + ' 项') : '-'"></dd>
                                     </div>
                                     <div>
-                                        <dt class="text-xs text-gray-500">最近同步</dt>
+                                        <dt class="text-xs text-gray-500">最近同步（有新消息时更新）</dt>
                                         <dd x-text="web.last_sync_at ? fmt(web.last_sync_at) : '-'"></dd>
+                                    </div>
+                                    <div>
+                                        <dt class="text-xs text-gray-500">最近一次长轮询</dt>
+                                        <dd x-text="web.last_poll_at ? fmt(web.last_poll_at) : '尚未轮询'"></dd>
                                     </div>
                                     <div>
                                         <dt class="text-xs text-gray-500">状态</dt>
@@ -1282,7 +1291,12 @@
 
                             <template x-if="webLoginUrl">
                                 <div class="mt-4 p-3 bg-amber-50 border border-amber-200 rounded">
-                                    <p class="text-xs text-amber-900 mb-2">用<b>手机微信</b>扫码（或直接打开链接）：</p>
+                                    <p class="text-xs text-amber-900 mb-2">用<b>手机微信</b>扫码，或直接打开链接：</p>
+                                    <template x-if="webLoginQr">
+                                        <div class="flex justify-center mb-3">
+                                            <img :src="webLoginQr" alt="文件传输助手登录二维码" class="w-44 h-44 bg-white p-2 rounded border">
+                                        </div>
+                                    </template>
                                     <div class="flex gap-2">
                                         <input readonly :value="webLoginUrl" class="flex-1 border rounded px-3 py-2 text-xs font-mono bg-white">
                                         <button @click="copyWebUrl()" class="bg-amber-600 text-white px-3 py-2 rounded text-xs"

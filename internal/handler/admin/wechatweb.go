@@ -52,6 +52,9 @@ func (h *WechatWebHandler) GetStatus(c *gin.Context) {
 		if e := h.mgr.LastError(); e != "" {
 			resp["last_error"] = e
 		}
+		if at := h.mgr.LastPollAt(); !at.IsZero() {
+			resp["last_poll_at"] = at
+		}
 	}
 	if sess != nil {
 		resp["user_name"] = sess.UserName
@@ -77,7 +80,7 @@ func (h *WechatWebHandler) StartLogin(c *gin.Context) {
 	if h.session != nil && time.Since(h.started) < loginTTL {
 		sess := h.session
 		h.mu.Unlock()
-		c.JSON(http.StatusOK, gin.H{"url": sess.QRURL, "reused": true})
+		c.JSON(http.StatusOK, loginResp(sess, true))
 		return
 	}
 	h.mu.Unlock()
@@ -93,7 +96,22 @@ func (h *WechatWebHandler) StartLogin(c *gin.Context) {
 	h.started = time.Now()
 	h.mu.Unlock()
 
-	c.JSON(http.StatusOK, gin.H{"url": sess.QRURL, "reused": false})
+	c.JSON(http.StatusOK, loginResp(sess, false))
+}
+
+// loginResp 统一返回「可扫内容 + 二维码图」。
+//
+// url 给的是 /l/<uuid>（微信里打开即授权）；qr 是把同一链接编码成的图，
+// 手机相机直接扫即可。页面里/login.weixin.qq.com/qrcode/<uuid> 那张图
+// 是"二维码的图片"，扫它只会打开一张图片，不能登录——这正是要区分的地方。
+func loginResp(sess *wechatweb.LoginSession, reused bool) gin.H {
+	// url = 可扫内容（微信内打开即授权）；img = 微信官方渲染的二维码图；
+	// qr = 我们自己按 url 编码的图（作为 img 加载失败时的兜底）
+	resp := gin.H{"url": sess.OpenURL, "img": sess.QRURL, "reused": reused}
+	if qr, err := qrDataURI(sess.OpenURL, 240); err == nil {
+		resp["qr"] = qr
+	}
+	return resp
 }
 
 // PollLogin 轮询扫码结果。confirmed 时落库并立即拉起接收器。

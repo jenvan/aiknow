@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"sync"
+	"time"
 
 	"github.com/jenvan/aiknow/internal/repository"
 	"github.com/jenvan/aiknow/pkg/securebox"
@@ -26,6 +27,7 @@ type Manager struct {
 	cancel  context.CancelFunc
 	running bool
 	lastErr error
+	runner  *Runner
 }
 
 // NewManager 创建管理器。
@@ -56,6 +58,9 @@ func (m *Manager) Start(ctx context.Context) error {
 
 	runner := NewRunner(m.repo, m.box, m.creator, m.logger)
 	runner.SetNotifier(m.notifier)
+	m.mu.Lock()
+	m.runner = runner
+	m.mu.Unlock()
 
 	go func() {
 		err := runner.Run(runCtx)
@@ -88,6 +93,17 @@ func (m *Manager) Running() bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.running
+}
+
+// LastPollAt 最近一次 synccheck 成功的时刻（未运行为零值）。
+func (m *Manager) LastPollAt() time.Time {
+	m.mu.Lock()
+	r := m.runner
+	m.mu.Unlock()
+	if r == nil {
+		return time.Time{}
+	}
+	return r.LastPollAt()
 }
 
 // LastError 最近一次停止的原因（正常停止为 nil）。

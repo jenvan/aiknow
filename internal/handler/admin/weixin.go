@@ -67,7 +67,7 @@ func (h *WeixinHandler) StartLogin(c *gin.Context) {
 	if h.session != nil && time.Since(h.started) < loginSessionTTL {
 		sess := h.session
 		h.mu.Unlock()
-		c.JSON(http.StatusOK, gin.H{"url": sess.URL, "reused": true})
+		c.JSON(http.StatusOK, ilinkLoginResp(sess.URL, true))
 		return
 	}
 	h.mu.Unlock()
@@ -84,7 +84,19 @@ func (h *WeixinHandler) StartLogin(c *gin.Context) {
 	h.started = time.Now()
 	h.mu.Unlock()
 
-	c.JSON(http.StatusOK, gin.H{"url": sess.URL, "reused": false})
+	c.JSON(http.StatusOK, ilinkLoginResp(sess.URL, false))
+}
+
+// loginResp 返回「链接 + 二维码图」。
+//
+// iLink 的 qrcode_img_content 是一个 liteapp 网页（不是图片），所以这里用
+// skip2/go-qrcode 把它编码成 data URI，前端直接 <img> 显示，手机扫码即可。
+func ilinkLoginResp(url string, reused bool) gin.H {
+	resp := gin.H{"url": url, "reused": reused}
+	if qr, err := qrDataURI(url, 240); err == nil {
+		resp["qr"] = qr
+	}
+	return resp
 }
 
 // PollLogin 轮询扫码结果。前端在拿到链接后按 2s 间隔调用，直到 confirmed/expired。

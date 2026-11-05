@@ -105,6 +105,8 @@ type Client struct {
 	apiBase string
 	// onKey 游标推进后回调，供上层持久化（丢了就要重新登录才能收新消息）
 	onKey func(SyncKey)
+	// onPoll 每次长轮询成功后回调（心跳，用于后台展示"还活着"）
+	onPoll func(time.Time)
 }
 
 // Option 定制 Client。
@@ -115,6 +117,9 @@ func WithHTTPClient(hc *http.Client) Option { return func(c *Client) { c.http = 
 
 // WithLogger 设置日志器。
 func WithLogger(l *slog.Logger) Option { return func(c *Client) { c.logger = l } }
+
+// SetPollObserver 注册长轮询心跳回调。
+func (c *Client) SetPollObserver(fn func(time.Time)) { c.onPoll = fn }
 
 // WithSyncKeySink 注册游标变更回调。
 func WithSyncKeySink(fn func(SyncKey)) Option { return func(c *Client) { c.onKey = fn } }
@@ -358,6 +363,9 @@ func (c *Client) Run(ctx context.Context, key SyncKey, h func(context.Context, *
 			continue
 		}
 		backoff = 5 * time.Second
+		if c.onPoll != nil {
+			c.onPoll(time.Now())
+		}
 
 		if sc.Selector == 0 {
 			continue // 没有新消息，立刻进入下一次长轮询

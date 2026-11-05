@@ -762,9 +762,18 @@ Content-Type: application/json
 
 ```json
 {"logged_in": true, "running": true, "user_name": "@cb22...",
- "sync_key_items": 13, "last_sync_at": "2026-11-05T22:45:13+08:00",
+ "sync_key_items": 13,
+ "last_sync_at": "2026-11-05T22:45:13+08:00",
+ "last_poll_at": "2026-11-05T23:00:41+08:00",
  "last_error": ""}
 ```
+
+`last_sync_at` 只在收到新消息时更新；`last_poll_at` 是 synccheck 心跳，
+用来判断"通道是不是还活着"。
+
+`POST /wechatweb/login/start` 返回 `{"url": "...", "img": "...", "qr": "data:image/png;base64,...", "reused": false}`：
+`url` 可扫内容（微信内打开即授权）、`img` 微信官方二维码图、`qr` 服务端兜底图。
+iLink 的 `/weixin/login/start` 只返回 `url` + `qr`（它给的是 web 链接，没有图）。
 
 `login/poll` 的 `status`：`wait` / `scaned` / `confirmed` / `none`。
 `confirmed` 时额外返回 `user_name` 与 `started`（接收器是否已启动）——**无需重启 serve**。

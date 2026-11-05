@@ -5,7 +5,12 @@
 ### feat(weixin): 文件传输助手扫码/状态并入后台「微信入口」，删除无效白名单
 
 - 后台 `/ui/weixin` 下半部分新增「文件传输助手通道」：状态（账号/游标项数/最近同步/
-  是否在跑/最近错误）、扫码登录、登出。扫码成功后由 `Manager.Start` **当场拉起接收器**，
+  最近一次长轮询/是否在跑/最近错误）、扫码登录、登出。
+- **扫码页直接显示二维码**（两条通道都一样）：iLink 给的是 web 链接，用
+  `skip2/go-qrcode` 在服务端编码成 data URI；文件传输助手直接用微信官方二维码图
+  （`login.weixin.qq.com/qrcode/<uuid>`），链接仍保留可复制。
+- 新增「最近一次长轮询」：`last_sync_at` 只在有新消息时更新，空闲时看着像卡住，
+  故单独记录 synccheck 心跳（`Manager.LastPollAt`）。扫码成功后由 `Manager.Start` **当场拉起接收器**，
   不需要重启 `serve`（`WECHATWEB_ENABLED` 只决定启动时是否自动拉起）。
 - 新增后台接口：`GET /wechatweb/status`、`POST /wechatweb/login/start`、
   `GET /wechatweb/login/poll`、`POST /wechatweb/start|stop|logout`

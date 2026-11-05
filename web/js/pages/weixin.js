@@ -52,6 +52,7 @@ export function registerWeixin(Alpine) {
             try {
                 const d = await api.post('/weixin/login/start', {});
                 this.loginUrl = d.url;
+                this.loginQr = d.qr || '';
                 this.loginStatus = 'wait';
                 this.pollLogin();
             } catch (e) {
@@ -67,6 +68,7 @@ export function registerWeixin(Alpine) {
                     this.loginStatus = d.status;
                     if (d.status === 'confirmed') {
                         this.loginUrl = '';
+                        this.loginQr = '';
                         this.loginStatus = '';
                         this.notice = `扫码成功，已保存 bot ${d.bot_id || ''}`;
                         await this.load();
@@ -74,6 +76,7 @@ export function registerWeixin(Alpine) {
                     }
                     if (d.status === 'expired' || d.status === 'none') {
                         this.loginUrl = '';
+                        this.loginQr = '';
                         this.loginStatus = '';
                         if (d.status === 'expired') this.error = '二维码已过期，请重新扫码';
                         return;
@@ -127,6 +130,8 @@ export function registerWeixin(Alpine) {
             try {
                 const d = await api.post('/wechatweb/login/start', {});
                 this.webLoginUrl = d.url;
+                // 官方图（login.weixin.qq.com/qrcode/...）优先：扫码内容由微信自己保证
+                this.webLoginQr = d.img || d.qr || '';
                 this.webLoginStatus = 'wait';
                 this.pollWebLogin();
             } catch (e) {
@@ -142,6 +147,7 @@ export function registerWeixin(Alpine) {
                     this.webLoginStatus = d.status;
                     if (d.status === 'confirmed') {
                         this.webLoginUrl = '';
+                        this.webLoginQr = '';
                         this.webLoginStatus = '';
                         this.notice = `文件传输助手已登录（${d.user_name || ''}），接收器已启动`;
                         await this.loadWeb();
@@ -149,6 +155,7 @@ export function registerWeixin(Alpine) {
                     }
                     if (d.status === 'none') {
                         this.webLoginUrl = '';
+                        this.webLoginQr = '';
                         this.webLoginStatus = '';
                         return;
                     }

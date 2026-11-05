@@ -75,10 +75,10 @@ func (h *MCPDebugHandler) Invoke(c *gin.Context) {
 	if err != nil {
 		// 调试页需要看到失败详情，故回显错误而非仅状态码
 		c.JSON(http.StatusOK, gin.H{
-			"request":       req,
-			"error":         err.Error(),
-			"duration_ms":   elapsed,
-			"scope":         scope,
+			"request":     req,
+			"error":       err.Error(),
+			"duration_ms": elapsed,
+			"scope":       scope,
 		})
 		return
 	}

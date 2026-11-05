@@ -16,6 +16,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/jenvan/aiknow/internal/model"
@@ -46,6 +47,10 @@ type Runner struct {
 
 	// notifier 可选：入库/重复时回执到微信（为 nil 时只记日志）
 	notifier Notifier
+
+	// lastPoll 最近一次 synccheck 成功的时间（UnixNano）。
+	// last_sync_at 只在有新消息时更新，空闲时看起来像"卡住了"，故单独记心跳。
+	lastPoll atomic.Int64
 
 	mu    sync.Mutex
 	seen  map[string]time.Time
@@ -95,6 +100,9 @@ func (r *Runner) Run(ctx context.Context) error {
 
 	r.logger.Info("wechatweb: 开始接收（只收不发）", "user", sess.UserName, "skey_items", len(key.List))
 
+	// 每次长轮询成功都刷新心跳，便于后台判断"到底还活着吗"
+	client.SetPollObserver(func(time.Time) { r.lastPoll.Store(time.Now().UnixNano()) })
+
 	err = client.Run(ctx, key, r.handle)
 	switch {
 	case errors.Is(err, wechatweb.ErrSessionExpired):
@@ -104,6 +112,15 @@ func (r *Runner) Run(ctx context.Context) error {
 		return nil
 	}
 	return err
+}
+
+// LastPollAt 最近一次 synccheck 成功的时刻；从未成功则为零值。
+func (r *Runner) LastPollAt() time.Time {
+	ns := r.lastPoll.Load()
+	if ns == 0 {
+		return time.Time{}
+	}
+	return time.Unix(0, ns)
 }
 
 // decode 解密凭据与游标。
