@@ -1192,7 +1192,7 @@
                                 <h3 class="font-semibold text-gray-800">微信 Bot 通道</h3>
                                 <span class="px-2 py-0.5 rounded text-xs"
                                       :class="status && status.enabled ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'"
-                                      x-text="status && status.enabled ? '通道已启用' : '通道已关闭（设 WEIXIN_BOT_ENABLED=true 后重启）'"></span>
+                                      x-text="status && status.enabled ? '运行中' : '未运行'"></span>
                             </div>
 
                             <div x-show="loading" class="text-gray-500 text-sm">加载中…</div>
@@ -1218,7 +1218,8 @@
                             </template>
 
                             <div class="mt-4 flex flex-wrap gap-2">
-                                <button @click="startLogin()" class="bg-blue-600 text-white px-4 py-2 rounded text-sm">重新扫码登录</button>
+                                <button @click="startLogin()" class="bg-blue-600 text-white px-4 py-2 rounded text-sm"
+                                        x-text="status && status.bot_id ? '重新扫码' : '扫码登录'"></button>
                                 <button @click="logout()" class="border border-red-300 text-red-600 px-4 py-2 rounded text-sm">删除凭据</button>
                             </div>
 
@@ -1245,7 +1246,7 @@
                                 <h3 class="font-semibold text-gray-800">文件传输助手通道</h3>
                                 <span class="px-2 py-0.5 rounded text-xs"
                                       :class="web && web.running ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'"
-                                      x-text="web && web.running ? '接收中' : (web && web.logged_in ? '已登录，未运行' : '未登录')"></span>
+                                      x-text="web && web.running ? '运行中' : (web && web.logged_in ? '已登录未运行' : '未登录')"></span>
                             </div>
                             <p class="text-xs text-gray-500 mb-3">
                                 手机把公众号文章<b>转发给「文件传输助手」</b>即可入库；只收不发。
@@ -1281,12 +1282,13 @@
                             </template>
 
                             <div class="mt-4 flex flex-wrap gap-2">
-                                <button @click="startWebLogin()" class="bg-blue-600 text-white px-4 py-2 rounded text-sm">扫码登录</button>
+                                <button @click="startWebLogin()" class="bg-blue-600 text-white px-4 py-2 rounded text-sm"
+                                        x-text="web && web.logged_in ? '重新扫码' : '扫码登录'"></button>
                                 <button x-show="web && web.logged_in && !web.running" @click="startWeb()"
                                         class="bg-green-600 text-white px-4 py-2 rounded text-sm">启动接收</button>
                                 <button x-show="web && web.running" @click="stopWeb()"
                                         class="border border-gray-300 text-gray-700 px-4 py-2 rounded text-sm">暂停接收</button>
-                                <button @click="logoutWeb()" class="border border-red-300 text-red-600 px-4 py-2 rounded text-sm">登出</button>
+                                <button @click="logoutWeb()" class="border border-red-300 text-red-600 px-4 py-2 rounded text-sm">删除凭据</button>
                             </div>
 
                             <template x-if="webLoginUrl">

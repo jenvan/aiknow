@@ -201,12 +201,12 @@ export function registerWeixin(Alpine) {
         },
 
         async logoutWeb() {
-            if (!confirm('确认登出文件传输助手？接收器会停止，重新启用需再扫一次码。')) return;
+            if (!confirm('确认删除文件传输助手凭据？接收器会停止，重新启用需再扫一次码。')) return;
             this.error = '';
             this.notice = '';
             try {
                 await api.post('/wechatweb/logout', {});
-                this.notice = '已停止接收并删除凭据';
+                this.notice = '已删除文件传输助手凭据';
                 await this.loadWeb();
             } catch (e) {
                 this.error = e.message;
