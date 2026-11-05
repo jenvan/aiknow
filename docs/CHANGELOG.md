@@ -1,5 +1,18 @@
 # AiKnow 变更日志
 
+## [Unreleased] - 2026-11-06
+
+### fix(collector): 归档截图不再带公众号浮动工具条
+
+整页截图时 Chrome 把 `position: fixed` 的元素渲染在**视口底部**，
+公众号底部「点赞/分享/在看」栏会卡在文章中间（用户截图反馈）。
+
+- `pkg/webfetch` 在截图前隐藏悬浮层：公众号已知选择器（`#js_article_bottom_bar`、
+  `#js_pc_qr_code`、`.rich_media_tool` 等）+ 通用兜底（贴视口底、低矮、横向铺开的
+  fixed/sticky 元素）；
+- 补回归测试守住这段脚本片段；
+- 存量 24 篇公众号文章已重截并覆盖 `screenshot_url`（不重跑 AI）。
+
 ## [Unreleased] - 2026-11-05
 
 ### feat(weixin): 文件传输助手扫码/状态并入后台「微信入口」，删除无效白名单

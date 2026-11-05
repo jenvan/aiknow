@@ -298,6 +298,11 @@ v1 单管理员，凭据来自 `ADMIN_USERNAME` + `ADMIN_PASSWORD_HASH`，无用
   HTML + 全页截图」）；渲染失败（超时/报错）才降级为轻量 http 抓源码。
   关闭时不调浏览器，始终走 http。切换自 v0.7.0 早期版本的「仅 SPA 空壳才渲染」
   ——因截图归档需要每篇都过浏览器。
+- **截图前必须清理悬浮层**。`position: fixed` 的元素在 `fullPage` 截图里会被渲染在
+  **视口底部**的位置，而不是文档底部——公众号文章底部那条「点赞/分享/在看」栏因此
+  卡在文章中间（实测）。`pkg/webfetch` 的 Puppeteer 脚本在截图前统一隐藏：
+  ① 公众号已知选择器（`#js_article_bottom_bar` 等）；② 通用兜底——贴在视口底部、
+  高度 < 视口 1/4、宽度 > 半个视口的 fixed/sticky 元素视作"底部工具条"隐藏。
 - **一次浏览器调用同时拿 HTML + 截图**。`pkg/webfetch.RenderAndScreenshot`
   走 browserless `/function` 端点跑 Puppeteer（`page.content()` +
   `page.screenshot({fullPage:true})`），避免 `/content` 与 `/screenshot`

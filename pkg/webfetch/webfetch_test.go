@@ -185,3 +185,18 @@ func TestIdleTimeoutLinear(t *testing.T) {
 		}
 	}
 }
+
+// 截图前必须清理悬浮层：公众号底部「点赞/分享」栏是 position:fixed，
+// 整页截图时会卡在文章中间（实测）。这段逻辑在 Puppeteer 脚本文本里，
+// 这里只做存在性断言，防止重构时被顺手删掉。
+func TestFunctionCodeHidesFloatingBars(t *testing.T) {
+	for _, want := range []string{
+		"data-aiknow-cleanup",
+		"#js_article_bottom_bar",
+		`cs.position !== "fixed"`,
+	} {
+		if !strings.Contains(functionCode, want) {
+			t.Errorf("functionCode 缺少悬浮层清理片段: %q", want)
+		}
+	}
+}

@@ -150,6 +150,47 @@ export default async ({ page, context }) => {
   if (context.waitMs) {
     await new Promise((r) => setTimeout(r, context.waitMs));
   }
+  // 截图前清掉「悬浮层」。
+  //
+  // 整页截图时 Chrome 会把 position:fixed 的元素渲染在**视口底部**的位置，
+  // 于是公众号文章底部那条「点赞/分享/在看」栏会卡在文章中间（实测），
+  // 右侧固定二维码同理。这些浮层对归档没有价值，直接隐藏。
+  //
+  // 分两步：① 公众号已知选择器精确隐藏；② 通用兜底——任何贴在视口底部、
+  // 高度不大且横向铺开的 fixed 元素都视作"底部工具条"隐藏，避免其它站点同类噪声。
+  try {
+    await page.evaluate(() => {
+      const weixinSelectors = [
+        "#js_article_bottom_bar", ".article_bottom_bar", ".bottom_bar_wrp",
+        "#js_pc_qr_code", ".qr_code_pc_outer", ".rich_media_tool",
+        ".like_toast", "#js_like_toast",
+      ];
+      const css = weixinSelectors.map((s) => s + "{display:none!important}").join("\n");
+      const st = document.createElement("style");
+      st.setAttribute("data-aiknow-cleanup", "1");
+      st.textContent = css;
+      document.head.appendChild(st);
+
+      const vh = window.innerHeight || 0;
+      const vw = window.innerWidth || 0;
+      document.querySelectorAll("body *").forEach((el) => {
+        const cs = getComputedStyle(el);
+        if (cs.position !== "fixed" && cs.position !== "sticky") return;
+        if (cs.visibility === "hidden" || cs.display === "none") return;
+        const r = el.getBoundingClientRect();
+        if (r.height <= 0 || r.width <= 0) return;
+        // 贴在视口底部（留 4px 容差）、高度不超过视口 1/4、宽度超过半个视口
+        const atBottom = r.bottom >= vh - 4;
+        const small = r.height <= Math.max(160, vh * 0.25);
+        const wide = r.width >= vw * 0.5;
+        if (atBottom && small && wide) {
+          el.style.setProperty("display", "none", "important");
+        }
+      });
+    });
+  } catch (e) {
+    // 清理失败不应阻断截图
+  }
   const html = await page.content();
   const screenshot = await page.screenshot({ fullPage: true, type: "png", encoding: "base64" });
   return { data: { html, screenshot }, type: "application/json" };
