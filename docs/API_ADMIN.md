@@ -753,6 +753,8 @@ Content-Type: application/json
 |---|---|---|
 | GET | `/api/v1/admin/wechatweb/status` | 登录态 / 是否在运行 / 游标项数 / 最近同步 |
 | POST | `/api/v1/admin/wechatweb/login/start` | 生成扫码链接 |
+| POST | `/api/v1/admin/wechatweb/start` | 启动接收器（已登录但未运行） |
+| POST | `/api/v1/admin/wechatweb/stop` | 暂停接收器（保留凭据） |
 | GET | `/api/v1/admin/wechatweb/login/poll` | 轮询扫码（confirmed 时落库并**当场拉起接收器**） |
 | POST | `/api/v1/admin/wechatweb/logout` | 停止接收并删除凭据 |
 

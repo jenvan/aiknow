@@ -5,6 +5,8 @@
 >
 > 实现：`pkg/wechatweb`（协议客户端）+ `internal/channel/wechatweb`（接收器），
 > 内嵌在 `aiknow-server serve`，默认关闭（`WECHATWEB_ENABLED`）。
+> **协议细节（登录/长轮询/消息 XML/错误码/抓包复现）见
+> [WECHATWEB_PROTOCOL.md](WECHATWEB_PROTOCOL.md)。**
 
 ## 1. 为什么需要它
 
@@ -36,6 +38,7 @@
 | 功能 | 说明 |
 |---|---|
 | 状态 | 账号 / 同步游标项数 / 最近同步时间 / 接收器是否在跑 / 最近一次错误 |
+| 启动·暂停 | 进程重启后（`WECHATWEB_ENABLED=false`）可手动启动/暂停接收，凭据保留 |
 | 扫码登录 | 点「扫码登录」给出 `login.weixin.qq.com/qrcode/<uuid>` 链接，手机微信打开即扫码 |
 | 登出 | 停止接收器并删除本地凭据 |
 
@@ -70,17 +73,17 @@ aiknow-server wechatweb logout    # 删除本地凭据
 - **合规**：这是逆向网页版协议，不是官方接口，存在封号风险。
   **建议用不承载重要关系的小号**。
 
-## 6. 实测到的协议坑（实现时已处理）
+## 6. 实测到的协议坑（详见协议文档）
 
 | 坑 | 说明 |
 |---|---|
 | `appid` | 是 `wx_webfilehelper`，不是通用网页版微信的 `wx782c26e4c19acffb` |
-| 域名 | 登录 `login.wx.qq.com`；业务 `szfilehelper.weixin.qq.com` |
 | 请求头 | **必须带 `mmweb_appid: wx_webfilehelper`**，漏了返回 `ret=1102` 且无错误信息 |
-| `synccheck` | 网页版用 `<script>` 标签（JSONP）调，返回 `window.synccheck={retcode,selector}`；服务端直接 GET 读文本即可 |
-| 消息 `Content` | **两层 HTML 转义 + 真实 `<br/>` 折行**：先剥 br，解一层再让 XML 解析器处理 `&amp;`；解多了 URL 里的 `&` 会非法 |
-| 图片消息 | `Url`/`MediaId` 为空，元数据在 XML 里；本通道不处理图片 |
-| 轮询节奏 | 空闲时 `synccheck` 挂 ~25 秒才返回（`selector=0`），有消息才 `webwxsync` 拉取 —— 与真人开着网页版一致，风控面最小 |
+| 消息 `Content` | 两层 HTML 转义 + 真实 `<br/>`：先剥 br、解一层，再交给 XML 解析器处理 `&amp;` |
+| `synccheck` | 页面用 `<script>` JSONP；服务端直接 GET 读文本 |
+| 轮询节奏 | 空闲时挂 ~25 秒才返回，有消息才拉增量 —— 风控面最小 |
+
+完整规则、样例与错误码见 [WECHATWEB_PROTOCOL.md](WECHATWEB_PROTOCOL.md)。
 
 ## 7. 排障
 

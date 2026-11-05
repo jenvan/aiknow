@@ -160,6 +160,30 @@ export function registerWeixin(Alpine) {
             this.webPollTimer = setTimeout(tick, 1500);
         },
 
+        async startWeb() {
+            this.error = '';
+            this.notice = '';
+            try {
+                await api.post('/wechatweb/start', {});
+                this.notice = '接收器已启动';
+                await this.loadWeb();
+            } catch (e) {
+                this.error = e.message;
+            }
+        },
+
+        async stopWeb() {
+            this.error = '';
+            this.notice = '';
+            try {
+                await api.post('/wechatweb/stop', {});
+                this.notice = '接收器已停止（凭据保留）';
+                await this.loadWeb();
+            } catch (e) {
+                this.error = e.message;
+            }
+        },
+
         async copyWebUrl() {
             try {
                 await navigator.clipboard.writeText(this.webLoginUrl);

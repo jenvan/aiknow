@@ -164,6 +164,40 @@ func (h *WechatWebHandler) PollLogin(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "confirmed", "user_name": tok.UserName, "started": true})
 }
 
+// Start 启动接收器（已登录但未运行时用；进程重启后 WECHATWEB_ENABLED=false 也能手动拉起）。
+func (h *WechatWebHandler) Start(c *gin.Context) {
+	if h.box == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "SESSION_SECRET 不可用，无法解密凭据"})
+		return
+	}
+	sess, err := h.repo.Get(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	if sess == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "尚未登录，请先扫码"})
+		return
+	}
+	if h.mgr == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "接收器不可用"})
+		return
+	}
+	if err := h.mgr.Start(c.Request.Context()); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"running": h.mgr.Running()})
+}
+
+// Stop 停止接收器（保留凭据，可再启动）。
+func (h *WechatWebHandler) Stop(c *gin.Context) {
+	if h.mgr != nil {
+		h.mgr.Stop()
+	}
+	c.JSON(http.StatusOK, gin.H{"running": false})
+}
+
 // Logout 停止接收器并删除凭据。
 func (h *WechatWebHandler) Logout(c *gin.Context) {
 	if h.mgr != nil {

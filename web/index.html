@@ -1273,6 +1273,10 @@
 
                             <div class="mt-4 flex flex-wrap gap-2">
                                 <button @click="startWebLogin()" class="bg-blue-600 text-white px-4 py-2 rounded text-sm">扫码登录</button>
+                                <button x-show="web && web.logged_in && !web.running" @click="startWeb()"
+                                        class="bg-green-600 text-white px-4 py-2 rounded text-sm">启动接收</button>
+                                <button x-show="web && web.running" @click="stopWeb()"
+                                        class="border border-gray-300 text-gray-700 px-4 py-2 rounded text-sm">暂停接收</button>
                                 <button @click="logoutWeb()" class="border border-red-300 text-red-600 px-4 py-2 rounded text-sm">登出</button>
                             </div>
 

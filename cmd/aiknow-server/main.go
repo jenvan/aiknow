@@ -497,6 +497,8 @@ func serve() {
 		adminGroup.GET("/wechatweb/status", wechatWebHandler.GetStatus)
 		adminGroup.POST("/wechatweb/login/start", wechatWebHandler.StartLogin)
 		adminGroup.GET("/wechatweb/login/poll", wechatWebHandler.PollLogin)
+		adminGroup.POST("/wechatweb/start", wechatWebHandler.Start)
+		adminGroup.POST("/wechatweb/stop", wechatWebHandler.Stop)
 		adminGroup.POST("/wechatweb/logout", wechatWebHandler.Logout)
 
 		mcpDebugHandler := admin.NewMCPDebugHandler(mcpService)

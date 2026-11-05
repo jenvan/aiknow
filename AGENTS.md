@@ -387,7 +387,9 @@ aiknow-server weixin logout
 ## 文件传输助手通道（v1，只收不发）
 
 补充 iLink Bot 收不到「转发卡片」的缺口：手机把公众号文章转发给「文件传输助手」，
-服务端走网页版协议收下链接入库。设计见 [docs/WECHATWEB.md](docs/WECHATWEB.md)。
+服务端走网页版协议收下链接入库。设计见 [docs/WECHATWEB.md](docs/WECHATWEB.md)，
+协议细节（实测，含与流行文档的 7 处差异）见
+[docs/WECHATWEB_PROTOCOL.md](docs/WECHATWEB_PROTOCOL.md)。
 
 **五条硬约束**：
 - **只收不发**：`webwxsendmsg`/`webwxsendmsgimg`/`webwxuploadmedia` 一律不实现。
@@ -403,7 +405,8 @@ aiknow-server weixin logout
 
 **后台扫码即生效**：`/ui/weixin` 页的「文件传输助手通道」扫码成功后由
 `wechatweb.Manager.Start` 当场拉起接收器，无需重启 `serve`；
-`WECHATWEB_ENABLED` 只决定启动时是否自动拉起。
+`WECHATWEB_ENABLED` 只决定启动时是否自动拉起。页面另有「启动接收 / 暂停接收」
+（`POST /wechatweb/start|stop`），重启后即使开关为 false 也能手动拉起。
 
 ```bash
 aiknow-server wechatweb login    # 扫码，凭据加密入库
@@ -596,6 +599,7 @@ POST /api/v1/search
 011_article_screenshot.sql       # articles 补 screenshot_url（URL 采集截图归档）
 012_weixin_bot.sql               # 微信 Bot 凭据/白名单/长轮询游标
 013_wechatweb_session.sql        # 文件传输助手凭据（密文）+ 同步游标
+014_drop_weixin_allow_from.sql   # 删除无效的 Bot 白名单列
 ```
 
 > 003/004 降级为空操作而非原地改写：已有开发库中它们已记录为"已应用"，
@@ -870,6 +874,7 @@ aiknow/
 - 微信 Bot 入口：`docs/WEIXIN_BOT.md`
 - 录入渠道总览（含文件传输助手扩展、快捷指令）：`docs/INGEST.md`
 - 文件传输助手通道（网页版协议，只收不发）：`docs/WECHATWEB.md`
+- 文件传输助手协议（实测版，登录/长轮询/消息 XML）：`docs/WECHATWEB_PROTOCOL.md`
 - ParadeDB / pg_search：https://github.com/paradedb/paradedb
 - pgvector：https://github.com/pgvector/pgvector
 - MCP 规范：https://modelcontextprotocol.io/specification/2025-06-18
