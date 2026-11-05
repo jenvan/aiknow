@@ -1,6 +1,38 @@
 # AiKnow 变更日志
 
-## [Unreleased] - 2026-11-04
+## [Unreleased] - 2026-11-05
+
+### feat(weixin): 文件传输助手扫码/状态并入后台「微信入口」，删除无效白名单
+
+- 后台 `/ui/weixin` 下半部分新增「文件传输助手通道」：状态（账号/游标项数/最近同步/
+  是否在跑/最近错误）、扫码登录、登出。扫码成功后由 `Manager.Start` **当场拉起接收器**，
+  不需要重启 `serve`（`WECHATWEB_ENABLED` 只决定启动时是否自动拉起）。
+- 新增后台接口：`GET /wechatweb/status`、`POST /wechatweb/login/start`、
+  `GET /wechatweb/login/poll`、`POST /wechatweb/logout`。
+- **删除 Bot 白名单（`allow_from`）**：它只在 `Bot.Run` 启动时读一次，后台改完不重启
+  不生效——属于"看着有用实际无效"。现在只放行扫码者本人；迁移 014 删列，
+  同步移除 CLI 的 `--allow-from`、`WEIXIN_BOT_ALLOW_FROM`、页面白名单卡片、
+  `PUT /weixin/allow-from` 接口。
+
+
+### feat(wechatweb): 文件传输助手通道（只收转发来的公众号文章）
+
+官方 iLink Bot 收不到「转发」的卡片（ClawBot 是插件会话，不在转发列表里），
+而文件传输助手是普通联系人。新增一条走**网页版协议**的接收通道补上这个缺口。
+
+- `pkg/wechatweb`：jslogin 取码 → 轮询 → webwxnewloginpage 拿凭据 → webwxinit
+  → synccheck 长轮询 → webwxsync 拉增量。**只实现收，不实现任何发送接口**
+  （协议里 ToUserName 是联系人 ID，可写就等于能以账号身份给任意好友发消息）。
+- `pkg/securebox`：AES-256-GCM 字段级加密，密钥由 `SESSION_SECRET` 派生；
+  会话凭据只以密文落库（迁移 013 `wechatweb_sessions`）。
+- `internal/channel/wechatweb`：只处理 `MsgType=49`（公众号卡片）与「文本里的
+  公众号链接」，其余类型忽略；按 MsgId 去重；会话失效不自动重登。
+- 回执统一走微信 Bot：入库瞬间发一条、处理完成再推一条（`weixin.Notifier`
+  复用 Bot 的 context_token）；文件传输助手通道自身零发送。
+- CLI：`aiknow-server wechatweb login|status|logout`；L1 `WECHATWEB_ENABLED`（默认 false）。
+- 实测：转发 2 张卡片 + 1 条链接全部入库并完成处理；协议细节与 7 个坑见
+  `docs/WECHATWEB.md`。
+
 
 ### feat(collector): 正文图片归档（下载外链图进 COS 并替换链接）
 

@@ -18,15 +18,16 @@ type PostgresDB struct {
 	pool *pgxpool.Pool
 	mu   sync.RWMutex
 	// Repos
-	ArticleRepo  ArticleRepository
-	ChunkRepo    ChunkRepository
-	CategoryRepo CategoryRepository
-	TagRepo      TagRepository
-	SearchRepo   SearchRepository
-	SettingRepo  SettingRepository
-	APIKeyRepo   APIKeyRepository
-	MCPLogRepo   MCPLogRepository
-	WeixinRepo   WeixinBotRepository
+	ArticleRepo   ArticleRepository
+	ChunkRepo     ChunkRepository
+	CategoryRepo  CategoryRepository
+	TagRepo       TagRepository
+	SearchRepo    SearchRepository
+	SettingRepo   SettingRepository
+	APIKeyRepo    APIKeyRepository
+	MCPLogRepo    MCPLogRepository
+	WeixinRepo    WeixinBotRepository
+	WechatWebRepo WechatWebRepository
 }
 
 // NewPostgresDB 创建数据库连接
@@ -80,6 +81,7 @@ func (db *PostgresDB) initRepos() {
 	db.APIKeyRepo = NewAPIKeyRepository(db)
 	db.MCPLogRepo = NewMCPLogRepository(db)
 	db.WeixinRepo = NewWeixinBotRepository(db)
+	db.WechatWebRepo = NewWechatWebRepository(db)
 }
 
 // GetPool 返回连接池（用于迁移执行器）
@@ -149,6 +151,9 @@ func (db *PostgresDB) GetAPIKeyRepo() APIKeyRepository { return db.APIKeyRepo }
 
 // GetWeixinRepo 获取微信 Bot 账号仓库
 func (db *PostgresDB) GetWeixinRepo() WeixinBotRepository { return db.WeixinRepo }
+
+// GetWechatWebRepo 获取文件传输助手会话仓库
+func (db *PostgresDB) GetWechatWebRepo() WechatWebRepository { return db.WechatWebRepo }
 
 // GetMCPLogRepo 获取 MCP 日志仓库
 func (db *PostgresDB) GetMCPLogRepo() MCPLogRepository { return db.MCPLogRepo }

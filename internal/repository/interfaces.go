@@ -97,6 +97,14 @@ type WeixinBotRepository interface {
 	Get(ctx context.Context) (*model.WeixinBotAccount, error)
 	SaveLogin(ctx context.Context, account *model.WeixinBotAccount) error
 	UpdateProgress(ctx context.Context, botID, cursor, contextToken string) error
-	UpdateAllowFrom(ctx context.Context, botID, allowFrom string) error
 	Delete(ctx context.Context, botID string) error
+}
+
+// WechatWebRepository 文件传输助手（网页版协议）会话仓库
+type WechatWebRepository interface {
+	Get(ctx context.Context) (*model.WechatWebSession, error)
+	Save(ctx context.Context, credsEnc []byte, userName string, syncKey []byte) error
+	UpdateSyncKey(ctx context.Context, syncKey []byte) error
+	Touch(ctx context.Context) error
+	Delete(ctx context.Context) error
 }

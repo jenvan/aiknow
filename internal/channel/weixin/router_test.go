@@ -271,23 +271,6 @@ func TestSplitReplyRespectsLimit(t *testing.T) {
 	}
 }
 
-func TestBotAllowsOnlyOwnerByDefault(t *testing.T) {
-	acc := &model.WeixinBotAccount{OwnerUserID: "me@im.wechat"}
-	if !acc.Allows("me@im.wechat") {
-		t.Error("owner should be allowed")
-	}
-	if acc.Allows("other@im.wechat") {
-		t.Error("empty allow_from must not allow others")
-	}
-	acc.AllowFrom = "a@im.wechat, b@im.wechat"
-	if !acc.Allows("b@im.wechat") {
-		t.Error("allow_from entry should be allowed")
-	}
-	if acc.Allows("") {
-		t.Error("empty user id must be rejected")
-	}
-}
-
 // 异步 Runner 下：调用返回时只应有「正在采集」回执，结果在后台补发。
 func TestHandleURLAsyncSendsAckFirst(t *testing.T) {
 	arts := &fakeArticles{}

@@ -1,11 +1,14 @@
 import { api, formatTime } from '../api.js';
 
 /**
- * 微信 Bot 页面：状态、重新扫码、白名单、登出。
+ * 微信入口页：两条通道
  *
- * 扫码不渲染二维码图片，而是给出 liteapp.weixin.qq.com 的链接——
- * 那链接用手机微信打开就等于扫码，页面只负责展示/复制 + 轮询结果，
- * 这样零构建的前端不必引入 qrcode 库。
+ *  1. iLink Bot（官方）：收链接/关键词，能收发；扫码后立即生效。
+ *  2. 文件传输助手（网页版协议）：只收转发来的公众号文章，零发送；
+ *     扫码成功后后端会**当场拉起接收器**，不需要重启服务。
+ *
+ * 扫码都不渲染二维码图片：后端给出 login.weixin.qq.com 的链接，
+ * 手机微信打开就等于扫码，前端保持零依赖。
  */
 export function registerWeixin(Alpine) {
     Alpine.data('weixinPage', () => ({
@@ -14,23 +17,27 @@ export function registerWeixin(Alpine) {
         notice: '',
 
         status: null,
-        allowFromDraft: '',
-        saving: false,
-
         loginUrl: '',
         loginStatus: '',
         pollTimer: null,
         copied: false,
 
+        web: null,
+        loadingWeb: true,
+        webLoginUrl: '',
+        webLoginStatus: '',
+        webPollTimer: null,
+        webCopied: false,
+
         async init() {
-            await this.load();
+            await Promise.all([this.load(), this.loadWeb()]);
         },
 
+        // ---------- iLink Bot ----------
         async load() {
             this.loading = true;
             try {
                 this.status = await api.get('/weixin/status');
-                this.allowFromDraft = this.status.allow_from || '';
             } catch (e) {
                 this.error = e.message;
             } finally {
@@ -88,39 +95,97 @@ export function registerWeixin(Alpine) {
             }
         },
 
-        async saveAllowFrom() {
-            this.saving = true;
-            this.error = '';
-            this.notice = '';
-            try {
-                const d = await api.put('/weixin/allow-from', { allow_from: this.allowFromDraft });
-                this.allowFromDraft = d.allow_from || '';
-                this.notice = '白名单已保存';
-                await this.load();
-            } catch (e) {
-                this.error = e.message;
-            } finally {
-                this.saving = false;
-            }
-        },
-
         async logout() {
-            if (!confirm('确认删除本地保存的 bot 凭据？重新启用需要再扫一次码。')) return;
+            if (!confirm('确认删除 Bot 凭据？重新启用需要再扫一次码。')) return;
             this.error = '';
             this.notice = '';
             try {
                 await api.post('/weixin/logout', {});
-                this.notice = '已删除本地凭据';
+                this.notice = '已删除 Bot 凭据';
                 await this.load();
+            } catch (e) {
+                this.error = e.message;
+            }
+        },
+
+        // ---------- 文件传输助手 ----------
+        async loadWeb() {
+            this.loadingWeb = true;
+            try {
+                this.web = await api.get('/wechatweb/status');
+            } catch (e) {
+                this.error = e.message;
+            } finally {
+                this.loadingWeb = false;
+            }
+        },
+
+        async startWebLogin() {
+            this.error = '';
+            this.notice = '';
+            this.webCopied = false;
+            try {
+                const d = await api.post('/wechatweb/login/start', {});
+                this.webLoginUrl = d.url;
+                this.webLoginStatus = 'wait';
+                this.pollWebLogin();
+            } catch (e) {
+                this.error = e.message;
+            }
+        },
+
+        pollWebLogin() {
+            clearTimeout(this.webPollTimer);
+            const tick = async () => {
+                try {
+                    const d = await api.get('/wechatweb/login/poll');
+                    this.webLoginStatus = d.status;
+                    if (d.status === 'confirmed') {
+                        this.webLoginUrl = '';
+                        this.webLoginStatus = '';
+                        this.notice = `文件传输助手已登录（${d.user_name || ''}），接收器已启动`;
+                        await this.loadWeb();
+                        return;
+                    }
+                    if (d.status === 'none') {
+                        this.webLoginUrl = '';
+                        this.webLoginStatus = '';
+                        return;
+                    }
+                    this.webPollTimer = setTimeout(tick, 2000);
+                } catch (e) {
+                    this.error = e.message;
+                }
+            };
+            this.webPollTimer = setTimeout(tick, 1500);
+        },
+
+        async copyWebUrl() {
+            try {
+                await navigator.clipboard.writeText(this.webLoginUrl);
+                this.webCopied = true;
+            } catch {
+                this.error = '复制失败，请手动选中链接';
+            }
+        },
+
+        async logoutWeb() {
+            if (!confirm('确认登出文件传输助手？接收器会停止，重新启用需再扫一次码。')) return;
+            this.error = '';
+            this.notice = '';
+            try {
+                await api.post('/wechatweb/logout', {});
+                this.notice = '已停止接收并删除凭据';
+                await this.loadWeb();
             } catch (e) {
                 this.error = e.message;
             }
         },
 
         statusLabel(s) {
-            if (!s) return '未登录';
+            if (!s) return '';
             if (s === 'wait') return '等待扫码…';
-            if (s === 'scaned') return '已扫码，等待手机确认…';
+            if (s === 'scaned') return '已扫码，请在手机上确认';
             return s;
         },
 

@@ -27,12 +27,12 @@ func NewWeixinBotRepository(db *PostgresDB) *WeixinBotRepositoryImpl {
 func (r *WeixinBotRepositoryImpl) Get(ctx context.Context) (*model.WeixinBotAccount, error) {
 	var a model.WeixinBotAccount
 	err := r.db.pool.QueryRow(ctx, `
-		SELECT bot_id, bot_token, base_url, owner_user_id, allow_from,
+		SELECT bot_id, bot_token, base_url, owner_user_id,
 		       get_updates_cursor, last_context_token, last_seen_at, created_at, updated_at
 		FROM weixin_bot_accounts
 		ORDER BY updated_at DESC
 		LIMIT 1
-	`).Scan(&a.BotID, &a.BotToken, &a.BaseURL, &a.OwnerUserID, &a.AllowFrom,
+	`).Scan(&a.BotID, &a.BotToken, &a.BaseURL, &a.OwnerUserID,
 		&a.Cursor, &a.LastContextToken, &a.LastSeenAt, &a.CreatedAt, &a.UpdatedAt)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -50,14 +50,14 @@ func (r *WeixinBotRepositoryImpl) SaveLogin(ctx context.Context, a *model.Weixin
 	now := time.Now()
 	_, err := r.db.pool.Exec(ctx, `
 		INSERT INTO weixin_bot_accounts (
-			bot_id, bot_token, base_url, owner_user_id, allow_from, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6)
+			bot_id, bot_token, base_url, owner_user_id, updated_at
+		) VALUES ($1, $2, $3, $4, $5)
 		ON CONFLICT (bot_id) DO UPDATE SET
 			bot_token     = EXCLUDED.bot_token,
 			base_url      = EXCLUDED.base_url,
 			owner_user_id = EXCLUDED.owner_user_id,
 			updated_at    = EXCLUDED.updated_at
-	`, a.BotID, a.BotToken, a.BaseURL, a.OwnerUserID, a.AllowFrom, now)
+	`, a.BotID, a.BotToken, a.BaseURL, a.OwnerUserID, now)
 	if err != nil {
 		return fmt.Errorf("save weixin bot login: %w", err)
 	}
@@ -78,19 +78,6 @@ func (r *WeixinBotRepositoryImpl) UpdateProgress(ctx context.Context, botID, cur
 	`, botID, cursor, contextToken)
 	if err != nil {
 		return fmt.Errorf("update weixin bot progress: %w", err)
-	}
-	return nil
-}
-
-// UpdateAllowFrom 更新白名单（后台页面编辑）。
-func (r *WeixinBotRepositoryImpl) UpdateAllowFrom(ctx context.Context, botID, allowFrom string) error {
-	_, err := r.db.pool.Exec(ctx, `
-		UPDATE weixin_bot_accounts
-		SET allow_from = $2, updated_at = now()
-		WHERE bot_id = $1
-	`, botID, allowFrom)
-	if err != nil {
-		return fmt.Errorf("update weixin bot allow_from: %w", err)
 	}
 	return nil
 }

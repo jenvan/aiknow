@@ -43,7 +43,7 @@ embedding + rerank，避免每条消息都付费。
 
 ```
 微信用户 ──长轮询──▶ internal/channel/weixin (bot.go)
-                          │  白名单 → message_id 去重 → 意图路由
+                          │  仅放行 owner → message_id 去重 → 意图路由
                           ▼
                      router.go ──┬─ URL ──▶ Collector.Fetch → ArticleService.Create（去重+入队）
                                  ├─ 关键词 ─▶ KeywordSearchService
@@ -63,7 +63,7 @@ channel 层**不重复实现检索/采集**：它只做「消息 → 意图 → 
 |---|---|
 | `bot_id` / `bot_token` / `base_url` | 扫码得到的凭据（L3，**不进 `.env`**、不打印） |
 | `owner_user_id` | 扫码者，默认唯一被允许的用户 |
-| `allow_from` | 逗号分隔白名单 |
+| — | 白名单已移除：只放行扫码者本人（见下方说明） |
 | `get_updates_cursor` | `get_updates_buf` 消费位点 |
 | `last_context_token` | 最近一次入站的 `context_token`（供将来主动补发） |
 
@@ -106,10 +106,10 @@ L1 配置（`.env`）：
 | 变量 | 默认 | 说明 |
 |---|---|---|
 | `WEIXIN_BOT_ENABLED` | `false` | 开启后 `serve` 启动长轮询 |
-| `WEIXIN_BOT_ALLOW_FROM` | 空 | 非空时覆盖库中白名单；空 = 仅扫码者本人 |
 | `WEIXIN_BOT_BASE_URL` | 空 | 空则用 `https://ilinkai.weixin.qq.com` |
 
-后台页面：`/ui/weixin`（状态 / 重新扫码 / 白名单 / 删除凭据）。扫码只需把页面给出的
+后台页面：`/ui/weixin`（状态 / 重新扫码 / 删除凭据；同页还有「文件传输助手通道」）。
+扫码只需把页面给出的
 `liteapp.weixin.qq.com` 链接用手机微信打开——所以不渲染二维码图片，前端零依赖。
 
 ### 运维小工具
@@ -128,8 +128,7 @@ CLI（与页面等价）：
 
 ```bash
 aiknow-server weixin login      # 打印二维码链接，手机微信打开授权，凭据落库
-aiknow-server weixin login --allow-from "a@im.wechat,b@im.wechat"
-aiknow-server weixin status     # 看 bot_id / 白名单 / 游标 / 最近活跃
+aiknow-server weixin status     # 看 bot_id / 扫码者 / 游标 / 最近活跃
 aiknow-server weixin logout     # 删除本地凭据
 ```
 
@@ -144,7 +143,8 @@ aiknow-server weixin logout     # 删除本地凭据
    写进 `.env` 会随部署物料进 git、进备份。
 3. **at-least-once + 内存去重。** 先处理消息、再推进游标：顺序反了崩溃即丢消息；
    重复投递由 `message_id` 去重（进程内 500 条，重启窗口内可能重放一次）。
-4. **白名单默认「仅扫码者本人」。** 空 `allow_from` 不是「放行所有人」。
+4. **只放行扫码者本人。** 没有白名单概念（v1 单用户）：`allow_from` 及其配置项
+   已删除——它只在 Bot 启动时读一次，改完不重启不生效，属于"看着有用实际无效"。
    一条消息可能触发无头浏览器渲染 + LLM 调用，代价远高于普通 API。
 5. **bot 与主链路隔离。** 会话过期（`-14`）只让 bot 自己退出并打印提示，
    不影响 HTTP/队列；关掉 `WEIXIN_BOT_ENABLED` 即彻底停用。
@@ -174,7 +174,7 @@ aiknow-server weixin logout     # 删除本地凭据
 |---|---|
 | `尚未扫码登录` | 跑 `aiknow-server weixin login` |
 | `微信 bot 已停止: session expired` | token 失效，重新 `weixin login` |
-| 发消息没反应 | 先看日志三行：`inbound message` → `sending reply` → `reply accepted`。三行齐全但微信端没显示，属**下行静默丢弃**（见下）；缺 `inbound` 则是消息没到 bot（改白名单/会话绑定） |
+| 发消息没反应 | 先看日志三行：`inbound message` → `sending reply` → `reply accepted`。三行齐全但微信端没显示，属**下行静默丢弃**（见下）；缺 `inbound` 则是消息没到 bot（会话绑定失效/非 owner 发送） |
 | 链接采集失败 | 看日志 `collect failed`；公众号需 http 可达，渲染开启时更慢 |
 | 重复入库 | 链接尾巴未规范化；`normalizeURL` 只去 fragment 与常见跟踪参数，其余需人工确认 |
 

@@ -363,8 +363,8 @@ Go 层拦不住——必须靠「browserless 部署在访问不到敏感内网�
 - **群聊不可用**：微信不允许把 ClawBot 拉进群，`group_id` 只可能是空串；协议里的
   `group_id` / `at_bot_username_list` 只是预留字段，别据此推断「群聊可做」
   （曾这么推断过，被实测否定）。
-- 白名单默认**只放行扫码者本人**（`allow_from` 为空 ≠ 放行所有人）：一条消息
-  可能触发无头浏览器渲染 + LLM，代价远高于普通 API。
+- **只放行扫码者本人**：白名单（`allow_from`）已删除——它只在启动时读一次，
+  改了不重启不生效，实际从未起作用。
 - **bot 只能跑单副本**：`get_updates_buf` 是单游标，多副本会互相抢消息。
   多副本部署需拆成独立进程或加选主。
 - 意图语义与 MCP 三个工具对齐（采集 / 关键词卡片 / 语义片段），channel 层
@@ -376,13 +376,40 @@ Go 层拦不住——必须靠「browserless 部署在访问不到敏感内网�
 
 ```bash
 aiknow-server weixin login    # 打印二维码链接，扫码后凭据落库
-aiknow-server weixin status   # bot_id / 白名单 / 游标 / 最近活跃
+aiknow-server weixin status   # bot_id / 扫码者 / 游标 / 最近活跃
 aiknow-server weixin logout
 ```
 
-对应后台页面 `/ui/weixin`（状态 / 重新扫码 / 白名单），等价于上面三条命令。
+对应后台页面 `/ui/weixin`（状态 / 重新扫码 / 删除凭据），等价于上面三条命令。
 采集完成后会**主动回推**处理结果（摘要+分类+标签+原文链接）：`Pusher` 只推
 由微信入口发起的采集（登记表区分来源），后台/API 录入的文章不推。
+
+## 文件传输助手通道（v1，只收不发）
+
+补充 iLink Bot 收不到「转发卡片」的缺口：手机把公众号文章转发给「文件传输助手」，
+服务端走网页版协议收下链接入库。设计见 [docs/WECHATWEB.md](docs/WECHATWEB.md)。
+
+**五条硬约束**：
+- **只收不发**：`webwxsendmsg`/`webwxsendmsgimg`/`webwxuploadmedia` 一律不实现。
+  协议里 `ToUserName` 是联系人 ID，可写就等于能以账号身份给任意好友发消息。
+- **只在登录时 init 一次**：之后绝不重复 `webwxinit`（会重置 SyncKey，历史补不回来，
+  还会让手机端重复收消息）。
+- **不自动重登**：ret 1100/1101/1102 直接停止等人工扫码——反复重登最易触发风控。
+- **独占**：同一账号两个消费者会抢消息、重复投递（已实测）。
+- **凭据加密**：`wechatweb_sessions.creds_enc` 存密文，密钥由 `SESSION_SECRET` 派生。
+
+**回执走 Bot**：本通道零发送，入库/处理完成的通知由 `internal/channel/weixin`
+的 `Notifier` 用 bot 的 `context_token` 发出。
+
+**后台扫码即生效**：`/ui/weixin` 页的「文件传输助手通道」扫码成功后由
+`wechatweb.Manager.Start` 当场拉起接收器，无需重启 `serve`；
+`WECHATWEB_ENABLED` 只决定启动时是否自动拉起。
+
+```bash
+aiknow-server wechatweb login    # 扫码，凭据加密入库
+aiknow-server wechatweb status
+aiknow-server wechatweb logout
+```
 
 ## Web 管理后台（11 个页面）
 
@@ -400,7 +427,7 @@ aiknow-server weixin logout
 | MCP 请求日志 | `/ui/mcp-logs` | 筛选、全文检索、trace_id 查询、一键重放 |
 | 系统配置 | `/ui/settings` | 模型参数、提示词、检索/采集参数 |
 | API Key 管理 | `/ui/settings/api-keys` | 创建/禁用/删除 |
-| 微信入口 | `/ui/weixin` | Bot 状态、重新扫码（手机打开链接即授权）、白名单、删除凭据 |
+| 微信入口 | `/ui/weixin` | Bot 状态、重新扫码、删除凭据；**文件传输助手通道**（扫码/状态/登出） |
 
 **关键行为约定**：
 - 列表标题点击进「文章预览」（只读阅读形态），操作列「编辑」进编辑页
@@ -440,7 +467,8 @@ v1 单管理员，无角色区分。
 | `setting_history` | 配置变更记录 |
 | `api_keys` | API Key（哈希存储） |
 | `mcp_request_logs` | MCP 调用日志（含 trace_id、完整请求响应） |
-| `weixin_bot_accounts` | 微信 Bot 凭据 + 白名单 + 长轮询游标 |
+| `weixin_bot_accounts` | 微信 Bot 凭据 + 长轮询游标 |
+| `wechatweb_sessions` | 文件传输助手凭据（密文）+ 同步游标 |
 
 ## 提示词模板
 
@@ -506,7 +534,7 @@ POST /api/v1/search
 | browserless 令牌 | 空 | L1 | `COLLECTOR_BROWSER_TOKEN`（x-access-token） |
 | 单页渲染超时 | 30s | L1 | `COLLECTOR_BROWSER_TIMEOUT`，子超时按此缩放；服务 WriteTimeout 取此值+20s |
 | 微信 Bot 开关 | false | L1 | `WEIXIN_BOT_ENABLED`，开启后 `serve` 启动长轮询；关闭不影响主链路 |
-| 微信 Bot 白名单 | 空=仅扫码者 | L1 | `WEIXIN_BOT_ALLOW_FROM` 非空时覆盖库中 `allow_from` |
+| 文件传输助手通道开关 | false | L1 | `WECHATWEB_ENABLED`，开启后 `serve` 启动只读接收器；需先 `wechatweb login` |
 | 微信 Bot 服务端 | 官方域名 | L1 | `WEIXIN_BOT_BASE_URL`，空则 `ilinkai.weixin.qq.com` |
 | 正文图片归档 | true | L1 | `COLLECTOR_ARCHIVE_IMAGES`，需 COS 完整配置；外链图下载进 COS 并替换正文链接 |
 | COS 截图归档 | 全空=关闭 | L1 | `COS_SECRET_ID/KEY`、`COS_BUCKET`、`COS_REGION`、`COS_ENDPOINT`、`COS_PATH_PREFIX` |
@@ -567,6 +595,7 @@ POST /api/v1/search
 010_config_hierarchy_cleanup.sql  # 配置分层清理（L1/L2 归位）
 011_article_screenshot.sql       # articles 补 screenshot_url（URL 采集截图归档）
 012_weixin_bot.sql               # 微信 Bot 凭据/白名单/长轮询游标
+013_wechatweb_session.sql        # 文件传输助手凭据（密文）+ 同步游标
 ```
 
 > 003/004 降级为空操作而非原地改写：已有开发库中它们已记录为"已应用"，
@@ -808,7 +837,9 @@ aiknow/
 │   ├── cos/                # 腾讯云 COS 上传（截图归档）
 │   ├── pgqueue/            # 任务队列（表 + FOR UPDATE SKIP LOCKED，含租约/重试/死信）
 │   ├── ilink/              # 微信 iLink Bot 协议客户端（扫码/长轮询/发消息）
-│   └── urlx/               # URL 归一（去分享态参数，公众号按 __biz+mid+idx+sn 重排）
+│   ├── urlx/               # URL 归一（去分享态参数，公众号按 __biz+mid+idx+sn 重排）
+│   ├── wechatweb/          # 文件传输助手网页版协议（只收不发）
+│   └── securebox/          # 字段级加密（AES-256-GCM，密钥由 SESSION_SECRET 派生）
 ├── deploy/browserless/     # browserless 独立部署（compose + README）
 ├── extensions/aiknow-clipper/  # Chrome/Edge 扩展：文件传输助手监听 + 任意网页剪藏
 ├── web/js/pages/           # 前端按页面拆分
@@ -838,6 +869,7 @@ aiknow/
 - browserless 部署：`deploy/browserless/README.md`
 - 微信 Bot 入口：`docs/WEIXIN_BOT.md`
 - 录入渠道总览（含文件传输助手扩展、快捷指令）：`docs/INGEST.md`
+- 文件传输助手通道（网页版协议，只收不发）：`docs/WECHATWEB.md`
 - ParadeDB / pg_search：https://github.com/paradedb/paradedb
 - pgvector：https://github.com/pgvector/pgvector
 - MCP 规范：https://modelcontextprotocol.io/specification/2025-06-18

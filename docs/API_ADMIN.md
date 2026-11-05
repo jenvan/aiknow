@@ -709,7 +709,7 @@ Content-Type: application/json
 
 ### 微信入口
 
-管理微信 iLink Bot：状态、扫码登录、白名单、删除凭据。设计与排障见
+管理微信 iLink Bot：状态、扫码登录、删除凭据。设计与排障见
 [docs/WEIXIN_BOT.md](WEIXIN_BOT.md)。
 
 | 方法 | 路径 | 说明 |
@@ -717,7 +717,6 @@ Content-Type: application/json
 | GET | `/api/v1/admin/weixin/status` | Bot 状态 |
 | POST | `/api/v1/admin/weixin/login/start` | 生成扫码链接 |
 | GET | `/api/v1/admin/weixin/login/poll` | 轮询扫码结果 |
-| PUT | `/api/v1/admin/weixin/allow-from` | 更新白名单 |
 | POST | `/api/v1/admin/weixin/logout` | 删除本地凭据 |
 
 `GET /weixin/status` 响应（`logged_in=false` 时不含 bot 字段）：
@@ -742,8 +741,31 @@ Content-Type: application/json
 `GET /weixin/login/poll` → `{"status":"wait|scaned|confirmed|expired|none"}`，
 `confirmed` 时额外返回 `bot_id`，此时凭据已落库，并在重启 `serve` 后生效。
 
-`PUT /weixin/allow-from` 请求 `{"allow_from":"a@im.wechat,b@im.wechat"}`，
-服务端去空白去重后返回规整结果。**空串表示只放行扫码者本人**。
+> 白名单（`allow_from`）已移除：Bot 只放行扫码者本人。原因是它只在启动时读一次，
+> 后台改完不重启不生效，实际从未起作用。
+
+### 文件传输助手通道
+
+管理网页版协议通道（只收转发来的公众号文章）。设计见
+[docs/WECHATWEB.md](WECHATWEB.md)。
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/v1/admin/wechatweb/status` | 登录态 / 是否在运行 / 游标项数 / 最近同步 |
+| POST | `/api/v1/admin/wechatweb/login/start` | 生成扫码链接 |
+| GET | `/api/v1/admin/wechatweb/login/poll` | 轮询扫码（confirmed 时落库并**当场拉起接收器**） |
+| POST | `/api/v1/admin/wechatweb/logout` | 停止接收并删除凭据 |
+
+`GET /wechatweb/status`：
+
+```json
+{"logged_in": true, "running": true, "user_name": "@cb22...",
+ "sync_key_items": 13, "last_sync_at": "2026-11-05T22:45:13+08:00",
+ "last_error": ""}
+```
+
+`login/poll` 的 `status`：`wait` / `scaned` / `confirmed` / `none`。
+`confirmed` 时额外返回 `user_name` 与 `started`（接收器是否已启动）——**无需重启 serve**。
 
 ## 快速上手
 

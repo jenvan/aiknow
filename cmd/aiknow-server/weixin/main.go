@@ -48,7 +48,7 @@ func Main(args []string) {
 
 func printUsage() {
 	fmt.Print(`用法:
-  aiknow-server weixin login [--allow-from "a@im.wechat,b@im.wechat"]
+  aiknow-server weixin login
   aiknow-server weixin status
   aiknow-server weixin logout [--yes]
   aiknow-server weixin send-image <图片路径>
@@ -63,7 +63,7 @@ func printUsage() {
 提示:
   - 扫码入口：手机微信 → 我 → 设置 → 关于微信，确认版本 8.0.70+，
     再到 设置 → 插件 → 微信 ClawBot 授权；
-  - 白名单默认只放行扫码者本人，无需额外配置即可自用；
+  - 只放行扫码者本人（v1 单用户，无白名单概念）；
   - 凭据与游标存数据库（weixin_bot_accounts），不写 .env。
 `)
 }
@@ -84,7 +84,6 @@ func openDB(ctx context.Context) (*repository.PostgresDB, *config.Config, func()
 
 func login(args []string) {
 	fs := flag.NewFlagSet("weixin login", flag.ExitOnError)
-	allowFrom := fs.String("allow-from", "", "允许使用 bot 的微信用户 ID（逗号分隔）；留空=仅扫码者本人")
 	_ = fs.Parse(args)
 
 	ctx := context.Background()
@@ -129,28 +128,18 @@ func login(args []string) {
 			os.Exit(1)
 		}
 
-		af := *allowFrom
-		if af == "" && existing != nil {
-			af = existing.AllowFrom // 未显式指定时沿用旧白名单，避免扫码把白名单清空
-		}
 		acc := &model.WeixinBotAccount{
 			BotID:       tok.BotID,
 			BotToken:    tok.BotToken,
 			BaseURL:     firstNonEmpty(tok.BaseURL, base),
 			OwnerUserID: tok.UserID,
-			AllowFrom:   af,
 		}
 		if err := repo.SaveLogin(ctx, acc); err != nil {
 			fmt.Printf("保存凭据失败: %v\n", err)
 			os.Exit(1)
 		}
 
-		fmt.Printf("\n登录成功\n  bot:   %s\n  扫码者: %s\n", tok.BotID, tok.UserID)
-		if af == "" {
-			fmt.Println("  白名单: 仅扫码者本人（如需他人使用，重跑并加 --allow-from）")
-		} else {
-			fmt.Printf("  白名单: %s\n", af)
-		}
+		fmt.Printf("\n登录成功\n  bot:   %s\n  扫码者: %s（唯一放行的用户）\n", tok.BotID, tok.UserID)
 		fmt.Println("\n下一步：在 .env 里设 WEIXIN_BOT_ENABLED=true 后重启 serve。")
 		return
 	}
@@ -177,10 +166,6 @@ func status() {
 		return
 	}
 
-	allowFrom := acc.AllowFrom
-	if strings.TrimSpace(allowFrom) == "" {
-		allowFrom = "（空）仅扫码者本人"
-	}
 	lastSeen := "-"
 	if acc.LastSeenAt != nil {
 		lastSeen = acc.LastSeenAt.Format(time.DateTime)
@@ -193,7 +178,6 @@ func status() {
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(w, "bot_id\t"+acc.BotID)
 	fmt.Fprintln(w, "扫码者\t"+acc.OwnerUserID)
-	fmt.Fprintln(w, "白名单\t"+allowFrom)
 	fmt.Fprintln(w, "游标\t"+cursor)
 	fmt.Fprintln(w, "最近活跃\t"+lastSeen)
 	fmt.Fprintln(w, "更新时间\t"+acc.UpdatedAt.Format(time.DateTime))

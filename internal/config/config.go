@@ -70,9 +70,11 @@ var managedKeys = []string{
 	"COLLECTOR_BROWSER_TOKEN",
 	"COLLECTOR_BROWSER_TIMEOUT",
 
+	// 文件传输助手（网页版协议，只收不发，详见 docs/WECHATWEB.md）
+	"WECHATWEB_ENABLED",
+
 	// 微信 iLink Bot（个人号官方 Bot 接口，详见 docs/WEIXIN_BOT.md）
 	"WEIXIN_BOT_ENABLED",
-	"WEIXIN_BOT_ALLOW_FROM",
 	"WEIXIN_BOT_BASE_URL",
 
 	// 腾讯云 COS（采集文章截图归档，防源站失效）
@@ -113,11 +115,13 @@ var defaultValues = map[string]string{
 	"COLLECTOR_ARCHIVE_IMAGES":     "true",
 	"COLLECTOR_USER_AGENT":         "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
 
+	// 文件传输助手通道：默认关闭。开启前需先 `aiknow-server wechatweb login`。
+	"WECHATWEB_ENABLED": "false",
+
 	// 微信 Bot：默认关闭；开启后由 serve 启动长轮询。
 	// 凭据与游标不入配置（扫码写库，见 migrations/012_weixin_bot.sql）。
-	"WEIXIN_BOT_ENABLED":    "false",
-	"WEIXIN_BOT_ALLOW_FROM": "",
-	"WEIXIN_BOT_BASE_URL":   "",
+	"WEIXIN_BOT_ENABLED":  "false",
+	"WEIXIN_BOT_BASE_URL": "",
 
 	// 无头浏览器渲染默认值（与 internal/service/collector.go 渲染配置一致）
 	// ENABLED 是总开关（默认 false）；ENDPOINT 缺省为空。二者都满足才真正渲染，

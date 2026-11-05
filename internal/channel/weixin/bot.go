@@ -25,10 +25,6 @@ type Bot struct {
 	account   *model.WeixinBotAccount
 	lastToken string
 
-	// allowFromOverride 来自 L1 配置 WEIXIN_BOT_ALLOW_FROM：非空时覆盖库里
-	// 的白名单，省去为改白名单重新扫码（凭据仍以库为准）。
-	allowFromOverride string
-
 	// pusher 可选：注入后采集入库的文章会在处理完成时回推微信
 	pusher *Pusher
 
@@ -41,11 +37,6 @@ const seenCap = 500
 
 // BotOption 定制 Bot。
 type BotOption func(*Bot)
-
-// WithAllowFrom 用配置覆盖账号里的白名单。
-func WithAllowFrom(csv string) BotOption {
-	return func(b *Bot) { b.allowFromOverride = csv }
-}
 
 // WithPusher 注入「处理完成回推」的实现。
 //
@@ -84,9 +75,6 @@ func (b *Bot) Run(ctx context.Context) error {
 		return errors.New("weixin bot: 尚未扫码登录，先执行 `aiknow-server weixin login`")
 	}
 
-	if b.allowFromOverride != "" {
-		acc.AllowFrom = b.allowFromOverride
-	}
 	b.account = acc
 	b.lastToken = acc.LastContextToken
 	b.client = ilink.NewClient(ilink.Token{
@@ -118,9 +106,10 @@ func (b *Bot) handle(ctx context.Context, msg *ilink.Message) error {
 		b.logger.DebugContext(ctx, "weixin: ignore group message", slog.String("group_id", msg.GroupID))
 		return nil
 	}
-	if !b.account.Allows(msg.FromUserID) {
-		// 不回复：未授权用户的消息一律静默丢弃，避免把 bot 变成可探测的服务
-		b.logger.WarnContext(ctx, "weixin: ignored message from unauthorized user",
+	// 只放行扫码者本人。没有白名单概念：v1 单用户自用，多放行只会扩大
+	// 无头浏览器渲染 + LLM 的消耗面。
+	if msg.FromUserID != b.account.OwnerUserID {
+		b.logger.WarnContext(ctx, "weixin: ignored message from non-owner",
 			slog.String("from", msg.FromUserID))
 		return nil
 	}

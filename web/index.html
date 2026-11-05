@@ -1236,19 +1236,57 @@
                         </div>
 
                         <div class="bg-white rounded-lg shadow p-4">
-                            <h3 class="font-semibold text-gray-800 mb-1">白名单</h3>
-                            <p class="text-xs text-gray-500 mb-2">
-                                逗号分隔的微信用户 ID（形如 <span class="font-mono">xxx@im.wechat</span>）。留空 = 只放行扫码者本人。
-                                一条消息可能触发无头浏览器渲染 + LLM，别放给不信任的人。
-                            </p>
-                            <textarea x-model="allowFromDraft" rows="3"
-                                      class="w-full border rounded px-3 py-2 text-sm font-mono"
-                                      placeholder="user1@im.wechat,user2@im.wechat"></textarea>
-                            <div class="mt-3">
-                                <button @click="saveAllowFrom()" :disabled="saving"
-                                        class="bg-gray-800 text-white px-4 py-2 rounded text-sm disabled:opacity-50"
-                                        x-text="saving ? '保存中…' : '保存白名单'"></button>
+                            <div class="flex items-center justify-between mb-3">
+                                <h3 class="font-semibold text-gray-800">文件传输助手通道</h3>
+                                <span class="px-2 py-0.5 rounded text-xs"
+                                      :class="web && web.running ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'"
+                                      x-text="web && web.running ? '接收中' : (web && web.logged_in ? '已登录，未运行' : '未登录')"></span>
                             </div>
+                            <p class="text-xs text-gray-500 mb-3">
+                                手机把公众号文章<b>转发给「文件传输助手」</b>即可入库；只收不发。
+                                开启后<b>不要再开网页版文件传输助手</b>，两个消费者会抢消息。
+                            </p>
+
+                            <div x-show="loadingWeb" class="text-gray-500 text-sm">加载中…</div>
+                            <template x-if="!loadingWeb && web">
+                                <dl class="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                                    <div>
+                                        <dt class="text-xs text-gray-500">账号</dt>
+                                        <dd class="font-mono break-all" x-text="web.user_name || '未登录'"></dd>
+                                    </div>
+                                    <div>
+                                        <dt class="text-xs text-gray-500">同步游标</dt>
+                                        <dd x-text="web.logged_in ? (web.sync_key_items + ' 项') : '-'"></dd>
+                                    </div>
+                                    <div>
+                                        <dt class="text-xs text-gray-500">最近同步</dt>
+                                        <dd x-text="web.last_sync_at ? fmt(web.last_sync_at) : '-'"></dd>
+                                    </div>
+                                    <div>
+                                        <dt class="text-xs text-gray-500">状态</dt>
+                                        <dd class="text-xs"
+                                            :class="web.last_error ? 'text-red-600' : 'text-gray-600'"
+                                            x-text="web.last_error ? web.last_error : (web.running ? '长轮询中' : '未运行')"></dd>
+                                    </div>
+                                </dl>
+                            </template>
+
+                            <div class="mt-4 flex flex-wrap gap-2">
+                                <button @click="startWebLogin()" class="bg-blue-600 text-white px-4 py-2 rounded text-sm">扫码登录</button>
+                                <button @click="logoutWeb()" class="border border-red-300 text-red-600 px-4 py-2 rounded text-sm">登出</button>
+                            </div>
+
+                            <template x-if="webLoginUrl">
+                                <div class="mt-4 p-3 bg-amber-50 border border-amber-200 rounded">
+                                    <p class="text-xs text-amber-900 mb-2">用<b>手机微信</b>扫码（或直接打开链接）：</p>
+                                    <div class="flex gap-2">
+                                        <input readonly :value="webLoginUrl" class="flex-1 border rounded px-3 py-2 text-xs font-mono bg-white">
+                                        <button @click="copyWebUrl()" class="bg-amber-600 text-white px-3 py-2 rounded text-xs"
+                                                x-text="webCopied ? '已复制' : '复制'"></button>
+                                    </div>
+                                    <p class="text-xs text-amber-800 mt-2" x-text="statusLabel(webLoginStatus)"></p>
+                                </div>
+                            </template>
                         </div>
                     </div>
                 </template>

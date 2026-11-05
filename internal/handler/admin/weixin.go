@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"strings"
 	"sync"
 	"time"
 
@@ -54,7 +53,6 @@ func (h *WeixinHandler) GetStatus(c *gin.Context) {
 	if acc != nil {
 		resp["bot_id"] = acc.BotID
 		resp["owner_user_id"] = acc.OwnerUserID
-		resp["allow_from"] = acc.AllowFrom
 		resp["cursor_saved"] = acc.Cursor != ""
 		resp["last_seen_at"] = acc.LastSeenAt
 		resp["updated_at"] = acc.UpdatedAt
@@ -130,73 +128,14 @@ func (h *WeixinHandler) PollLogin(c *gin.Context) {
 	}
 }
 
-// saveToken 落库。沿用已有白名单——重新扫码不应把白名单清空。
+// saveToken 落库。
 func (h *WeixinHandler) saveToken(ctx context.Context, tok *ilink.Token) error {
-	existing, err := h.repo.Get(ctx)
-	if err != nil {
-		return err
-	}
-	allowFrom := ""
-	if existing != nil {
-		allowFrom = existing.AllowFrom
-	}
 	return h.repo.SaveLogin(ctx, &model.WeixinBotAccount{
 		BotID:       tok.BotID,
 		BotToken:    tok.BotToken,
 		BaseURL:     tok.BaseURL,
 		OwnerUserID: tok.UserID,
-		AllowFrom:   allowFrom,
 	})
-}
-
-// SetAllowFrom 更新白名单。
-//
-// 校验在服务端做：白名单决定「谁能花掉渲染 + LLM 的钱」，不接受格式可疑的值。
-func (h *WeixinHandler) SetAllowFrom(c *gin.Context) {
-	var req struct {
-		AllowFrom string `json:"allow_from"`
-	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "请求体格式错误"})
-		return
-	}
-
-	acc, err := h.repo.Get(c.Request.Context())
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	if acc == nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "尚未扫码登录"})
-		return
-	}
-
-	clean := normalizeAllowFrom(req.AllowFrom)
-	if err := h.repo.UpdateAllowFrom(c.Request.Context(), acc.BotID, clean); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"allow_from": clean})
-}
-
-// normalizeAllowFrom 规整白名单：去空白、去重后按逗号重新拼接。
-//
-// 不做格式校验（ID 形如 xxx@im.wechat，但格式由微信决定，写死前缀反而会在
-// 微信调整 ID 规则时挡住用户）；真正的约束是 Bot 侧精确匹配，不匹配即拒。
-// 空串表示「仅扫码者本人」。
-func normalizeAllowFrom(raw string) string {
-	seen := make(map[string]bool)
-	out := make([]string, 0, 4)
-	for _, item := range strings.FieldsFunc(raw, func(r rune) bool {
-		return r == ',' || r == ';' || r == ' ' || r == '\n' || r == '\t'
-	}) {
-		if seen[item] {
-			continue
-		}
-		seen[item] = true
-		out = append(out, item)
-	}
-	return strings.Join(out, ",")
 }
 
 // Logout 删除本地凭据。

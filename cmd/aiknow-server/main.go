@@ -18,7 +18,9 @@ import (
 
 	"github.com/jenvan/aiknow/cmd/aiknow-server/apikey"
 	"github.com/jenvan/aiknow/cmd/aiknow-server/hashpwd"
+	wechatwebcmd "github.com/jenvan/aiknow/cmd/aiknow-server/wechatweb"
 	weixincmd "github.com/jenvan/aiknow/cmd/aiknow-server/weixin"
+	channelwechatweb "github.com/jenvan/aiknow/internal/channel/wechatweb"
 	channelweixin "github.com/jenvan/aiknow/internal/channel/weixin"
 	"github.com/jenvan/aiknow/internal/config"
 	"github.com/jenvan/aiknow/internal/handler/admin"
@@ -30,6 +32,7 @@ import (
 	"github.com/jenvan/aiknow/internal/service/provider"
 	"github.com/jenvan/aiknow/pkg/cos"
 	"github.com/jenvan/aiknow/pkg/pgqueue"
+	"github.com/jenvan/aiknow/pkg/securebox"
 )
 
 // 版本信息，由 ldflags 注入（必须是 var，const 无法被 -X 覆盖）
@@ -73,6 +76,12 @@ func main() {
 		return
 	}
 
+	// wechatweb 子命令（文件传输助手：扫码登录 / 状态 / 登出）
+	if len(os.Args) > 1 && os.Args[1] == "wechatweb" {
+		wechatwebcmd.Main(os.Args[2:])
+		return
+	}
+
 	// weixin 子命令（扫码登录 / 状态 / 登出）
 	if len(os.Args) > 1 && os.Args[1] == "weixin" {
 		weixincmd.Main(os.Args[2:])
@@ -104,6 +113,7 @@ func printHelp() {
   migrate           执行数据库迁移后退出（用于开发期初始化/重建）
   apikey            管理对外 API / MCP 所用的 API Key（create / list / revoke）
   weixin            微信 iLink Bot（login / status / logout）
+  wechatweb         文件传输助手（login / status / logout，只收不发）
   serve             启动 HTTP 服务（启动时会自动执行迁移）
 
 示例:
@@ -278,6 +288,22 @@ func serve() {
 		db.GetCategoryRepo(),
 		db.GetTagRepo(),
 		queue,
+	)
+
+	// 文件传输助手通道的加密箱与生命周期管理器。
+	// 必须在路由注册前创建：后台「微信入口」页的扫码接口要用到它们。
+	// 开关 WECHATWEB_ENABLED 只决定**启动时是否立即拉起**接收器，
+	// 页面扫码成功也会拉起（Manager.Start），无需重启。
+	webSecret, _ := cfg.Get("SESSION_SECRET")
+	webBox, webBoxErr := securebox.New(webSecret)
+	if webBoxErr != nil {
+		fmt.Printf("警告: SESSION_SECRET 不可用，文件传输助手通道无法使用: %v\n", webBoxErr)
+		webBox = nil
+	}
+	webMgr := channelwechatweb.NewManager(
+		db.GetWechatWebRepo(), webBox,
+		channelwechatweb.ArticleAdapter{Svc: articleService},
+		slog.Default(),
 	)
 
 	chunkService := service.NewChunkService(db.GetChunkRepo())
@@ -465,8 +491,13 @@ func serve() {
 		adminGroup.GET("/weixin/status", weixinHandler.GetStatus)
 		adminGroup.POST("/weixin/login/start", weixinHandler.StartLogin)
 		adminGroup.GET("/weixin/login/poll", weixinHandler.PollLogin)
-		adminGroup.PUT("/weixin/allow-from", weixinHandler.SetAllowFrom)
 		adminGroup.POST("/weixin/logout", weixinHandler.Logout)
+
+		wechatWebHandler := admin.NewWechatWebHandler(db.GetWechatWebRepo(), webBox, webMgr)
+		adminGroup.GET("/wechatweb/status", wechatWebHandler.GetStatus)
+		adminGroup.POST("/wechatweb/login/start", wechatWebHandler.StartLogin)
+		adminGroup.GET("/wechatweb/login/poll", wechatWebHandler.PollLogin)
+		adminGroup.POST("/wechatweb/logout", wechatWebHandler.Logout)
 
 		mcpDebugHandler := admin.NewMCPDebugHandler(mcpService)
 		adminGroup.POST("/mcp/debug", mcpDebugHandler.Invoke)
@@ -556,6 +587,36 @@ func serve() {
 	}()
 	defer worker.Stop()
 
+	// ---- 微信通道公共依赖 ----
+	//
+	// 两条通道共用同一个 ArticleAdapter 与 Pusher：
+	//   - 文件传输助手只收，入库后**通过 Bot 发回执**（它自己不发消息）；
+	//   - Bot 既收发，也负责处理完成推送。
+	// Pusher 只有 Bot 启用时才有发送端（Attach 在 Bot.Run 里做），
+	// 因此 SetOnProcessed 也只在 Bot 启用时注册，避免空转告警。
+	articleAdapter := channelweixin.ArticleAdapter{Svc: articleService}
+	wxPusher := channelweixin.NewPusher(articleAdapter, slog.Default())
+	if cfg.GetBool("WEIXIN_BOT_ENABLED", false) {
+		worker.SetOnProcessed(wxPusher.Deliver)
+	}
+
+	// ---- 文件传输助手（可选通道：只收转发来的公众号文章）----
+	//
+	// 与微信 Bot 是两条独立通道：这条走网页版协议（逆向），能收到「转发」卡片；
+	// Bot 走官方 iLink，收不到转发但零风险。两者都默认关闭。
+	// 回执统一走 Bot：本通道只收不发（发送是风控面最大的动作）
+	if cfg.GetBool("WEIXIN_BOT_ENABLED", false) {
+		webMgr.SetNotifier(channelweixin.NewNotifier(db.GetWeixinRepo(), wxPusher, slog.Default()))
+	}
+	if cfg.GetBool("WECHATWEB_ENABLED", false) && webBox != nil {
+		if err := webMgr.Start(context.Background()); err != nil {
+			fmt.Printf("文件传输助手通道未启动: %v\n", err)
+		} else {
+			fmt.Println("文件传输助手通道已启用（只收不发）")
+		}
+	}
+	defer webMgr.Stop()
+
 	// ---- 微信 iLink Bot（可选通道：单聊 + 采集 + 检索）----
 	//
 	// 与主服务同进程：直接调 service 层（不需要给 bot 发 API Key，也不走 HTTP 回环）。
@@ -564,7 +625,6 @@ func serve() {
 		botCtx, botCancel := context.WithCancel(context.Background())
 		defer botCancel()
 
-		articleAdapter := channelweixin.ArticleAdapter{Svc: articleService}
 		botRouter := channelweixin.NewRouter(
 			articleAdapter,
 			keywordService,
@@ -572,14 +632,10 @@ func serve() {
 			channelweixin.CollectorAdapter{Svc: collector},
 			slog.Default(),
 		)
-		// 处理完成回推：只推「由微信入口发起」的采集，靠 Pusher 的登记表区分，
+		// 处理完成回推用共享的 wxPusher：只推「登记过来源」的采集，
 		// 后台/API 录入的文章不会被推到微信。
-		pusher := channelweixin.NewPusher(articleAdapter, slog.Default())
-		worker.SetOnProcessed(pusher.Deliver)
-
 		bot := channelweixin.NewBot(db.GetWeixinRepo(), botRouter, slog.Default(),
-			channelweixin.WithAllowFrom(cfg.GetOr("WEIXIN_BOT_ALLOW_FROM", "")),
-			channelweixin.WithPusher(pusher))
+			channelweixin.WithPusher(wxPusher))
 		go func() {
 			err := bot.Run(botCtx)
 			switch {
