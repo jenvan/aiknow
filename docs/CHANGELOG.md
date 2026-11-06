@@ -2,6 +2,20 @@
 
 ## [Unreleased] - 2026-11-06
 
+### feat(ui): 录入页分屏预览 + 深色模式；feat(cos): 产物按文章归档
+
+- **录入文章页**：正文改成左右分屏（左 Markdown、右实时预览），与「文章编辑」页
+  同一套渲染（marked + DOMPurify）；容器放宽到 `max-w-7xl`。
+- **深色模式**：右上角切换按钮，`localStorage` 记忆，首屏脚本先应用避免闪白。
+  实现走「`<html class="dark">` + 全局 CSS 覆盖」而不是逐元素加 `dark:`——
+  项目是 Tailwind CDN + 大量硬编码浅色工具类，逐个改不现实；代价是新增组件
+  若用了未覆盖的颜色，需要在 `web/css/main.css` 补一行。
+- **COS 布局改为按文章归档**：`<prefix>/articles/<id>/screenshot.png`（固定名，
+  重截覆盖）+ `<prefix>/articles/<id>/img-NN.ext`（正文图），`COS_PATH_PREFIX`
+  默认从 `aiknow/screenshots` 改为 `aiknow`。截图 URL 追加 `?v=<unix>` 作缓存键。
+- 存量数据已迁移：27 张截图 + 105 张正文图片复制到新路径，`articles.content` /
+  `chunks.content` 里的 URL 同步改写，旧对象已删除；迁移后残留旧路径 = 0。
+
 ### fix(collector): 归档截图不再带公众号浮动工具条
 
 整页截图时 Chrome 把 `position: fixed` 的元素渲染在**视口底部**，

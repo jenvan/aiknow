@@ -9,6 +9,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -113,9 +114,16 @@ func (c *Client) Upload(ctx context.Context, objectKey string, data []byte, cont
 }
 
 // UploadScreenshot 上传某文章的截图，返回可访问 URL（满足 service.ScreenshotStore）。
-// 对象键按 screenshots/<yyyy>/<mm>/<id>.png 生成。
+//
+// 对象键固定为 articles/<id>/screenshot.png：**同篇文章重截即覆盖**，不会堆积孤儿文件。
+// URL 附带 ?v=<unix> 作缓存键——对象路径不变，但浏览器/CDN 看到新查询串会重新拉取，
+// 否则重截后页面可能还是旧图。
 func (c *Client) UploadScreenshot(ctx context.Context, id string, data []byte) (string, error) {
-	return c.Upload(ctx, BuildScreenshotKey(id, time.Now()), data, "image/png")
+	url, err := c.Upload(ctx, BuildScreenshotKey(id, time.Now()), data, "image/png")
+	if err != nil {
+		return "", err
+	}
+	return url + "?v=" + strconv.FormatInt(time.Now().Unix(), 10), nil
 }
 
 // Enabled 配置是否完整到可上传（满足 service.ScreenshotStore 接口）。
@@ -166,9 +174,13 @@ func normalizeScheme(endpoint string) string {
 // 只含年月分层，不含 "screenshots" 前缀——路径命名空间由 Config.PathPrefix 负责
 // （默认 "screenshots"）。若此处再硬编码前缀，会与 PathPrefix 叠加成
 // "aiknow/screenshots/screenshots/..."。
+// BuildScreenshotKey 截图对象键：articles/<id>/screenshot.png。
+//
+// 刻意不用日期目录：按 id 归档后「一篇文章的所有产物」在同一前缀下
+// （截图 + 正文图片），删文章时整个目录一起清；固定文件名保证重截覆盖旧对象。
+// t 参数保留只为兼容调用方签名。
 func BuildScreenshotKey(id string, t time.Time) string {
-	return fmt.Sprintf("%s/%s/%s.png",
-		t.Format("2006"), t.Format("01"), sanitizeKeySegment(id))
+	return fmt.Sprintf("articles/%s/screenshot.png", sanitizeKeySegment(id))
 }
 
 // sanitizeKeySegment 清洗对象键片段，只保留安全字符。

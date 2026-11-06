@@ -74,9 +74,12 @@ func TestPublicURL(t *testing.T) {
 func TestBuildScreenshotKey(t *testing.T) {
 	ts := time.Date(2026, 9, 18, 0, 0, 0, 0, time.UTC)
 	got := BuildScreenshotKey("abc-123", ts)
-	// 不含 screenshots 前缀（由 PathPrefix 负责）
-	if got != "2026/09/abc-123.png" {
+	// 按文章归档、固定文件名：重截覆盖旧对象，不留孤儿；日期不参与路径
+	if got != "articles/abc-123/screenshot.png" {
 		t.Errorf("BuildScreenshotKey = %q", got)
+	}
+	if strings.Contains(got, "2026") {
+		t.Errorf("路径不应包含日期: %q", got)
 	}
 	// 特殊字符被清洗
 	got2 := BuildScreenshotKey("a/b c.png", ts)

@@ -64,3 +64,116 @@ textarea {
 .markdown-body th, .markdown-body td { border: 1px solid #e5e7eb; padding: 0.4em 0.7em; text-align: left; }
 .markdown-body th { background: #f9fafb; font-weight: 600; }
 .markdown-body hr { border: 0; border-top: 1px solid #e5e7eb; margin: 1.5em 0; }
+
+/* ============================================================
+   深色模式
+   ------------------------------------------------------------
+   项目是 Tailwind Play CDN + 大量硬编码的浅色工具类（bg-white / text-gray-800…），
+   逐个补 dark: 变体既不现实也易漏。这里改用「class 切换 + 全局覆盖」：
+   在 <html> 上加 .dark，然后用幂等的选择器把常用浅色工具类重映射成深色。
+   代价是覆盖的是"语义色的近似"，新增组件若用了未覆盖的颜色，需要补一行。
+   ============================================================ */
+
+/* 主题切换时的过渡（避免整页闪一下） */
+html { color-scheme: light; }
+html.dark { color-scheme: dark; }
+body { transition: background-color .18s ease, color .18s ease; }
+
+/* 底色与文字 */
+.dark body,
+.dark .bg-gray-50 { background-color: #0b1220 !important; }
+.dark .bg-white { background-color: #111827 !important; }
+.dark .bg-gray-100 { background-color: #1f2937 !important; }
+.dark .text-gray-900,
+.dark .text-gray-800 { color: #e5e7eb !important; }
+.dark .text-gray-700 { color: #d1d5db !important; }
+.dark .text-gray-600 { color: #9ca3af !important; }
+.dark .text-gray-500 { color: #8b949e !important; }
+.dark .text-gray-400 { color: #6b7280 !important; }
+
+/* 边框与阴影 */
+.dark .border,
+.dark .border-gray-100,
+.dark .border-gray-200,
+.dark .border-gray-300 { border-color: #263244 !important; }
+.dark .shadow,
+.dark .shadow-sm,
+.dark .shadow-md { box-shadow: 0 1px 3px rgba(0,0,0,.5) !important; }
+.dark .divide-gray-100 > :not([hidden]) ~ :not([hidden]),
+.dark .divide-gray-200 > :not([hidden]) ~ :not([hidden]) { border-color: #263244 !important; }
+
+/* 表单控件 */
+.dark input,
+.dark textarea,
+.dark select {
+    background-color: #0b1220 !important;
+    color: #e5e7eb !important;
+    border-color: #334155 !important;
+}
+.dark input::placeholder,
+.dark textarea::placeholder { color: #64748b !important; }
+.dark input:focus,
+.dark textarea:focus,
+.dark select:focus { outline: 2px solid #2563eb; outline-offset: -1px; }
+
+/* 交互态 */
+.dark .hover\:bg-gray-100:hover { background-color: #1f2937 !important; }
+.dark .hover\:bg-gray-50:hover { background-color: #16202f !important; }
+.dark .hover\:bg-red-50:hover { background-color: #3b1113 !important; }
+.dark .hover\:bg-blue-50:hover { background-color: #12233d !important; }
+
+/* 状态徽标 / 提示条（浅底色 + 深字） */
+.dark .bg-blue-50 { background-color: #12233d !important; }
+.dark .bg-blue-100 { background-color: #1e3a5f !important; }
+.dark .text-blue-700, .dark .text-blue-600 { color: #93c5fd !important; }
+.dark .bg-green-50 { background-color: #0f2a1d !important; }
+.dark .bg-green-100 { background-color: #14371f !important; }
+.dark .text-green-700, .dark .text-green-800 { color: #86efac !important; }
+.dark .bg-red-50 { background-color: #3b1113 !important; }
+.dark .bg-red-100 { background-color: #4c1417 !important; }
+.dark .text-red-700, .dark .text-red-600 { color: #fca5a5 !important; }
+.dark .bg-amber-50 { background-color: #3a2a0c !important; }
+.dark .bg-amber-100 { background-color: #4a360e !important; }
+.dark .text-amber-900, .dark .text-amber-800 { color: #fcd34d !important; }
+.dark .bg-orange-50 { background-color: #3a220c !important; }
+.dark .text-orange-600 { color: #fdba74 !important; }
+.dark .bg-purple-100 { background-color: #2e1f4a !important; }
+.dark .text-purple-700 { color: #d8b4fe !important; }
+
+/* 品牌渐变的头像/徽标在深色下降低亮度 */
+.dark .from-blue-600.to-indigo-500 { filter: brightness(.9); }
+
+/* Markdown 正文 */
+.dark .markdown-body { color: #d1d5db; }
+.dark .markdown-body h1,
+.dark .markdown-body h2,
+.dark .markdown-body h3,
+.dark .markdown-body h4,
+.dark .markdown-body h5,
+.dark .markdown-body h6 { color: #f3f4f6 !important; }
+.dark .markdown-body strong { color: #f9fafb; }
+.dark .markdown-body a { color: #93c5fd; }
+.dark .markdown-body code {
+    background-color: #1f2937 !important;
+    color: #e5e7eb !important;
+}
+.dark .markdown-body pre {
+    background-color: #0b1220 !important;
+    border: 1px solid #263244;
+}
+.dark .markdown-body blockquote {
+    border-left-color: #334155;
+    color: #9ca3af;
+}
+.dark .markdown-body th,
+.dark .markdown-body td { border-color: #263244; }
+.dark .markdown-body hr { border-color: #263244; }
+
+/* 滚动条 */
+.dark ::-webkit-scrollbar { width: 10px; height: 10px; }
+.dark ::-webkit-scrollbar-track { background: #0b1220; }
+.dark ::-webkit-scrollbar-thumb {
+    background: #334155;
+    border-radius: 6px;
+    border: 2px solid #0b1220;
+}

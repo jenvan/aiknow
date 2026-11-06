@@ -333,6 +333,13 @@ v1 单管理员，凭据来自 `ADMIN_USERNAME` + `ADMIN_PASSWORD_HASH`，无用
   `articles.screenshot_url`（migration 011）。采集/截图失败不阻断处理，仅记日志。
   取「处理时为准」而非「录入时为准」：录入 Preview 仅作预览，最终以处理时数据为准。
 
+- **对象存储布局：一篇文章一个目录**（`COS_PATH_PREFIX` 默认 `aiknow`）：
+  - `<prefix>/articles/<id>/screenshot.png` —— 固定文件名，重截覆盖旧对象，不留孤儿；
+    URL 带 `?v=<unix>` 作缓存键，避免浏览器/CDN 拿到旧图；
+  - `<prefix>/articles/<id>/img-NN.ext` —— 正文图片；
+  - 删文章时整目录一起清。**不要再用日期分目录**：早期是
+    `screenshots/<yyyy>/<mm>/<id>.png`，重截会跨月产生第二份对象，且"截图"前缀下
+    混着正文图，已迁移（见 CHANGELOG 2026-11-06）。
 - **正文图片归档**（`COLLECTOR_ARCHIVE_IMAGES`，默认开）：`service.ImageArchiver`
   把 Markdown 里的外链图片带 `Referer: https://mp.weixin.qq.com/` 下载后传 COS，
   再把正文里的链接换成 COS URL。**公众号图床有防盗链**，不归档的话后台预览全是坏图、

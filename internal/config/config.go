@@ -137,7 +137,7 @@ var defaultValues = map[string]string{
 	"COS_BUCKET":      "",
 	"COS_REGION":      "",
 	"COS_ENDPOINT":    "",
-	"COS_PATH_PREFIX": "screenshots",
+	"COS_PATH_PREFIX": "aiknow",
 }
 
 // YAMLConfig config.yaml 的结构。

@@ -7,6 +7,17 @@
     <!-- 本地 vendor 资源（已下载到 web/js/vendor/，不依赖 CDN）：
          Tailwind Play CDN 脚本 + Alpine.js 3.x 官方发布包。
          marked（Markdown→HTML）+ DOMPurify（清洗，防 XSS）用于文章预览页。 -->
+    <!-- 主题：在样式生效前应用，避免深色用户看到一闪而过的白屏 -->
+    <script>
+        (function () {
+            try {
+                var saved = localStorage.getItem('aiknow-theme');
+                var dark = saved ? saved === 'dark'
+                    : window.matchMedia('(prefers-color-scheme: dark)').matches;
+                if (dark) document.documentElement.classList.add('dark');
+            } catch (e) { /* 隐私模式下 localStorage 不可用，忽略 */ }
+        })();
+    </script>
     <script src="/web/js/vendor/tailwind.js"></script>
     <script src="/web/js/vendor/marked.min.js"></script>
     <script src="/web/js/vendor/purify.min.js"></script>
@@ -96,6 +107,19 @@
                     </button>
                     <h1 class="text-lg font-semibold text-gray-900" x-text="pageTitle()"></h1>
                     <div class="ml-auto flex items-center gap-3">
+                        <button @click="toggleTheme()" :title="dark ? '切换到浅色' : '切换到深色'"
+                                class="w-9 h-9 rounded-lg hover:bg-gray-100 flex items-center justify-center text-gray-600">
+                            <!-- 深色时显示太阳（点了回到浅色） -->
+                            <svg x-show="!dark" class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="1.8"
+                                 stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24">
+                                <path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/>
+                            </svg>
+                            <svg x-show="dark" x-cloak class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="1.8"
+                                 stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24">
+                                <circle cx="12" cy="12" r="4"/>
+                                <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/>
+                            </svg>
+                        </button>
                         <div class="hidden sm:flex items-center gap-2">
                             <div class="w-8 h-8 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center text-sm font-medium"
                                  x-text="username.charAt(0).toUpperCase()"></div>
@@ -649,7 +673,7 @@
 
                 <!-- ============ 文章录入 ============ -->
                 <template x-if="currentPage === 'article-new'">
-                    <div x-data="articleNewPage" class="p-6 max-w-4xl">
+                    <div x-data="articleNewPage" class="p-6 max-w-7xl">
                         <div x-show="error" class="mb-4 p-3 bg-red-50 border border-red-200 rounded text-sm text-red-700" x-text="error"></div>
                         <template x-if="notice">
                             <div class="mb-4 p-3 bg-green-50 border border-green-200 rounded text-sm text-green-700">
@@ -689,9 +713,21 @@
                                     <input x-model="form.title" class="w-full border rounded px-3 py-2 text-sm">
                                 </div>
                                 <div>
-                                    <label class="block text-xs text-gray-600 mb-1">正文</label>
-                                    <textarea x-model="form.content" rows="14"
-                                              class="w-full border rounded px-3 py-2 text-sm font-mono"></textarea>
+                                    <div class="flex items-center justify-between mb-1">
+                                        <label class="text-xs text-gray-600">
+                                            正文 <span class="text-gray-400">· Markdown 语法，右侧实时预览</span>
+                                        </label>
+                                        <span class="text-xs text-gray-400"><span x-text="(form.content || '').length"></span> 字</span>
+                                    </div>
+                                    <div class="grid grid-cols-2 gap-3">
+                                        <textarea x-model="form.content" rows="28"
+                                                  class="w-full border rounded px-3 py-2 text-sm font-mono leading-relaxed resize-y"
+                                                  style="min-height: 42rem;"></textarea>
+                                        <div class="border rounded px-4 py-3 overflow-y-auto bg-gray-50"
+                                             style="height: 42rem;">
+                                            <div class="markdown-body text-sm text-gray-800" x-html="previewHTML"></div>
+                                        </div>
+                                    </div>
                                 </div>
                                 <div class="grid grid-cols-2 gap-3">
                                     <div>

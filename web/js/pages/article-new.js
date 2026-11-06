@@ -1,4 +1,4 @@
-import { api } from '../api.js';
+import { api, renderMarkdown } from '../api.js';
 
 /** 文章录入：手动录入 / URL 采集（含预览） */
 export function registerArticleNew(Alpine) {
@@ -12,6 +12,11 @@ export function registerArticleNew(Alpine) {
 
         form: { title: '', content: '', category_name: '', tags: '', url: '' },
         preview: null,
+
+        /** 与「文章编辑」页同一套渲染（marked + DOMPurify），保证两侧观感一致 */
+        get previewHTML() {
+            return renderMarkdown(this.form.content);
+        },
 
         /** 采集 URL 并预览，不落库 */
         async fetchUrl() {

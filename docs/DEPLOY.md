@@ -308,7 +308,7 @@ docker compose exec -T postgres psql -U postgres -d aiknow \
 | `COS_BUCKET` | 空 | 存储桶名（含 appid 后缀），如 `aiknow-1300000000` |
 | `COS_REGION` | 空 | 地域，如 `ap-guangzhou` |
 | `COS_ENDPOINT` | 空 | 自定义访问域名（CDN）；空则用 COS 默认域名 |
-| `COS_PATH_PREFIX` | `screenshots` | 截图对象键前缀 |
+| `COS_PATH_PREFIX` | `aiknow` | 对象键根前缀；产物按文章归档在 `<prefix>/articles/<id>/` 下 |
 
 > `COS_*` 任一必填项（密钥 / bucket / region）缺失时截图归档整体关闭，**不影响正文采集**。
 
@@ -418,7 +418,7 @@ URL 采集默认只走轻量 http；配置后改为**渲染优先**：每篇先�
 
 3. **配置 COS 归档截图**（可选）：填 `COS_SECRET_ID` / `COS_SECRET_KEY` /
    `COS_BUCKET`（含 appid 后缀）/ `COS_REGION`；`COS_ENDPOINT` 可填 CDN 域名，
-   `COS_PATH_PREFIX` 默认 `screenshots`。截图在 worker 处理 URL 文章时上传并写回
+   `COS_PATH_PREFIX` 默认 `aiknow`。截图在 worker 处理 URL 文章时上传并写回
    `articles.screenshot_url`；上传失败只记日志，不阻断文章处理。
 
 > 渲染单页可达 20s+。服务 `WriteTimeout` 在渲染启用时自动取

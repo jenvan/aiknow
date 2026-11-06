@@ -115,6 +115,14 @@ document.addEventListener('alpine:init', () => {
         currentPage: '',
         sidebarOpen: false,          // 响应式抽屉：窄屏侧栏展开态
         navGroups: NAV_GROUPS,
+        // 深色模式：实际生效靠 <html class="dark">，这里只维护状态并持久化
+        dark: document.documentElement.classList.contains('dark'),
+
+        toggleTheme() {
+            this.dark = !this.dark;
+            document.documentElement.classList.toggle('dark', this.dark);
+            try { localStorage.setItem('aiknow-theme', this.dark ? 'dark' : 'light'); } catch (e) { /* ignore */ }
+        },
 
         /** 当前页在导航里的标题（非导航页如文章编辑用 PAGE_TITLES 兜底） */
         pageTitle() {
