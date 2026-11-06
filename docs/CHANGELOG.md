@@ -11,7 +11,11 @@
   `#js_pc_qr_code`、`.rich_media_tool` 等）+ 通用兜底（贴视口底、低矮、横向铺开的
   fixed/sticky 元素）；
 - 补回归测试守住这段脚本片段；
-- 存量 24 篇公众号文章已重截并覆盖 `screenshot_url`（不重跑 AI）。
+- 存量 27 篇公众号文章截图已全部修正（不重跑 AI）。修复过程中临时脚本一度
+  漏传 `COS_ENDPOINT` / `COS_PATH_PREFIX`，把对象传到了桶根并把裸桶地址写进
+  `screenshot_url`；已复制到 `aiknow/screenshots/...`、改写 URL 并清理桶根残留。
+- 注意：新逻辑要**重启 serve** 才生效（`go run` 进程不热加载），否则新入库文章
+  仍按旧逻辑截图。
 
 ## [Unreleased] - 2026-11-05
 
