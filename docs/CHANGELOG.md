@@ -2,6 +2,21 @@
 
 ## [Unreleased] - 2026-11-06
 
+### fix(worker): 任务不再无声卡死（阶段超时 + 回收补全 + 孤儿收敛）
+
+背景：排查到一篇 09:12 入库的文章在队列里留下 `processing` 僵尸任务，
+40 分钟无人处理（此前误报成 8 小时，实为把数据库 UTC 时间当成了本地时间）。
+
+- **流水线总超时**：`AIPipeline.Process` 6 分钟 hard deadline；LLM / Embedding
+  各 2 分钟。外部调用卡住时任务会正常失败重试，不会永久占用 worker。
+- **回收补全**：`ReclaimExpired` 原本只把可重试的置回 `pending`，重试耗尽的
+  会永远停在 `processing`（消费者只领取 pending）。现在后者转 `failed`。
+- **租约 5 → 10 分钟**：必须大于流水线上限，否则正在跑的任务会被回收重投，
+  同一篇文章被并发处理两次。
+- **孤儿文章收敛**：`Worker.sweepOrphanedArticles` 每分钟扫描，
+  状态 pending/processing 且 15 分钟未更新、队列里已无在途任务的，标记为 failed，
+  避免页面永远显示「处理中」。
+
 ### feat(ui): 录入页分屏预览 + 深色模式；feat(cos): 产物按文章归档
 
 - **录入文章页**：正文改成左右分屏（左 Markdown、右实时预览），与「文章编辑」页

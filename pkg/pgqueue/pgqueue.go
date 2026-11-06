@@ -26,8 +26,11 @@ import (
 
 // 默认参数
 const (
-	// DefaultLeaseDuration 默认租约时长：领取后多久未确认即视为消费者失联
-	DefaultLeaseDuration = 5 * time.Minute
+	// DefaultLeaseDuration 默认租约时长：领取后多久未确认即视为消费者失联。
+	//
+	// 必须显著大于单篇文章的处理上限（见 service.pipelineTimeout），否则
+	// "还在正常处理"的任务会被回收并重投，造成同一篇文章被并发处理两次。
+	DefaultLeaseDuration = 10 * time.Minute
 	// DefaultBaseBackoff 重试退避基数，按 2^retry_count 指数增长
 	DefaultBaseBackoff = 10 * time.Second
 	// DefaultMaxBackoff 重试退避上限
@@ -356,9 +359,10 @@ func (q *Queue) OldestMessageAge(ctx context.Context) (time.Duration, error) {
 // ReclaimExpired 将租约已到期但仍处于 processing 的任务重置为 pending，
 // 返回被回收的任务数。用于消费者进程崩溃后的任务恢复。
 func (q *Queue) ReclaimExpired(ctx context.Context) (int, error) {
+	// 还能重试的：回到 pending，等下一个消费者重新领取。
 	res, err := q.db.ExecContext(ctx, `
 		UPDATE job_queue
-		SET status = 'pending'
+		SET status = 'pending', updated_at = now()
 		WHERE queue_name = $1
 		  AND status = 'processing'
 		  AND visible_at <= now()
@@ -368,7 +372,25 @@ func (q *Queue) ReclaimExpired(ctx context.Context) (int, error) {
 		return 0, fmt.Errorf("回收超时任务: %w", err)
 	}
 	n, _ := res.RowsAffected()
-	return int(n), nil
+
+	// 重试已耗尽的：转死信。若不管它们，这些行会永远停在 processing：
+	// 上面的条件把它们排除在外，而消费者只领取 pending，结果就是"卡住但没人处理"。
+	// 实测踩过：一篇 40 分钟不动，队列里留着一个僵尸 processing 行。
+	res2, err := q.db.ExecContext(ctx, `
+		UPDATE job_queue
+		SET status     = 'failed',
+		    last_error = COALESCE(NULLIF(last_error, ''), '租约过期且重试已耗尽'),
+		    updated_at = now()
+		WHERE queue_name = $1
+		  AND status = 'processing'
+		  AND visible_at <= now()
+		  AND retry_count >= max_retries
+	`, q.name)
+	if err != nil {
+		return int(n), fmt.Errorf("回收超时任务（转死信）: %w", err)
+	}
+	n2, _ := res2.RowsAffected()
+	return int(n + n2), nil
 }
 
 // PurgeArchive 清理归档表中早于 before 的记录，返回删除行数

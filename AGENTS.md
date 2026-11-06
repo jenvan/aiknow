@@ -654,8 +654,8 @@ POST /api/v1/search
 
 - pg_cron 只能配置在 `postgres` 库且不可更改，故超时任务回收由应用层 Go 定时器
   （`pgqueue.StartReclaimer`）执行，不依赖 pg_cron
-- 消费者取走任务后须在租约（默认 5 分钟）内调用 `Archive` 或 `Fail`，
-  否则任务会被回收重投
+- 消费者取走任务后须在租约（默认 10 分钟，见下方"租约必须大于流水线上限"）内
+  调用 `Archive` 或 `Fail`，否则任务会被回收重投
 - 重试采用指数退避（10s 起，上限 10 分钟），重试耗尽转入死信（`status='failed'`）
 - **消息载荷只放 `article_id`**，正文由 worker 按 ID 自行读取。不要把 title/content
   塞进载荷：大文本进队列既浪费空间，又可能与库中内容不一致。
@@ -666,6 +666,17 @@ POST /api/v1/search
   回写用独立的带超时 context，不要复用 `w.ctx`——它可能已在停止流程中被取消
 - `Create` 入队失败**不**回滚已落库的文章、也不返回错误（否则调用方重试会撞上
   内容去重 409，更难恢复），仅告警并停在 `pending`；`Reprocess` 入队失败**必须**报错
+- **租约必须大于流水线上限**：`DefaultLeaseDuration` = 10min，`pipelineTimeout` = 6min。
+  反过来会让"还在正常处理"的任务被回收重投，同一篇文章被并发处理两次
+- **回收要覆盖两种结局**：还能重试的 → `pending`；重试已耗尽的 → **`failed`**。
+  只回 `pending` 会让耗尽重试的行永远停在 `processing`（消费者只领取 `pending`），
+  实测出现过"任务 40 分钟不动、队列里留一条僵尸 processing"
+- **孤儿文章兜底**：任务转死信后文章状态不会自己变（会一直显示处理中）。
+  `Worker.sweepOrphanedArticles` 每分钟扫描一次——状态 pending/processing、
+  更新早于 15 分钟、且队列里没有任何在途任务的，标记为 failed
+- **流水线必须有总超时**：`AIPipeline.Process` 用 6 分钟 hard deadline，
+  LLM / Embedding 各自再套 2 分钟。外部调用（渲染、LLM、数据库）任一卡住时，
+  任务会走正常重试/死信，而不是无声挂起占住 worker
 
 ### 4. 迁移执行器约束
 

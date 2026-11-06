@@ -135,7 +135,22 @@ func intPtr(i int) *int {
 }
 
 // Process 处理文章（AI 处理流水线）
+// pipelineTimeout 单篇文章的处理硬上限。
+//
+// 为什么必须有：流水线串了渲染、LLM、Embedding、写库等多段外部调用，任何一段
+// 卡住（连接不返回、数据库连接池等待、第三方限流挂起）都会让这个 job 永久占用
+// 一个 worker；实测出现过任务停在 processing 40 分钟不动的情况。
+// 超时后错误向上抛，由 worker 走正常重试/死信流程，文章状态也会被回写。
+//
+// 必须小于队列租约（pgqueue.DefaultLeaseDuration=10min），否则任务还在跑就被回收重投，
+// 同一篇文章会被并发处理两次。
+const pipelineTimeout = 6 * time.Minute
+
 func (p *AIPipeline) Process(ctx context.Context, article *model.Article) error {
+	// 兜底：所有阶段共享这个 deadline，任何"尊重 ctx 的调用"都不会无限挂起
+	ctx, cancel := context.WithTimeout(ctx, pipelineTimeout)
+	defer cancel()
+
 	// 0. URL 文章重采集：渲染拿最新正文（Markdown）+ 全页截图，截图上传归档。
 	//    渲染/截图失败不阻断处理（降级为已有正文），仅记日志。
 	p.recollectIfURL(ctx, article)
@@ -150,8 +165,11 @@ func (p *AIPipeline) Process(ctx context.Context, article *model.Article) error 
 		return fmt.Errorf("update article status to processing: %w", err)
 	}
 
-	// 2. 调用 LLM 生成摘要、分类、标签
-	aiResult, err := p.runLLM(ctx, article)
+	// 2. 调用 LLM 生成摘要、分类、标签（单独限时：provider 内部还有重试，
+	//    这里卡的是"重试总时长"，便于错误信息定位到阶段）
+	llmCtx, llmCancel := context.WithTimeout(ctx, 2*time.Minute)
+	aiResult, err := p.runLLM(llmCtx, article)
+	llmCancel()
 	if err != nil {
 		article.ProcessingStatus = "failed"
 		lastError := err.Error()
@@ -222,7 +240,9 @@ func (p *AIPipeline) Process(ctx context.Context, article *model.Article) error 
 		documents[i] = chunk.Content
 	}
 
-	embeddingResults, err := p.embeddingProvider.EmbedBatch(ctx, documents)
+	embedCtx, embedCancel := context.WithTimeout(ctx, 2*time.Minute)
+	embeddingResults, err := p.embeddingProvider.EmbedBatch(embedCtx, documents)
+	embedCancel()
 	if err != nil {
 		return fmt.Errorf("generate embeddings: %w", err)
 	}

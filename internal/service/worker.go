@@ -93,6 +93,12 @@ func (w *Worker) Start() error {
 		fmt.Printf("worker: 回收超时任务失败: %v\n", err)
 	})
 
+	// 启动「孤儿文章」收敛协程：任务转死信后文章状态不会自己变，会一直显示
+	// 「处理中」。这里兜底把"没有任何在途任务、状态却还停在 pending/processing"
+	// 的文章标记为 failed，并给出可读原因。
+	w.wg.Add(1)
+	go w.sweepOrphanedArticles()
+
 	// 启动消费者
 	for i := 0; i < w.config.Concurrency; i++ {
 		w.wg.Add(1)
@@ -100,6 +106,55 @@ func (w *Worker) Start() error {
 	}
 
 	return nil
+}
+
+// orphanGrace 孤儿文章的宽限：刚入队还没被领走的文章不能被误判。
+// 必须大于 队列轮询间隔 + 一次正常处理的排队时间，15 分钟足够宽松。
+const orphanGrace = 15 * time.Minute
+
+// sweepOrphanedArticles 周期收敛「卡住但没人管」的文章。
+//
+// 判定条件：状态是 pending/processing、最后更新时间早于 orphanGrace、
+// 且队列里没有它任何在途任务（pending/processing）。三者同时满足说明
+// 任务已经转死信或丢失，文章不可能自己恢复。
+func (w *Worker) sweepOrphanedArticles() {
+	defer w.wg.Done()
+
+	ticker := time.NewTicker(time.Minute)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-w.ctx.Done():
+			return
+		case <-ticker.C:
+			ctx, cancel := context.WithTimeout(w.ctx, 10*time.Second)
+			res, err := w.db.DB().ExecContext(ctx, `
+				UPDATE articles a
+				SET processing_status = 'failed',
+				    last_error = '任务已转死信或丢失，请重试',
+				    updated_at = now()
+				WHERE a.processing_status IN ('pending', 'processing')
+				  AND a.deleted_at IS NULL
+				  AND a.updated_at < now() - make_interval(secs => $1::double precision)
+				  AND NOT EXISTS (
+				      SELECT 1 FROM job_queue j
+				      WHERE j.status IN ('pending', 'processing')
+				        AND j.payload->>'article_id' = a.id::text
+				  )
+			`, float64(orphanGrace/time.Second))
+			cancel()
+			if err != nil {
+				if w.ctx.Err() == nil {
+					fmt.Printf("worker: 收敛孤儿文章失败: %v\n", err)
+				}
+				continue
+			}
+			if n, _ := res.RowsAffected(); n > 0 {
+				fmt.Printf("worker: 将 %d 篇卡在处理中的文章标记为 failed\n", n)
+			}
+		}
+	}
 }
 
 // Stop 停止 Worker
