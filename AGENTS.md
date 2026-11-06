@@ -415,6 +415,15 @@ aiknow-server weixin logout
 **回执走 Bot**：本通道零发送，入库/处理完成的通知由 `internal/channel/weixin`
 的 `Notifier` 用 bot 的 `context_token` 发出。
 
+**断网自愈与补录**：两条通道都持久化游标（bot 的 `get_updates_buf`、文件助手的
+`SyncKey`）。网络中断期间轮询会持续失败重试（日志已节流：首条 + 每 2 分钟一条），
+恢复后第一次成功拉取即可把**离线期间的消息补回来**——2026-11-06 实测：本机
+10:58–21:26 断网（DNS 被劫持到 `10.0.0.1:443`），重启后下午发的文章卡片被补录并完成处理。
+
+> **本地长跑必须脱离作业控制**：用 `nohup /tmp/aiknow-server serve &` 或交给
+> launchd/systemd 托管。若挂在某个 shell/任务下，任务结束时的 SIGTERM 会把整个
+> 服务带走（实测 21:26 因此停过一次）。
+
 **后台扫码即生效**：`/ui/weixin` 页的「文件传输助手通道」扫码成功后由
 `wechatweb.Manager.Start` 当场拉起接收器，无需重启 `serve`；
 `WECHATWEB_ENABLED` 只决定启动时是否自动拉起。页面另有「启动接收 / 暂停接收」

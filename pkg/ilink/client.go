@@ -13,6 +13,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"sync"
 	"time"
 )
 
@@ -46,10 +47,41 @@ func (e *APIError) Error() string {
 type Client struct {
 	token Token
 	base  string
+	// 断网时的日志节流：网络中断期间每次轮询都失败，逐条打 ERROR 会刷屏
+	// （实测一小时 145 行）。改为"首条立即打，之后每 2 分钟一条，并带累计次数"。
+	errLogMu sync.Mutex
+	errLogAt time.Time
+	errLogN  int
+
 	// cdnBase 媒体 CDN 基座，测试可替换
 	cdnBase string
 	http    *http.Client
 	logger  *slog.Logger
+}
+
+// logGetUpdatesError 对连续失败做日志节流。
+func (c *Client) logGetUpdatesError(ctx context.Context, err error) {
+	c.errLogMu.Lock()
+	c.errLogN++ // 累计连续失败次数（不能在这里清零，否则每次调用都像"首条"）
+	n := c.errLogN
+	now := time.Now()
+	// 首条、或距上次输出超过 2 分钟才写日志
+	if c.errLogAt.IsZero() || now.Sub(c.errLogAt) >= 2*time.Minute {
+		c.errLogAt = now
+		c.errLogMu.Unlock()
+		c.logger.ErrorContext(ctx, "ilink: getupdates failed（网络或服务端不可达，将持续重试）",
+			slog.Any("err", err), slog.Int("consecutive", n))
+		return
+	}
+	c.errLogMu.Unlock()
+}
+
+// resetErrLog 成功后复位节流状态。
+func (c *Client) resetErrLog() {
+	c.errLogMu.Lock()
+	c.errLogN = 0
+	c.errLogAt = time.Time{}
+	c.errLogMu.Unlock()
 }
 
 // Option 用于定制 Client。
@@ -344,7 +376,7 @@ func (c *Client) Run(ctx context.Context, cursor string, h Handler, sink CursorS
 			if errors.Is(err, ErrSessionExpired) {
 				return ErrSessionExpired
 			}
-			c.logger.ErrorContext(ctx, "ilink: getupdates failed", slog.Any("err", err))
+			c.logGetUpdatesError(ctx, err)
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
@@ -352,6 +384,7 @@ func (c *Client) Run(ctx context.Context, cursor string, h Handler, sink CursorS
 			}
 			continue
 		}
+		c.resetErrLog()
 
 		for _, msg := range updates.Messages {
 			c.handleOne(ctx, h, msg)
