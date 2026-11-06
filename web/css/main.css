@@ -91,11 +91,32 @@ body { transition: background-color .18s ease, color .18s ease; }
 .dark .text-gray-500 { color: #8b949e !important; }
 .dark .text-gray-400 { color: #6b7280 !important; }
 
-/* 边框与阴影 */
+/* 边框与阴影
+   注意要覆盖"只给宽度、没给颜色"的工具类（border-t / border-b / divide-y…）：
+   它们没有颜色类，会落回 Tailwind 默认的浅灰 rgb(229,231,235)，在深色下
+   就是一条刺眼的白线——文章列表的行分割线、录入页的分区线都是这么来的。 */
 .dark .border,
+.dark .border-t,
+.dark .border-b,
+.dark .border-l,
+.dark .border-r,
+.dark .border-x,
+.dark .border-y,
 .dark .border-gray-100,
 .dark .border-gray-200,
 .dark .border-gray-300 { border-color: #263244 !important; }
+.dark .divide-y > :not([hidden]) ~ :not([hidden]),
+.dark .divide-x > :not([hidden]) ~ :not([hidden]) { border-color: #263244 !important; }
+
+/* 上面是"默认边框色"，语义色边框（提示条/危险按钮）要保住色相，
+   否则红色告警框会跟着变成灰色。这些规则放在后面，同特异性后来者胜。 */
+.dark .border-red-200,
+.dark .border-red-300 { border-color: #7f2937 !important; }
+.dark .border-green-200 { border-color: #14532d !important; }
+.dark .border-amber-200 { border-color: #5b3f12 !important; }
+.dark .border-orange-200 { border-color: #5c3410 !important; }
+.dark .border-blue-200 { border-color: #1e3a5f !important; }
+.dark .border-purple-200 { border-color: #3b2a5f !important; }
 .dark .shadow,
 .dark .shadow-sm,
 .dark .shadow-md { box-shadow: 0 1px 3px rgba(0,0,0,.5) !important; }
@@ -168,6 +189,16 @@ body { transition: background-color .18s ease, color .18s ease; }
 .dark .markdown-body th,
 .dark .markdown-body td { border-color: #263244; }
 .dark .markdown-body hr { border-color: #263244; }
+/* 标题自带的下边框（h2 常见）也是默认浅灰，深色下要一并压暗 */
+.dark .markdown-body h1,
+.dark .markdown-body h2,
+.dark .markdown-body h3,
+.dark .markdown-body h4,
+.dark .markdown-body h5,
+.dark .markdown-body h6,
+.dark .markdown-body table,
+.dark .markdown-body th,
+.dark .markdown-body td { border-color: #263244 !important; }
 
 /* 滚动条 */
 .dark ::-webkit-scrollbar { width: 10px; height: 10px; }
