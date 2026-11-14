@@ -2,6 +2,17 @@
 
 ## [Unreleased] - 2026-11-14
 
+### feat(channels): 文件传输助手会话失效时通过 Bot 主动提醒
+
+- `Manager.SetOnSessionExpired` 回调 + `weixin.Notifier.Alert`：失效即给用户发
+  一条微信消息（「⚠️ 文件传输助手通道已失效，请重新扫码」），不必再靠"怎么不收
+  消息了"自行发现。
+- 只在 `ErrSessionExpired` 时触发；网络类错误不打扰。
+- 已知限制：iLink 回复依赖 `context_token`，用户长期不与 Bot 对话时可能已过期，
+  告警发送失败只记日志——状态页仍是可靠来源。
+- `Manager` 的轮询器改为可注入（`runnable` 接口），补两条单测：失效触发回调、
+  网络错误不触发。
+
 ### fix(channels): 会话失效后不再无限重试；状态页显示真实运行态
 
 现象：两条微信通道在后台都显示「运行中」，实际文件传输助手已失效 7 天。

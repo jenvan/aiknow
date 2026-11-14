@@ -9,7 +9,13 @@ import (
 
 	"github.com/jenvan/aiknow/internal/repository"
 	"github.com/jenvan/aiknow/pkg/securebox"
+	"github.com/jenvan/aiknow/pkg/wechatweb"
 )
+
+// runnable 抽象轮询器（*Runner 即实现），便于测试注入"立即失效"的假实现。
+type runnable interface {
+	Run(ctx context.Context) error
+}
 
 // Manager 管理接收器的生命周期。
 //
@@ -23,6 +29,13 @@ type Manager struct {
 
 	notifier Notifier
 
+	// onExpired 在"会话失效导致接收器停止"时回调一次（用于提醒用户重新扫码）。
+	// 只在 ErrSessionExpired 时触发；网络错误导致的停止不打扰。
+	onExpired func(error)
+
+	// newRunner 构造轮询器；测试可替换成返回 ErrSessionExpired 的假实现。
+	newRunner func() runnable
+
 	mu      sync.Mutex
 	cancel  context.CancelFunc
 	running bool
@@ -35,8 +48,17 @@ func NewManager(repo repository.WechatWebRepository, box *securebox.Box, creator
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Manager{repo: repo, box: box, creator: creator, logger: logger}
+	m := &Manager{repo: repo, box: box, creator: creator, logger: logger}
+	m.newRunner = func() runnable {
+		r := NewRunner(repo, box, creator, logger)
+		r.SetNotifier(m.notifier)
+		return r
+	}
+	return m
 }
+
+// SetOnSessionExpired 注入"会话失效"回调。
+func (m *Manager) SetOnSessionExpired(fn func(error)) { m.onExpired = fn }
 
 // SetNotifier 注入回执发送器（入库/重复时通知到微信 Bot）。
 func (m *Manager) SetNotifier(n Notifier) { m.notifier = n }
@@ -56,11 +78,12 @@ func (m *Manager) Start(ctx context.Context) error {
 	m.lastErr = nil
 	m.mu.Unlock()
 
-	runner := NewRunner(m.repo, m.box, m.creator, m.logger)
-	runner.SetNotifier(m.notifier)
-	m.mu.Lock()
-	m.runner = runner
-	m.mu.Unlock()
+	runner := m.newRunner()
+	if real, ok := runner.(*Runner); ok {
+		m.mu.Lock()
+		m.runner = real
+		m.mu.Unlock()
+	}
 
 	go func() {
 		err := runner.Run(runCtx)
@@ -71,6 +94,10 @@ func (m *Manager) Start(ctx context.Context) error {
 		m.mu.Unlock()
 		if err != nil && !errors.Is(err, context.Canceled) {
 			m.logger.Error("wechatweb: 接收器已停止", "err", err)
+			// 会话失效必须主动告诉用户，否则只能靠自己发现"怎么不收消息了"
+			if errors.Is(err, wechatweb.ErrSessionExpired) && m.onExpired != nil {
+				m.onExpired(err)
+			}
 		}
 	}()
 	return nil

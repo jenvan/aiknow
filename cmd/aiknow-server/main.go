@@ -614,7 +614,16 @@ func serve() {
 	// Bot 走官方 iLink，收不到转发但零风险。两者都默认关闭。
 	// 回执统一走 Bot：本通道只收不发（发送是风控面最大的动作）
 	if cfg.GetBool("WEIXIN_BOT_ENABLED", false) {
-		webMgr.SetNotifier(channelweixin.NewNotifier(db.GetWeixinRepo(), wxPusher, slog.Default()))
+		webNotifier := channelweixin.NewNotifier(db.GetWeixinRepo(), wxPusher, slog.Default())
+		webMgr.SetNotifier(webNotifier)
+		// 会话失效时主动提醒：否则用户只能靠"怎么不收消息了"自行发现。
+		// 用独立 ctx：接收器停止时传入的 ctx 可能已取消。
+		webMgr.SetOnSessionExpired(func(err error) {
+			nctx, ncancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer ncancel()
+			webNotifier.Alert(nctx, "⚠️ 文件传输助手通道已失效，需要重新扫码。\n"+
+				"请在后台「微信入口」页点「重新扫码」，扫完会自动恢复接收。")
+		})
 	}
 	if cfg.GetBool("WECHATWEB_ENABLED", false) && webBox != nil {
 		if err := webMgr.Start(context.Background()); err != nil {

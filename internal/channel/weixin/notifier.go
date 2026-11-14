@@ -48,6 +48,14 @@ func (n *Notifier) Duplicate(ctx context.Context, url string) {
 	n.send(ctx, "ℹ️ 这篇已经收录过了："+shortURL(url), "")
 }
 
+// Alert 发送一条系统告警（如「文件传输助手会话失效」）。
+//
+// 同样走 bot 的 context_token；bot 会话本身失效时这里会失败，只记日志——
+// 告警失败不能再触发告警，否则会绕成环。
+func (n *Notifier) Alert(ctx context.Context, text string) {
+	n.send(ctx, text, "")
+}
+
 // send 发一条文本；articleID 非空时登记"处理完成"推送。
 func (n *Notifier) send(ctx context.Context, text, articleID string) {
 	acc, err := n.repo.Get(ctx)
