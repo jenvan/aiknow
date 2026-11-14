@@ -111,8 +111,15 @@ func parseSyncCheck(body string) (*SyncCheckResult, error) {
 	if sm := selectorRe.FindStringSubmatch(body); sm != nil {
 		res.Selector, _ = strconv.Atoi(sm[1])
 	}
-	// retcode != 0 表示长轮询本身出错（如会话失效）
+	// retcode != 0 表示长轮询本身出错。
+	//
+	// 1100/1101/1102 是"会话不可用"，必须映射成 ErrSessionExpired，否则上层会把
+	// 它当网络抖动无限退避重试——实测踩过：会话在 11-06 22:29 就失效了，代码仍
+	// 每 80 秒重试一次、连试 7 天，后台状态页还一直显示"运行中"。
 	if ret != 0 {
+		if ret == 1100 || ret == 1101 || ret == 1102 {
+			return res, fmt.Errorf("%w (synccheck retcode=%d)", ErrSessionExpired, ret)
+		}
 		return res, fmt.Errorf("wechatweb: synccheck retcode=%d", ret)
 	}
 	return res, nil

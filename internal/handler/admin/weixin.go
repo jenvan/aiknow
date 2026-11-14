@@ -23,6 +23,9 @@ type WeixinHandler struct {
 	repo    repository.WeixinBotRepository
 	enabled bool
 	baseURL string
+	// running 取自 Bot 的实际轮询状态；为 nil 时回落"未运行"。
+	// 必须有这个字段：只看 enabled 会把"会话失效后已退出"的通道显示成运行中。
+	running func() bool
 
 	mu      sync.Mutex
 	session *ilink.LoginSession
@@ -39,6 +42,9 @@ func NewWeixinHandler(repo repository.WeixinBotRepository, enabled bool, baseURL
 	return &WeixinHandler{repo: repo, enabled: enabled, baseURL: baseURL}
 }
 
+// SetRunningFunc 注入"通道是否真的在轮询"的探测函数。
+func (h *WeixinHandler) SetRunningFunc(fn func() bool) { h.running = fn }
+
 // GetStatus 查询 bot 状态。
 func (h *WeixinHandler) GetStatus(c *gin.Context) {
 	acc, err := h.repo.Get(c.Request.Context())
@@ -46,8 +52,15 @@ func (h *WeixinHandler) GetStatus(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	// enabled = 配置开关；running = 实际轮询状态。两者含义不同：
+	// 开关开着但会话失效时，running 为 false，页面应显示"已停止，需要重新扫码"。
+	running := false
+	if h.running != nil {
+		running = h.running()
+	}
 	resp := gin.H{
 		"enabled":   h.enabled,
+		"running":   running,
 		"logged_in": acc != nil,
 	}
 	if acc != nil {

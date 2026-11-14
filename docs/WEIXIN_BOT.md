@@ -126,6 +126,12 @@ aiknow-server weixin send-image ./pic.png  # 发一张图片
 
 CLI（与页面等价）：
 
+**会话失效（ret -14）**：轮询立即停止，`GET /weixin/status` 的 `running` 变 `false`，
+页面显示「已停止」，需要重新扫码——**不会自动重登**（反复重登最易触发风控）。
+
+> 状态页必须看 `running` 而不是 `enabled`：后者只是配置开关，进程活着、配置为 true
+> 时它永远为 true，会话失效后会把死通道显示成「运行中」（2026-11-14 踩过）。
+
 ```bash
 aiknow-server weixin login      # 打印二维码链接，手机微信打开授权，凭据落库
 aiknow-server weixin status     # 看 bot_id / 扫码者 / 游标 / 最近活跃

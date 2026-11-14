@@ -151,3 +151,20 @@ func TestRetErrorSessionExpired(t *testing.T) {
 		t.Error("500 不应是会话失效")
 	}
 }
+
+// synccheck 的 1102 必须映射成 ErrSessionExpired：上层据此停止轮询等人工扫码，
+// 而不是当网络抖动无限重试（线上踩过：失效 7 天仍在每 80 秒重试）。
+func TestSyncCheckRetCodeMapsToSessionExpired(t *testing.T) {
+	for _, body := range []string{
+		`window.synccheck={retcode:"1100",selector:"0"}`,
+		`window.synccheck={retcode:"1101",selector:"0"}`,
+		`window.synccheck={retcode:"1102",selector:"0"}`,
+	} {
+		if _, err := parseSyncCheck(body); !errors.Is(err, ErrSessionExpired) {
+			t.Errorf("%s 应映射为 ErrSessionExpired, got %v", body, err)
+		}
+	}
+	if _, err := parseSyncCheck(`window.synccheck={retcode:"500",selector:"0"}`); errors.Is(err, ErrSessionExpired) {
+		t.Error("500 不应是会话失效")
+	}
+}

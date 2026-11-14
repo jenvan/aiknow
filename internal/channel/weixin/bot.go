@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/jenvan/aiknow/internal/model"
@@ -30,7 +31,15 @@ type Bot struct {
 
 	mu   sync.Mutex
 	seen map[int64]time.Time
+
+	// running 反映**实际**轮询是否活着，供后台状态页展示。
+	// 只看配置开关（enabled）会骗人：进程活着、配置为 true，但会话失效后
+	// 轮询早已退出，页面却仍显示"运行中"（2026-11-14 踩过）。
+	running atomic.Bool
 }
+
+// Running 报告轮询协程是否在跑（会话失效 / 上下文取消后为 false）。
+func (b *Bot) Running() bool { return b.running.Load() }
 
 // seenCap 去重表容量（消息量很小，500 条足够覆盖一次重启窗口）。
 const seenCap = 500
@@ -67,6 +76,8 @@ func NewBot(repo repository.WeixinBotRepository, router *Router, logger *slog.Lo
 // 会话过期（-14）返回 ilink.ErrSessionExpired：token 已失效，只能重新扫码
 // （`aiknow-server weixin login`），不能自动恢复。
 func (b *Bot) Run(ctx context.Context) error {
+	b.running.Store(true)
+	defer b.running.Store(false)
 	acc, err := b.repo.Get(ctx)
 	if err != nil {
 		return err

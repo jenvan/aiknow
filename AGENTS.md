@@ -415,6 +415,14 @@ aiknow-server weixin logout
 **回执走 Bot**：本通道零发送，入库/处理完成的通知由 `internal/channel/weixin`
 的 `Notifier` 用 bot 的 `context_token` 发出。
 
+**状态页看运行态，不看配置开关**：`/api/v1/admin/weixin/status` 的 `running` 来自
+`Bot.Running()`；`enabled` 只是 L1 配置。文件助手同理（`Manager.Running()`）。
+会话失效后轮询会自行退出，状态页必须随之变「已停止」并展示 `last_error`。
+
+**会话失效（1102 / -14）必须停止轮询**：`wechatweb` 的 `synccheck` 返回
+1100/1101/1102 要映射成 `ErrSessionExpired`，否则会被当成网络抖动无限退避重试
+（实测：会话 11-06 失效，代码仍每 80 秒重试、连试 7 天）。
+
 **断网自愈与补录**：两条通道都持久化游标（bot 的 `get_updates_buf`、文件助手的
 `SyncKey`）。网络中断期间轮询会持续失败重试（日志已节流：首条 + 每 2 分钟一条），
 恢复后第一次成功拉取即可把**离线期间的消息补回来**——2026-11-06 实测：本机

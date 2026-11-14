@@ -714,7 +714,7 @@ Content-Type: application/json
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET | `/api/v1/admin/weixin/status` | 微信 Bot 通道状态 |
+| GET | `/api/v1/admin/weixin/status` | 微信 Bot 通道状态（`enabled` 是配置开关，`running` 是真实轮询状态） |
 | POST | `/api/v1/admin/weixin/login/start` | 生成扫码链接 |
 | GET | `/api/v1/admin/weixin/login/poll` | 轮询扫码结果 |
 | POST | `/api/v1/admin/weixin/logout` | 删除本地凭据 |

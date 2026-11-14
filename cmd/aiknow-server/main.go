@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -300,6 +301,10 @@ func serve() {
 		fmt.Printf("警告: SESSION_SECRET 不可用，文件传输助手通道无法使用: %v\n", webBoxErr)
 		webBox = nil
 	}
+	// 微信 Bot 的真实轮询状态：状态页用它而不是配置开关。
+	// 声明在外层，路由注册与通道启动分处两个 if 块，靠它共享。
+	var weixinBotRunning atomic.Bool
+
 	webMgr := channelwechatweb.NewManager(
 		db.GetWechatWebRepo(), webBox,
 		channelwechatweb.ArticleAdapter{Svc: articleService},
@@ -488,6 +493,7 @@ func serve() {
 			cfg.GetBool("WEIXIN_BOT_ENABLED", false),
 			cfg.GetOr("WEIXIN_BOT_BASE_URL", ""),
 		)
+		weixinHandler.SetRunningFunc(weixinBotRunning.Load)
 		adminGroup.GET("/weixin/status", weixinHandler.GetStatus)
 		adminGroup.POST("/weixin/login/start", weixinHandler.StartLogin)
 		adminGroup.GET("/weixin/login/poll", weixinHandler.PollLogin)
@@ -638,13 +644,18 @@ func serve() {
 		// 后台/API 录入的文章不会被推到微信。
 		bot := channelweixin.NewBot(db.GetWeixinRepo(), botRouter, slog.Default(),
 			channelweixin.WithPusher(wxPusher))
+
 		go func() {
+			weixinBotRunning.Store(true)
+			defer weixinBotRunning.Store(false)
 			err := bot.Run(botCtx)
 			switch {
 			case err == nil:
 			case errors.Is(err, context.Canceled):
 				// 正常关闭
 			default:
+				// 会话失效（如 -14）会走到这里：状态页随即显示未运行，
+				// 需要人工重新扫码，不会自动重登。
 				fmt.Printf("微信 bot 已停止: %v\n", err)
 			}
 		}()

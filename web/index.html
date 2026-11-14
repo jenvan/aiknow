@@ -1228,7 +1228,7 @@
                                 <h3 class="font-semibold text-gray-800">微信 Bot 通道</h3>
                                 <span class="px-2 py-0.5 rounded text-xs"
                                       :class="status && status.enabled ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'"
-                                      x-text="status && status.enabled ? '运行中' : '未运行'"></span>
+                                      x-text="status && status.running ? '运行中' : (status && status.logged_in ? '已停止' : '未运行')"></span>
                             </div>
 
                             <div x-show="loading" class="text-gray-500 text-sm">加载中…</div>
@@ -1282,7 +1282,7 @@
                                 <h3 class="font-semibold text-gray-800">文件传输助手通道</h3>
                                 <span class="px-2 py-0.5 rounded text-xs"
                                       :class="web && web.running ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'"
-                                      x-text="web && web.running ? '运行中' : (web && web.logged_in ? '已登录未运行' : '未登录')"></span>
+                                      x-text="web && web.running ? '运行中' : (web && web.last_error ? '已停止·需重新扫码' : (web && web.logged_in ? '未运行' : '未登录'))"></span>
                             </div>
                             <p class="text-xs text-gray-500 mb-3">
                                 手机把公众号文章<b>转发给「文件传输助手」</b>即可入库；只收不发。
