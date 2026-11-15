@@ -304,6 +304,8 @@ func serve() {
 	// 微信 Bot 的真实轮询状态：状态页用它而不是配置开关。
 	// 声明在外层，路由注册与通道启动分处两个 if 块，靠它共享。
 	var weixinBotRunning atomic.Bool
+	// 文件助手失效告警的发送器（bot 收到消息后会在此补发积压告警）
+	var webNotifier *channelweixin.Notifier
 
 	webMgr := channelwechatweb.NewManager(
 		db.GetWechatWebRepo(), webBox,
@@ -614,7 +616,7 @@ func serve() {
 	// Bot 走官方 iLink，收不到转发但零风险。两者都默认关闭。
 	// 回执统一走 Bot：本通道只收不发（发送是风控面最大的动作）
 	if cfg.GetBool("WEIXIN_BOT_ENABLED", false) {
-		webNotifier := channelweixin.NewNotifier(db.GetWeixinRepo(), wxPusher, slog.Default())
+		webNotifier = channelweixin.NewNotifier(db.GetWeixinRepo(), wxPusher, slog.Default())
 		webMgr.SetNotifier(webNotifier)
 		// 会话失效时主动提醒：否则用户只能靠"怎么不收消息了"自行发现。
 		// 用独立 ctx：接收器停止时传入的 ctx 可能已取消。
@@ -651,8 +653,12 @@ func serve() {
 		)
 		// 处理完成回推用共享的 wxPusher：只推「登记过来源」的采集，
 		// 后台/API 录入的文章不会被推到微信。
-		bot := channelweixin.NewBot(db.GetWeixinRepo(), botRouter, slog.Default(),
-			channelweixin.WithPusher(wxPusher))
+		botOpts := []channelweixin.BotOption{channelweixin.WithPusher(wxPusher)}
+		if webNotifier != nil {
+			// 用户下次跟 bot 说话时，把"文件助手已失效"这类没发出去的告警补上
+			botOpts = append(botOpts, channelweixin.WithAlertFlusher(webNotifier.FlushPending))
+		}
+		bot := channelweixin.NewBot(db.GetWeixinRepo(), botRouter, slog.Default(), botOpts...)
 
 		go func() {
 			weixinBotRunning.Store(true)

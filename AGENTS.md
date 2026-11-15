@@ -419,10 +419,13 @@ aiknow-server weixin logout
 `Bot.Running()`；`enabled` 只是 L1 配置。文件助手同理（`Manager.Running()`）。
 会话失效后轮询会自行退出，状态页必须随之变「已停止」并展示 `last_error`。
 
-**会话失效要主动通知**：文件助手失效时 `Manager.SetOnSessionExpired` 会通过
-Bot 发一条「请重新扫码」提醒（`weixin.Notifier.Alert`）。注意 iLink 只能用
-`context_token` 回复，**用户很久没跟 Bot 说话时该 token 可能已过期**，告警会失败
-并只记日志——所以这条提醒不是 100% 可达，状态页仍是可靠来源。
+**会话失效要主动通知**：文件助手失效时 `Manager.SetOnSessionExpired` 通过
+Bot 发一条「请重新扫码」提醒（`weixin.Notifier.Alert`）。
+
+iLink 只能在"用户最近说过话"的会话里回复（`context_token` 会过期，实测隔一天就
+`ret=-2`），**所以告警失败不能丢**：`Alert` 失败会把消息挂起，`Bot` 每次收到用户
+消息、把新 token 落库后调用 `Notifier.FlushPending` 补发。用户只要跟 Bot 说句话
+就能收到积压提醒。状态页仍是最终可靠来源。
 
 **会话失效（1102 / -14）必须停止轮询**：`wechatweb` 的 `synccheck` 返回
 1100/1101/1102 要映射成 `ErrSessionExpired`，否则会被当成网络抖动无限退避重试

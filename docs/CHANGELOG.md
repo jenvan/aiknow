@@ -1,5 +1,16 @@
 # AiKnow 变更日志
 
+## [Unreleased] - 2026-11-15
+
+### fix(channels): 告警发送失败时排队，等用户下次与 Bot 对话后补发
+
+实测失效告警经常发不出去：iLink 的 `context_token` 只在"用户最近说过话"的窗口内有效，
+隔一天就返回 `ret=-2 prepare failed`。
+
+- `Notifier.Alert` 失败时把消息挂起（去重、上限 5 条），不再直接丢弃；
+- `Bot` 每次收到用户消息、并把新 `context_token` 落库后调用 `FlushPending` 补发；
+- 结果：用户只要在微信里跟 Bot 说一句话，就能收到之前没发出去的「文件传输助手已失效」。
+
 ## [Unreleased] - 2026-11-14
 
 ### feat(channels): 文件传输助手会话失效时通过 Bot 主动提醒

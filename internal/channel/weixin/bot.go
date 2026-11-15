@@ -29,6 +29,9 @@ type Bot struct {
 	// pusher 可选：注入后采集入库的文章会在处理完成时回推微信
 	pusher *Pusher
 
+	// flushAlerts 可选：收到用户消息（context_token 已刷新）后补发积压告警
+	flushAlerts func(ctx context.Context)
+
 	mu   sync.Mutex
 	seen map[int64]time.Time
 
@@ -50,6 +53,11 @@ type BotOption func(*Bot)
 // WithPusher 注入「处理完成回推」的实现。
 //
 // 传 nil 等于关闭回推：只有「发链接 → 收到回执」这一步，用户靠 /status 自查。
+// WithAlertFlusher 注入"补发积压告警"的回调（token 刷新后调用）。
+func WithAlertFlusher(fn func(ctx context.Context)) BotOption {
+	return func(b *Bot) { b.flushAlerts = fn }
+}
+
 func WithPusher(p *Pusher) BotOption {
 	return func(b *Bot) { b.pusher = p }
 }
@@ -166,6 +174,10 @@ func (b *Bot) persistCursor(ctx context.Context, cursor string) {
 	defer cancel()
 	if err := b.repo.UpdateProgress(writeCtx, b.account.BotID, cursor, b.lastToken); err != nil {
 		b.logger.ErrorContext(writeCtx, "weixin: persist cursor failed", slog.Any("err", err))
+	}
+	// 必须放在 token 落库之后：补发告警要读库里的最新 context_token
+	if b.flushAlerts != nil {
+		b.flushAlerts(writeCtx)
 	}
 }
 
