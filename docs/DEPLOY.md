@@ -93,7 +93,7 @@ ADMIN_PASSWORD_HASH=（由下方命令生成）
 生成管理员密码哈希：
 
 ```bash
-go run ./cmd/aiknow-server hashpwd 你的密码
+go run ./cmd/aiknow hashpwd 你的密码
 ```
 
 开发期也可直接用明文密码（`ADMIN_PASSWORD=你的密码`），应用会自动哈希。
@@ -103,7 +103,7 @@ go run ./cmd/aiknow-server hashpwd 你的密码
 ```bash
 make migrate-up
 # 或
-go run ./cmd/aiknow-server migrate
+go run ./cmd/aiknow migrate
 ```
 
 表结构的**唯一来源**是 `internal/repository/migrations/`（已通过 `go:embed` 打包进
@@ -117,7 +117,7 @@ go run ./cmd/aiknow-server migrate
 ```bash
 make run
 # 或
-go run ./cmd/aiknow-server serve
+go run ./cmd/aiknow serve
 ```
 
 访问 `http://localhost:8080`，健康检查端点为 `/api/v1/health`。
@@ -135,7 +135,7 @@ make db-reset
 ```bash
 psql "$DATABASE_URL" -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"
 psql "$DATABASE_URL" -f docker-compose-initdb.sql
-go run ./cmd/aiknow-server migrate
+go run ./cmd/aiknow migrate
 ```
 
 > `DROP SCHEMA public CASCADE` 会删除该 schema 下的全部数据，仅用于开发环境。
@@ -163,8 +163,8 @@ ADMIN_PASSWORD_HASH=（由下方命令生成）
 生成管理员密码哈希：
 
 ```bash
-go run ./cmd/aiknow-server hashpwd 你的密码
-# 或构建后：docker compose run --rm app /app/aiknow-server hashpwd 你的密码
+go run ./cmd/aiknow hashpwd 你的密码
+# 或构建后：docker compose run --rm app /app/aiknow hashpwd 你的密码
 ```
 
 > **`DATABASE_URL` 无需设置**：compose 会将其置空，应用改用上面这组 `POSTGRES_*`
@@ -213,7 +213,7 @@ docker compose down -v
 docker compose exec postgres psql -U postgres -d aiknow
 
 # 查看应用版本
-docker compose exec app /app/aiknow-server --version
+docker compose exec app /app/aiknow --version
 
 # 重建（代码变更后）
 docker compose up -d --build
@@ -438,7 +438,7 @@ URL 采集默认只走轻量 http；配置后改为**渲染优先**：每篇先�
 |---|---|---|
 | 连接池上下限 | `MaxConns=20` / `MinConns=2` | `internal/repository/postgres.go` |
 | 连接寿命 / 空闲超时 | 30 分钟 / 10 分钟 | 同上 |
-| HTTP 读写 / 空闲超时 | 15s / 15s / 60s；渲染启用时写超时 = `COLLECTOR_BROWSER_TIMEOUT + 20s` | `cmd/aiknow-server/main.go` |
+| HTTP 读写 / 空闲超时 | 15s / 15s / 60s；渲染启用时写超时 = `COLLECTOR_BROWSER_TIMEOUT + 20s` | `cmd/aiknow/main.go` |
 | 向量维度 | 1024（与 bge-large-zh-v1.5 绑定） | 迁移 SQL 与 Provider |
 | 模型名 | `BAAI/bge-large-zh-v1.5`、`BAAI/bge-reranker-v2-m3` | `internal/service/provider/` |
 | Session 存储 | 进程内存 | `internal/service/auth.go` |
@@ -678,7 +678,7 @@ VACUUM mcp_request_logs;
 ### 凭据轮换
 
 - **`SESSION_SECRET`**：修改后所有管理端会话失效，需重新登录
-- **`ADMIN_PASSWORD_HASH`**：用 `aiknow-server hashpwd` 重新生成后替换
+- **`ADMIN_PASSWORD_HASH`**：用 `aiknow hashpwd` 重新生成后替换
 - **API Key**：在管理后台吊销并重新签发；`api_keys` 表只存 SHA-256 哈希，
   原文无法找回
 - **`POSTGRES_PASSWORD`**：需同时修改数据库用户密码与 `.env`，然后重启应用

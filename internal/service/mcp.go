@@ -42,7 +42,7 @@ func (s *MCPServiceImpl) Initialize(ctx context.Context, req model.MCPInitialize
 		Protocol:     "2025-06-18",
 		Capabilities: model.MCPServerCap{},
 		ServerInfo: model.MCPServerInfo{
-			Name:    "aiknow-server",
+			Name:    "aiknow",
 			Version: "0.1.0",
 		},
 	}, nil

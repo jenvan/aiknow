@@ -107,7 +107,7 @@
 - applySetting中添加llm.model处理
 - 移除已删除配置项的处理逻辑
 
-#### cmd/aiknow-server/main.go
+#### cmd/aiknow/main.go
 - collector初始化：user_agent从L1读取，然后被L2覆盖（已实现）
 - pipeline初始化：llm.model从L2读取（需新增）
 

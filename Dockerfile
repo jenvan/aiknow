@@ -25,7 +25,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     CGO_ENABLED=0 GOOS=linux \
     go build -trimpath \
         -ldflags "-s -w -X main.version=${VERSION} -X main.gitCommit=${GIT_COMMIT}" \
-        -o /out/aiknow-server ./cmd/aiknow-server
+        -o /out/aiknow ./cmd/aiknow
 
 # ---- 运行阶段 ----
 FROM alpine:3.20
@@ -43,7 +43,7 @@ RUN addgroup -g 10001 -S aiknow \
 
 WORKDIR /app
 
-COPY --from=builder /out/aiknow-server /app/aiknow-server
+COPY --from=builder /out/aiknow /app/aiknow
 
 USER aiknow
 
@@ -53,5 +53,5 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
     CMD wget -qO- "http://127.0.0.1:${PORT:-8080}/api/v1/health" >/dev/null 2>&1 || exit 1
 
 # serve 为必需的子命令：不带子命令时程序只打印帮助信息后退出
-ENTRYPOINT ["/app/aiknow-server"]
+ENTRYPOINT ["/app/aiknow"]
 CMD ["serve"]

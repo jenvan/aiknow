@@ -5,9 +5,11 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 	"text/tabwriter"
 	"time"
 
+	"github.com/jenvan/aiknow/cmd/aiknow/cli"
 	"github.com/jenvan/aiknow/internal/config"
 	"github.com/jenvan/aiknow/internal/model"
 	"github.com/jenvan/aiknow/internal/repository"
@@ -39,10 +41,10 @@ func Main(args []string) {
 }
 
 func printUsage() {
-	fmt.Print(`用法:
-  aiknow-server apikey create --desc <描述> [--scope readonly|readwrite]
-  aiknow-server apikey list
-  aiknow-server apikey revoke <id>
+	fmt.Print(strings.ReplaceAll(`用法:
+  {prog} apikey create --desc <描述> [--scope readonly|readwrite]
+  {prog} apikey list
+  {prog} apikey revoke <id>
 
 说明:
   create   创建 API Key，明文仅在此刻打印一次，服务端只存 SHA-256 哈希
@@ -50,8 +52,8 @@ func printUsage() {
   revoke   删除指定 Key
 
 示例:
-  aiknow-server apikey create --desc "Claude Desktop" --scope readonly
-`)
+  {prog} apikey create --desc "Claude Desktop" --scope readonly
+`, "{prog}", cli.Prog()))
 }
 
 // newAuthService 复用与 serve 相同的装配路径，避免两处初始化逻辑漂移
@@ -166,7 +168,7 @@ func list() {
 func revoke(args []string) {
 	if len(args) == 0 {
 		fmt.Println("错误: 需要提供 Key ID")
-		fmt.Println("用法: aiknow-server apikey revoke <id>")
+		fmt.Println(fmt.Sprintf("用法: %s apikey revoke <id>", cli.Prog()))
 		os.Exit(1)
 	}
 

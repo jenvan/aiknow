@@ -3,6 +3,7 @@ package hashpwd
 
 import (
 	"fmt"
+	"github.com/jenvan/aiknow/cmd/aiknow/cli"
 	"os"
 
 	"golang.org/x/crypto/bcrypt"
@@ -24,8 +25,8 @@ func Main(args []string) {
 
 	if password == "" {
 		fmt.Fprintf(os.Stderr, "错误: 密码不能为空\n")
-		fmt.Fprintf(os.Stderr, "用法: aiknow-server hashpwd [密码]\n")
-		fmt.Fprintf(os.Stderr, "       echo 'password' | aiknow-server hashpwd\n")
+		fmt.Fprintf(os.Stderr, "用法: %s hashpwd [密码]\n", cli.Prog())
+		fmt.Fprintf(os.Stderr, "       echo 'password' | %s hashpwd\n", cli.Prog())
 		os.Exit(1)
 	}
 

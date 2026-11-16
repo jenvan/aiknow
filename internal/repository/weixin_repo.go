@@ -23,7 +23,7 @@ func NewWeixinBotRepository(db *PostgresDB) *WeixinBotRepositoryImpl {
 // Get 取当前 bot 账号（v1 单 bot：最近更新的一行）。无记录返回 (nil, nil)。
 //
 // 返回 nil 而非 sql.ErrNoRows：「还没扫码」是正常状态，调用方据此提示
-// 执行 `aiknow-server weixin login`，不应被当成错误往上抛。
+// 执行 `aiknow weixin login`，不应被当成错误往上抛。
 func (r *WeixinBotRepositoryImpl) Get(ctx context.Context) (*model.WeixinBotAccount, error) {
 	var a model.WeixinBotAccount
 	err := r.db.pool.QueryRow(ctx, `

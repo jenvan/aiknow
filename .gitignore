@@ -6,7 +6,7 @@
 .env.local
 
 # 编译产物
-/aiknow-server
+/aiknow
 /bin/
 /dist/
 

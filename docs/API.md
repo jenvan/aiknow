@@ -433,5 +433,5 @@ curl -X POST http://localhost:8080/api/v1/search \
 不登录后台时，可通过 CLI 子命令创建：
 
 ```bash
-aiknow-server apikey create --desc "my-bot" --scope readwrite
+aiknow apikey create --desc "my-bot" --scope readwrite
 ```

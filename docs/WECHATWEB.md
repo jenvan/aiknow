@@ -4,7 +4,7 @@
 > 回执发到微信 Bot。
 >
 > 实现：`pkg/wechatweb`（协议客户端）+ `internal/channel/wechatweb`（接收器），
-> 内嵌在 `aiknow-server serve`，默认关闭（`WECHATWEB_ENABLED`）。
+> 内嵌在 `aiknow serve`，默认关闭（`WECHATWEB_ENABLED`）。
 > **协议细节（登录/长轮询/消息 XML/错误码/抓包复现）见
 > [WECHATWEB_PROTOCOL.md](WECHATWEB_PROTOCOL.md)。**
 
@@ -50,9 +50,9 @@
 ## 4. 配置与命令
 
 ```bash
-aiknow-server wechatweb login     # 扫码，凭据加密入库（只做一次 webwxinit）
-aiknow-server wechatweb status    # 账号 / 同步游标项数 / 最近同步时间
-aiknow-server wechatweb logout    # 删除本地凭据
+aiknow wechatweb login     # 扫码，凭据加密入库（只做一次 webwxinit）
+aiknow wechatweb status    # 账号 / 同步游标项数 / 最近同步时间
+aiknow wechatweb logout    # 删除本地凭据
 ```
 
 `.env`：

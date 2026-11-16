@@ -18,7 +18,7 @@
 --
 -- 建表 DDL 不在此处：
 --   表结构的唯一来源是 internal/repository/migrations/，通过
---   `aiknow-server migrate` 或服务启动时自动执行。此处不复制任何建表语句，
+--   `aiknow migrate` 或服务启动时自动执行。此处不复制任何建表语句，
 --   以免两处定义产生漂移。
 --
 -- 注意：shared_preload_libraries 需在 postgresql.conf 中设置并重启，

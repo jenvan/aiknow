@@ -1,4 +1,4 @@
-// Package weixin 提供 `aiknow-server weixin` 子命令：扫码登录、查看状态、登出。
+// Package weixin 提供 `weixin` 子命令：扫码登录、查看状态、登出。
 //
 // 为什么扫码要放在 CLI 而不是后台页面：
 //   - 二维码是几分钟就过期的临时凭证，CLI 打印链接后用户直接在手机微信里打开，
@@ -16,6 +16,7 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/jenvan/aiknow/cmd/aiknow/cli"
 	"github.com/jenvan/aiknow/internal/config"
 	"github.com/jenvan/aiknow/internal/model"
 	"github.com/jenvan/aiknow/internal/repository"
@@ -47,12 +48,12 @@ func Main(args []string) {
 }
 
 func printUsage() {
-	fmt.Print(`用法:
-  aiknow-server weixin login
-  aiknow-server weixin status
-  aiknow-server weixin logout [--yes]
-  aiknow-server weixin send-image <图片路径>
-  aiknow-server weixin send-text <文本>
+	fmt.Print(strings.ReplaceAll(`用法:
+  {prog} weixin login
+  {prog} weixin status
+  {prog} weixin logout [--yes]
+  {prog} weixin send-image <图片路径>
+  {prog} weixin send-text <文本>
 
 说明:
   login    扫码登录微信 iLink Bot（等价于把「微信 ClawBot」插件授权给 AiKnow）
@@ -65,7 +66,7 @@ func printUsage() {
     再到 设置 → 插件 → 微信 ClawBot 授权；
   - 只放行扫码者本人（v1 单用户，无白名单概念）；
   - 凭据与游标存数据库（weixin_bot_accounts），不写 .env。
-`)
+`, "{prog}", cli.Prog()))
 }
 
 // openDB 复用与 serve 相同的配置/连接装配路径。
@@ -162,7 +163,7 @@ func status() {
 		os.Exit(1)
 	}
 	if acc == nil {
-		fmt.Println("尚未登录。执行：aiknow-server weixin login")
+		fmt.Println(fmt.Sprintf("尚未登录。执行：%s weixin login", cli.Prog()))
 		return
 	}
 
@@ -228,7 +229,7 @@ func sendText(args []string) {
 	fs := flag.NewFlagSet("weixin send-text", flag.ExitOnError)
 	_ = fs.Parse(args)
 	if fs.NArg() < 1 {
-		fmt.Println("用法: aiknow-server weixin send-text <文本>")
+		fmt.Println(fmt.Sprintf("用法: %s weixin send-text <文本>", cli.Prog()))
 		os.Exit(1)
 	}
 	text := fs.Arg(0)
@@ -267,7 +268,7 @@ func sendImage(args []string) {
 	fs := flag.NewFlagSet("weixin send-image", flag.ExitOnError)
 	_ = fs.Parse(args)
 	if fs.NArg() < 1 {
-		fmt.Println("用法: aiknow-server weixin send-image <图片路径>")
+		fmt.Println(fmt.Sprintf("用法: %s weixin send-image <图片路径>", cli.Prog()))
 		os.Exit(1)
 	}
 	path := fs.Arg(0)
@@ -288,7 +289,7 @@ func sendImage(args []string) {
 
 	acc, err := db.GetWeixinRepo().Get(ctx)
 	if err != nil || acc == nil {
-		fmt.Println("尚未登录 bot，先执行 aiknow-server weixin login")
+		fmt.Println(fmt.Sprintf("尚未登录 bot，先执行 %s weixin login", cli.Prog()))
 		os.Exit(1)
 	}
 	if acc.LastContextToken == "" {

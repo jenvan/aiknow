@@ -82,7 +82,7 @@ func NewBot(repo repository.WeixinBotRepository, router *Router, logger *slog.Lo
 // Run 启动长轮询，阻塞直到 ctx 取消或会话过期。
 //
 // 会话过期（-14）返回 ilink.ErrSessionExpired：token 已失效，只能重新扫码
-// （`aiknow-server weixin login`），不能自动恢复。
+// （`aiknow weixin login`），不能自动恢复。
 func (b *Bot) Run(ctx context.Context) error {
 	b.running.Store(true)
 	defer b.running.Store(false)
@@ -91,7 +91,7 @@ func (b *Bot) Run(ctx context.Context) error {
 		return err
 	}
 	if acc == nil {
-		return errors.New("weixin bot: 尚未扫码登录，先执行 `aiknow-server weixin login`")
+		return errors.New("weixin bot: 尚未扫码登录，先执行 `aiknow weixin login`")
 	}
 
 	b.account = acc

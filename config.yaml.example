@@ -60,7 +60,7 @@ session:
 admin:
   # 对应环境变量 ADMIN_USERNAME
   username: "admin"
-  # bcrypt 哈希，用 `aiknow-server hashpwd 你的密码` 生成
+  # bcrypt 哈希，用 `aiknow hashpwd 你的密码` 生成
   # 对应环境变量 ADMIN_PASSWORD_HASH
   password_hash: ""
   # 明文密码，仅开发环境可用（启动时在内存中哈希，不落盘）
@@ -164,7 +164,7 @@ cos:
 #   连接池      MaxConns=20 / MinConns=2 / 连接寿命 30m / 空闲 10m
 #               见 internal/repository/postgres.go
 #   HTTP 超时   Read/Write 15s / Idle 60s
-#               见 cmd/aiknow-server/main.go
+#               见 cmd/aiknow/main.go
 #   向量维度    1024（与 bge-large-zh-v1.5 绑定，不可改）
 #
 # 登录失败锁定（lockout_duration / max_failed_attempts）尚未实现，

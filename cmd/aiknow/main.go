@@ -17,10 +17,11 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/jenvan/aiknow/cmd/aiknow-server/apikey"
-	"github.com/jenvan/aiknow/cmd/aiknow-server/hashpwd"
-	wechatwebcmd "github.com/jenvan/aiknow/cmd/aiknow-server/wechatweb"
-	weixincmd "github.com/jenvan/aiknow/cmd/aiknow-server/weixin"
+	"github.com/jenvan/aiknow/cmd/aiknow/apikey"
+	"github.com/jenvan/aiknow/cmd/aiknow/cli"
+	"github.com/jenvan/aiknow/cmd/aiknow/hashpwd"
+	wechatwebcmd "github.com/jenvan/aiknow/cmd/aiknow/wechatweb"
+	weixincmd "github.com/jenvan/aiknow/cmd/aiknow/weixin"
 	channelwechatweb "github.com/jenvan/aiknow/internal/channel/wechatweb"
 	channelweixin "github.com/jenvan/aiknow/internal/channel/weixin"
 	"github.com/jenvan/aiknow/internal/config"
@@ -100,10 +101,11 @@ func main() {
 
 // printHelp 打印帮助信息
 func printHelp() {
+	prog := cli.Prog()
 	fmt.Printf(`AiKnow - AI 知识库管理系统 v%s
 
 用法:
-  aiknow-server [选项] [子命令] [参数]
+  %s [选项] [子命令] [参数]
 
 选项:
   --help      显示此帮助信息
@@ -118,13 +120,13 @@ func printHelp() {
   serve             启动 HTTP 服务（启动时会自动执行迁移）
 
 示例:
-  aiknow-server --help
-  aiknow-server version
-  aiknow-server hashpwd mysecretpassword
-  aiknow-server migrate
-  aiknow-server weixin login
-  aiknow-server serve
-`, version)
+  %[2]s --help
+  %[2]s version
+  %[2]s hashpwd mysecretpassword
+  %[2]s migrate
+  %[2]s weixin login
+  %[2]s serve
+`, version, prog)
 }
 
 // runMigrations 在单个事务中执行所有待执行的迁移并提交。

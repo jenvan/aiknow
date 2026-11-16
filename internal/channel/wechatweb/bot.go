@@ -84,7 +84,7 @@ func (r *Runner) Run(ctx context.Context) error {
 		return err
 	}
 	if sess == nil {
-		return errors.New("wechatweb: 尚未登录，先执行 `aiknow-server wechatweb login`")
+		return errors.New("wechatweb: 尚未登录，先执行 `aiknow wechatweb login`")
 	}
 
 	tok, key, err := r.decode(sess)

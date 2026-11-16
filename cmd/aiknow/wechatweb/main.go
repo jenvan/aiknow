@@ -1,4 +1,4 @@
-// Package wechatweb 提供 `aiknow-server wechatweb` 子命令：
+// Package wechatweb 提供 `wechatweb` 子命令：
 // 扫码登录、查看状态、登出。
 //
 // 这条通道用于「手机把公众号文章转发给文件传输助手 → 服务端收下链接入库」。
@@ -12,6 +12,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/jenvan/aiknow/cmd/aiknow/cli"
 	"github.com/jenvan/aiknow/internal/channel/wechatweb"
 	"github.com/jenvan/aiknow/internal/config"
 	"github.com/jenvan/aiknow/internal/repository"
@@ -39,17 +40,17 @@ func Main(args []string) {
 }
 
 func printUsage() {
-	fmt.Print(`用法:
-  aiknow-server wechatweb login     扫码登录文件传输助手（只收不发）
-  aiknow-server wechatweb status    查看会话与同步游标
-  aiknow-server wechatweb logout    删除本地凭据
+	fmt.Print(strings.ReplaceAll(`用法:
+  {prog} wechatweb login     扫码登录文件传输助手（只收不发）
+  {prog} wechatweb status    查看会话与同步游标
+  {prog} wechatweb logout    删除本地凭据
 
 说明:
   - 登录后服务端会以「只读」方式长轮询，接收你从手机转发给文件传输助手的公众号文章；
   - 不实现任何发送接口，权限面最小；
   - 会话凭据加密存储（密钥来自 SESSION_SECRET）；
   - **不要同时开着网页版**：同一账号两个消费者会抢消息、重复投递。
-`)
+`, "{prog}", cli.Prog()))
 }
 
 func openDB(ctx context.Context) (*repository.PostgresDB, *config.Config, func(), error) {

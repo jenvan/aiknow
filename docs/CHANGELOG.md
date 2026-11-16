@@ -1,5 +1,21 @@
 # AiKnow 变更日志
 
+## [Unreleased] - 2026-11-16
+
+### Changed: 二进件更名 `aiknow-server` → `aiknow`
+
+`cmd/aiknow-server` 这个名字既长又多此一举（二进制、Docker 镜像入口、文档命令全是
+`aiknow-server serve`）。改为：
+
+- 目录：`cmd/aiknow-server/` → `cmd/aiknow/`（子命令目录随之调整）；
+- 二进制 / 镜像入口：`aiknow-server` → `aiknow`，用法 `aiknow serve`；
+- **帮助文本不再写死程序名**：新增 `cmd/aiknow/cli.Prog()`（取 `os.Args[0]` 的
+  basename），`--help` 与各子命令用法都随之动态显示，重命名二进制不会再让文档失真。
+
+已同步：Makefile、Dockerfile、docker-compose、`.gitignore`/`.dockerignore`、
+`.env(.example)`、`config.yaml.example`、`docs/*`、`AGENTS.md`。
+老 CHANGELOG 条目保持原样（历史记录不改写）。
+
 ## [Unreleased] - 2026-11-15
 
 ### fix(channels): 告警发送失败时排队，等用户下次与 Bot 对话后补发

@@ -282,7 +282,7 @@ LLM 无依据填写，暴露只会污染工具选择）：
 
 v1 单管理员，凭据来自 `ADMIN_USERNAME` + `ADMIN_PASSWORD_HASH`，无用户表、无角色区分、无密码修改页面。改密码 = 改配置后重启。
 
-- 生产只提供 `ADMIN_PASSWORD_HASH`，用 `aiknow-server hashpwd` 生成
+- 生产只提供 `ADMIN_PASSWORD_HASH`，用 `aiknow hashpwd` 生成
 - `ADMIN_PASSWORD`（明文）仅开发便利，启动时内存哈希，不落盘不写日志
 - 两者都缺 → **启动失败报错**，不生成随机密码（容器重启会丢）
 - 登录失败锁定状态存内存
@@ -360,7 +360,7 @@ Go 层拦不住——必须靠「browserless 部署在访问不到敏感内网�
 
 ## 微信 Bot 入口（v1，可选通道）
 
-`aiknow-server serve` 进程内可选启动的微信入口：发链接即采集、发关键词即检索。
+`aiknow serve` 进程内可选启动的微信入口：发链接即采集、发关键词即检索。
 协议客户端 `pkg/ilink`（腾讯 iLink / ClawBot 个人号官方 Bot 接口），路由在
 `internal/channel/weixin`。设计与排障见 [docs/WEIXIN_BOT.md](docs/WEIXIN_BOT.md)。
 
@@ -387,9 +387,9 @@ Go 层拦不住——必须靠「browserless 部署在访问不到敏感内网�
   `srcid`、`sharer_shareinfo`）每次分享都不同，漏一个就会重复入库。
 
 ```bash
-aiknow-server weixin login    # 打印二维码链接，扫码后凭据落库
-aiknow-server weixin status   # bot_id / 扫码者 / 游标 / 最近活跃
-aiknow-server weixin logout
+aiknow weixin login    # 打印二维码链接，扫码后凭据落库
+aiknow weixin status   # bot_id / 扫码者 / 游标 / 最近活跃
+aiknow weixin logout
 ```
 
 对应后台页面 `/ui/weixin`（状态 / 重新扫码 / 删除凭据），等价于上面三条命令。
@@ -436,7 +436,7 @@ iLink 只能在"用户最近说过话"的会话里回复（`context_token` 会�
 恢复后第一次成功拉取即可把**离线期间的消息补回来**——2026-11-06 实测：本机
 10:58–21:26 断网（DNS 被劫持到 `10.0.0.1:443`），重启后下午发的文章卡片被补录并完成处理。
 
-> **本地长跑必须脱离作业控制**：用 `nohup /tmp/aiknow-server serve &` 或交给
+> **本地长跑必须脱离作业控制**：用 `nohup /tmp/aiknow serve &` 或交给
 > launchd/systemd 托管。若挂在某个 shell/任务下，任务结束时的 SIGTERM 会把整个
 > 服务带走（实测 21:26 因此停过一次）。
 
@@ -446,9 +446,9 @@ iLink 只能在"用户最近说过话"的会话里回复（`context_token` 会�
 （`POST /wechatweb/start|stop`），重启后即使开关为 false 也能手动拉起。
 
 ```bash
-aiknow-server wechatweb login    # 扫码，凭据加密入库
-aiknow-server wechatweb status
-aiknow-server wechatweb logout
+aiknow wechatweb login    # 扫码，凭据加密入库
+aiknow wechatweb status
+aiknow wechatweb logout
 ```
 
 ## Web 管理后台（12 个页面）
@@ -493,7 +493,7 @@ v1 单管理员，无角色区分。
 >   GET 放行，写请求须 `X-CSRF-Token` 请求头）
 > - 登录失败锁定已实现（5 次 → 15 分钟）
 > - API Key 按 SHA-256 哈希直接查库（`idx_api_keys_key_hash` 索引命中），
->   可通过后台页面或 CLI（`aiknow-server apikey create|list|revoke`）管理
+>   可通过后台页面或 CLI（`aiknow apikey create|list|revoke`）管理
 > - `sameSite=Lax` + `HttpOnly` 双重防护
 
 ## 数据表清单
@@ -643,7 +643,7 @@ POST /api/v1/search
 > 原地改写不会重跑，新逻辑必须放在新版本号里。
 
 **表结构的唯一来源就是这个目录**，不要在别处再放一份建表 DDL。开发期初始化用
-`make migrate-up`（等价于 `aiknow-server migrate`），与 `serve` 启动时执行的是同一套
+`make migrate-up`（等价于 `aiknow migrate`），与 `serve` 启动时执行的是同一套
 迁移代码。曾经在 `deploy/postgres/schema.sql` 放过一份"合并版 DDL"用于开发期建表，
 结果它与迁移迅速漂移（列名、缺列、默认配置项都对不上，且无人察觉），已删除。
 
@@ -714,7 +714,7 @@ POST /api/v1/search
   001 曾把 `articles`（引用 `categories`）写在 `categories` 之前，
   全新库初始化即报 `relation "categories" does not exist`（v0.5.7 修复）
 - `RunMigrations(ctx, tx)` 只接收事务、不负责提交，**调用方必须 Commit**。
-  统一走 `cmd/aiknow-server/main.go` 的 `runMigrations()`，不要另写一份事务管理。
+  统一走 `cmd/aiknow/main.go` 的 `runMigrations()`，不要另写一份事务管理。
   曾出现过 `Begin` + `defer Rollback` 但漏掉 `Commit` 的情况：`serve` 会阻塞在
   HTTP 服务上，导致该事务在进程存活期间一直开着，DDL 始终未提交，
   连接池里其他连接看不到任何新表
@@ -870,7 +870,7 @@ app.js 必须排在 Alpine CDN 之前。
 ### 8. 目录结构
 ```
 aiknow/
-├── cmd/aiknow-server/      # 服务入口（含 hashpwd 子命令）
+├── cmd/aiknow/      # 服务入口（含 hashpwd 子命令）
 ├── internal/
 │   ├── handler/
 │   │   ├── api/            # 对外 API（API Key 鉴权）

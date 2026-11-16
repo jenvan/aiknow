@@ -13,7 +13,7 @@ config.yaml
 # 编译产物
 /bin/
 /dist/
-/aiknow-server
+/aiknow
 coverage.out
 coverage.html
 

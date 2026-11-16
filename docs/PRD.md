@@ -15,7 +15,7 @@
 - **工程命名**：
   - 产品名：`AiKnow`
   - 仓库/二进制：`aiknow`
-  - API 服务名：`aiknow-server`
+  - API 服务名：`aiknow`
   - Go Module：`github.com/your-org/aiknow`
 
 > **注**：本文档及后续所有技术资料统一使用上述命名，不再混用 `knowledge-base`、`ai-knowledge-base` 等旧称。
@@ -317,7 +317,7 @@
           │                 │                      │
           ▼                 ▼                      ▼
 ┌──────────────────────────────────────────────────────────────────────────┐
-│                         aiknow-server (Go)                              │
+│                         aiknow (Go)                              │
 │  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────────┐ │
 │  │  Web UI 路由      │  │  RESTful API     │  │  MCP Streamable HTTP │ │
 │  │  /ui/*           │  │  /api/v1/*       │  │  /mcp               │ │
@@ -1336,7 +1336,7 @@ POST /api/v1/admin/search/keywords/debug
 
 ### 7.1 部署架构
 
-- **单二进制部署**：`aiknow-server` 编译为单一可执行文件
+- **单二进制部署**：`aiknow` 编译为单一可执行文件
 - **前端静态文件**：使用 Go `embed` 包将 HTML/CSS/JS 编译进二进制
 - **数据库**：腾讯云 PostgreSQL 17（含 pgvector、pg_textsearch、zhparser、PGMQ、pg_cron）
 - **反向代理**：可选 Nginx 作为前置网关（SSL 终结）
@@ -1345,10 +1345,10 @@ POST /api/v1/admin/search/keywords/debug
 
 ```bash
 # 开发模式
-./aiknow-server --port 8080 --config ./config.yaml
+./aiknow --port 8080 --config ./config.yaml
 
 # 或使用环境变量
-DATABASE_URL="postgres://..." ./aiknow-server
+DATABASE_URL="postgres://..." ./aiknow
 ```
 
 ### 7.3 配置分层设计
@@ -1581,14 +1581,14 @@ worker:
 | `ENV_FILE` | ❌ | `.env` 文件路径，默认 `./.env` |
 
 **管理员凭据说明**：
-- 生产环境应只提供 `ADMIN_PASSWORD_HASH`，用 `aiknow-server hashpwd` 子命令生成
+- 生产环境应只提供 `ADMIN_PASSWORD_HASH`，用 `aiknow hashpwd` 子命令生成
 - `ADMIN_PASSWORD` 是开发便利项：启动时在内存中 bcrypt 哈希后使用，明文不落盘、不写日志
 - 两者都未提供时启动失败并给出明确错误，不生成随机密码——随机密码只打印一次的做法在容器重启场景下容易丢失
 
 **生成密码哈希**：
 
 ```bash
-./aiknow-server hashpwd
+./aiknow hashpwd
 # 交互式输入密码，输出：$2a$10$xxxxx
 ```
 
@@ -1598,7 +1598,7 @@ worker:
 ```
 aiknow/
 ├── cmd/
-│   └── aiknow-server/
+│   └── aiknow/
 │       └── main.go                     # 服务入口
 ├── internal/
 │   ├── handler/

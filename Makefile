@@ -9,10 +9,10 @@ BINARY_NAME = aiknow
 
 .PHONY: build run test test-coverage vet fmt migrate-up db-init db-reset clean docker-build up down logs ps
 
-# 编译 cmd/aiknow-server，生成 bin/aiknow
+# 编译 cmd/aiknow，生成 bin/aiknow
 build:
 	go build -ldflags "-X main.version=$(VERSION) -X main.gitCommit=$(GIT_COMMIT)" \
-		-o bin/$(BINARY_NAME) ./cmd/aiknow-server
+		-o bin/$(BINARY_NAME) ./cmd/aiknow
 
 # 编译并运行（serve 为必需子命令，缺省只会打印帮助）
 run: build

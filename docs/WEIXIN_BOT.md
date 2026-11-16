@@ -3,7 +3,7 @@
 > 一句话：在微信里把公众号文章链接发给 AiKnow 就直接入库，发关键词就搜知识库。
 >
 > 实现：`pkg/ilink`（协议客户端）+ `internal/channel/weixin`（意图路由），
-> **内嵌在 `aiknow-server serve` 进程内**，默认关闭（`WEIXIN_BOT_ENABLED`）。
+> **内嵌在 `aiknow serve` 进程内**，默认关闭（`WEIXIN_BOT_ENABLED`）。
 
 ## 1. 为什么是 iLink
 
@@ -115,8 +115,8 @@ L1 配置（`.env`）：
 ### 运维小工具
 
 ```bash
-aiknow-server weixin send-text "文本"      # 往最近一次会话发一条文本（排查触达用）
-aiknow-server weixin send-image ./pic.png  # 发一张图片
+aiknow weixin send-text "文本"      # 往最近一次会话发一条文本（排查触达用）
+aiknow weixin send-image ./pic.png  # 发一张图片
 ```
 
 图片走 CDN + AES-128-ECB 加密上传（`pkg/ilink/SendImage`）。注意两个编码别搞混：
@@ -133,9 +133,9 @@ CLI（与页面等价）：
 > 时它永远为 true，会话失效后会把死通道显示成「运行中」（2026-11-14 踩过）。
 
 ```bash
-aiknow-server weixin login      # 打印二维码链接，手机微信打开授权，凭据落库
-aiknow-server weixin status     # 看 bot_id / 扫码者 / 游标 / 最近活跃
-aiknow-server weixin logout     # 删除本地凭据
+aiknow weixin login      # 打印二维码链接，手机微信打开授权，凭据落库
+aiknow weixin status     # 看 bot_id / 扫码者 / 游标 / 最近活跃
+aiknow weixin logout     # 删除本地凭据
 ```
 
 ## 6. 关键设计决策
@@ -178,7 +178,7 @@ aiknow-server weixin logout     # 删除本地凭据
 
 | 现象 | 排查 |
 |---|---|
-| `尚未扫码登录` | 跑 `aiknow-server weixin login` |
+| `尚未扫码登录` | 跑 `aiknow weixin login` |
 | `微信 bot 已停止: session expired` | token 失效，重新 `weixin login` |
 | 发消息没反应 | 先看日志三行：`inbound message` → `sending reply` → `reply accepted`。三行齐全但微信端没显示，属**下行静默丢弃**（见下）；缺 `inbound` 则是消息没到 bot（会话绑定失效/非 owner 发送） |
 | 链接采集失败 | 看日志 `collect failed`；公众号需 http 可达，渲染开启时更慢 |

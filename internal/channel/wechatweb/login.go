@@ -78,7 +78,7 @@ func Status(ctx context.Context, repo repository.WechatWebRepository, out io.Wri
 		return err
 	}
 	if sess == nil {
-		fmt.Fprintln(out, "尚未登录。执行：aiknow-server wechatweb login")
+		fmt.Fprintln(out, "尚未登录。执行：aiknow wechatweb login")
 		return nil
 	}
 	var key wechatweb.SyncKey
